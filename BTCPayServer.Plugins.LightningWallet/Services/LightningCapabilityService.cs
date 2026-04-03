@@ -16,6 +16,11 @@ public class LightningCapabilityService : ILightningCapabilityService
         LightningConnectionType.LndREST,
         LightningConnectionType.LndGRPC,
         LightningConnectionType.Eclair,
+        "ldk-rest"
+    };
+
+    private static readonly HashSet<string> FullNodeTypesWithoutClose = new(StringComparer.OrdinalIgnoreCase)
+    {
         LightningConnectionType.LNbank
     };
 
@@ -26,7 +31,8 @@ public class LightningCapabilityService : ILightningCapabilityService
         "micro",
         "nwc",
         LightningConnectionType.Charge,
-        LightningConnectionType.LNDhub
+        LightningConnectionType.LNDhub,
+        "ldk-rest"
     };
 
     public virtual LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString, bool isInternalNode)
@@ -50,6 +56,11 @@ public class LightningCapabilityService : ILightningCapabilityService
         if (FullNodeTypes.Contains(type))
         {
             return LightningCapabilities.Full;
+        }
+
+        if (FullNodeTypesWithoutClose.Contains(type))
+        {
+            return LightningCapabilities.FullWithoutClose;
         }
 
         if (type.Equals("blink", StringComparison.OrdinalIgnoreCase))
@@ -155,6 +166,11 @@ public class LightningCapabilityService : ILightningCapabilityService
         if (typeName.Contains("LndHub", StringComparison.OrdinalIgnoreCase))
         {
             return LightningConnectionType.LNDhub;
+        }
+
+        if (typeName.Contains("Ldk", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ldk-rest";
         }
 
         if (typeName.Contains("LNbank", StringComparison.OrdinalIgnoreCase))

@@ -29,11 +29,23 @@ public interface ILightningWalletService
         string? feeRateSatsPerByte,
         out OpenChannelPreviewViewModel? preview,
         out string? error);
+    bool TryCreateCloseChannelPreview(
+        StoreLightningWalletContext context,
+        string? channelId,
+        string? channelPoint,
+        string? remoteNode,
+        out CloseChannelPreviewViewModel? preview,
+        out string? error);
     Task<ActionResultViewModel> OpenChannelAsync(
         StoreLightningWalletContext context,
         string nodeUri,
         string channelAmountSats,
         string? feeRateSatsPerByte,
+        CancellationToken cancellationToken = default);
+    Task<ActionResultViewModel> CloseChannelAsync(
+        StoreLightningWalletContext context,
+        string? channelId,
+        string? channelPoint,
         CancellationToken cancellationToken = default);
 }
 
@@ -52,7 +64,7 @@ public class LightningWalletService : ILightningWalletService
             ActivePage = activePage,
             ShowSend = !context.IsReadOnly && context.Capabilities.CanPayBolt11,
             ShowPeers = !context.IsReadOnly && context.Capabilities.CanConnectPeer,
-            ShowChannels = !context.IsReadOnly && (context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel)
+            ShowChannels = !context.IsReadOnly && (context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel || context.Capabilities.CanCloseChannel)
         };
     }
 
@@ -406,6 +418,7 @@ public class LightningWalletService : ILightningWalletService
                 var remoteBalance = channel.Capacity - channel.LocalBalance;
                 model.Channels.Add(new LightningChannelItemViewModel
                 {
+                    ChannelId = channel.ChannelId,
                     RemoteNode = channel.RemoteNode.ToString(),
                     ChannelPoint = channel.ChannelPoint.ToString(),
                     CapacitySats = channel.Capacity.ToUnit(LightMoneyUnit.Satoshi),
@@ -415,7 +428,8 @@ public class LightningWalletService : ILightningWalletService
                     LocalBalanceDisplay = FormatLightMoney(channel.LocalBalance),
                     RemoteBalanceDisplay = FormatLightMoney(remoteBalance),
                     IsActive = channel.IsActive,
-                    IsPublic = channel.IsPublic
+                    IsPublic = channel.IsPublic,
+                    CanClose = context.Capabilities.CanCloseChannel && !string.IsNullOrWhiteSpace(channel.ChannelId)
                 });
             }
 
@@ -459,6 +473,31 @@ public class LightningWalletService : ILightningWalletService
         return true;
     }
 
+    public virtual bool TryCreateCloseChannelPreview(
+        StoreLightningWalletContext context,
+        string? channelId,
+        string? channelPoint,
+        string? remoteNode,
+        out CloseChannelPreviewViewModel? preview,
+        out string? error)
+    {
+        preview = null;
+        error = null;
+
+        if (!TryBuildCloseChannelRequest(context, channelId, channelPoint, out var request, out error))
+        {
+            return false;
+        }
+
+        preview = new CloseChannelPreviewViewModel
+        {
+            ChannelId = request!.ChannelId ?? string.Empty,
+            ChannelPoint = request.ChannelPoint?.ToString() ?? channelPoint?.Trim() ?? string.Empty,
+            RemoteNode = remoteNode?.Trim() ?? string.Empty
+        };
+        return true;
+    }
+
     public virtual async Task<ActionResultViewModel> OpenChannelAsync(
         StoreLightningWalletContext context,
         string nodeUri,
@@ -491,6 +530,38 @@ public class LightningWalletService : ILightningWalletService
         catch (Exception ex)
         {
             return Failure("Channel opening failed.", ex.Message);
+        }
+    }
+
+    public virtual async Task<ActionResultViewModel> CloseChannelAsync(
+        StoreLightningWalletContext context,
+        string? channelId,
+        string? channelPoint,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryBuildCloseChannelRequest(context, channelId, channelPoint, out var request, out var error))
+        {
+            return Failure(error ?? "Invalid close channel request.");
+        }
+
+        try
+        {
+            var response = await context.Client!.CloseChannel(request!, cancellationToken);
+            return response.Result switch
+            {
+                CloseChannelResult.Ok => Success("Channel close request submitted."),
+                CloseChannelResult.ChannelNotFound => Failure("The channel could not be found.", response.Details),
+                CloseChannelResult.AlreadyClosing => Failure("The channel is already closing.", response.Details),
+                _ => Failure(NormalizeCloseError(response.Details), response.Details)
+            };
+        }
+        catch (NotSupportedException)
+        {
+            return Failure("Channel closing is not supported by this backend.");
+        }
+        catch (Exception ex)
+        {
+            return Failure("Channel closing failed.", ex.Message);
         }
     }
 
@@ -552,6 +623,48 @@ public class LightningWalletService : ILightningWalletService
             NodeInfo = nodeInfo,
             ChannelAmount = Money.Satoshis(sats),
             FeeRate = feeRate
+        };
+        return true;
+    }
+
+    protected virtual bool TryBuildCloseChannelRequest(
+        StoreLightningWalletContext context,
+        string? channelId,
+        string? channelPoint,
+        out CloseChannelRequest? request,
+        out string? error)
+    {
+        request = null;
+        error = null;
+
+        if (!context.IsConfigured || context.Client is null)
+        {
+            error = "Lightning is not available for this store.";
+            return false;
+        }
+
+        if (context.IsReadOnly)
+        {
+            error = SharedInternalNodeReadOnlyMessage;
+            return false;
+        }
+
+        if (!context.Capabilities.CanCloseChannel)
+        {
+            error = "Channel closing is not supported by this backend.";
+            return false;
+        }
+
+        if (!TryParseChannelPoint(channelPoint, out var parsedChannelPoint) && string.IsNullOrWhiteSpace(channelId))
+        {
+            error = "A valid channel identifier is required to close the channel.";
+            return false;
+        }
+
+        request = new CloseChannelRequest
+        {
+            ChannelId = string.IsNullOrWhiteSpace(channelId) ? null : channelId.Trim(),
+            ChannelPoint = parsedChannelPoint
         };
         return true;
     }
@@ -636,6 +749,46 @@ public class LightningWalletService : ILightningWalletService
         }
 
         return "Lightning payment failed.";
+    }
+
+    private static string NormalizeCloseError(string? errorDetail)
+    {
+        if (string.IsNullOrWhiteSpace(errorDetail))
+        {
+            return "The channel could not be closed.";
+        }
+
+        if (errorDetail.Contains("not connected", StringComparison.OrdinalIgnoreCase) ||
+            errorDetail.Contains("offline", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The peer is offline, so the channel could not be closed cleanly.";
+        }
+
+        return "The channel could not be closed.";
+    }
+
+    private static bool TryParseChannelPoint(string? channelPoint, out OutPoint? parsed)
+    {
+        parsed = null;
+        if (string.IsNullOrWhiteSpace(channelPoint))
+        {
+            return false;
+        }
+
+        var raw = channelPoint.Trim();
+        if (OutPoint.TryParse(raw, out var direct))
+        {
+            parsed = direct;
+            return true;
+        }
+
+        if (OutPoint.TryParse(raw.Replace(':', '-'), out var normalized))
+        {
+            parsed = normalized;
+            return true;
+        }
+
+        return false;
     }
 
     private static ActionResultViewModel Success(string message)

@@ -276,6 +276,64 @@ public class LightningWalletServiceTests
     }
 
     [Fact]
+    public async Task PopulateChannelsAsync_WithClosableChannel_SetsManageState()
+    {
+        var client = new FakeLightningClient
+        {
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel
+                {
+                    ChannelId = "123x1x0",
+                    RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
+                    IsPublic = false,
+                    IsActive = true,
+                    Capacity = LightMoney.Satoshis(20_000),
+                    LocalBalance = LightMoney.Satoshis(12_000),
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var model = new ViewModels.ChannelsViewModel();
+
+        await _service.PopulateChannelsAsync(model, context);
+
+        var channel = Assert.Single(model.Channels);
+        Assert.Equal("123x1x0", channel.ChannelId);
+        Assert.True(channel.CanClose);
+    }
+
+    [Fact]
+    public void TryCreateCloseChannelPreview_WithoutCapability_ReturnsFriendlyError()
+    {
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.FullWithoutClose);
+
+        var ok = _service.TryCreateCloseChannelPreview(context, "123x1x0", "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f-0", null, out _, out var error);
+
+        Assert.False(ok);
+        Assert.Equal("Channel closing is not supported by this backend.", error);
+    }
+
+    [Fact]
+    public async Task CloseChannelAsync_WithSuccessfulResponse_ReturnsSuccess()
+    {
+        var client = new FakeLightningClient
+        {
+            CloseChannelHandler = (_, _) => Task.FromResult(new CloseChannelResponse(CloseChannelResult.Ok))
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await _service.CloseChannelAsync(
+            context,
+            "123x1x0",
+            "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f-0");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Channel close request submitted.", result.Message);
+    }
+
+    [Fact]
     public void TryCreateSendPreview_WithExpiredInvoice_ReturnsFriendlyError()
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);

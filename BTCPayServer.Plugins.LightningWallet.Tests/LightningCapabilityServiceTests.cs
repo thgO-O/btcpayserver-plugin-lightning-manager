@@ -21,6 +21,7 @@ public class LightningCapabilityServiceTests
         Assert.False(capabilities.CanConnectPeer);
         Assert.False(capabilities.CanOpenChannel);
         Assert.False(capabilities.CanListChannels);
+        Assert.False(capabilities.CanCloseChannel);
     }
 
     [Fact]
@@ -37,6 +38,7 @@ public class LightningCapabilityServiceTests
         Assert.False(capabilities.CanConnectPeer);
         Assert.False(capabilities.CanOpenChannel);
         Assert.False(capabilities.CanListChannels);
+        Assert.False(capabilities.CanCloseChannel);
     }
 
     [Fact]
@@ -53,5 +55,23 @@ public class LightningCapabilityServiceTests
         Assert.True(capabilities.CanConnectPeer);
         Assert.True(capabilities.CanOpenChannel);
         Assert.True(capabilities.CanListChannels);
+        Assert.True(capabilities.CanCloseChannel);
+    }
+
+    [Fact]
+    public void LnbankCapabilities_DisableCloseChannel()
+    {
+        var capabilities = _service.GetCapabilities(
+            new FakeLightningClient(),
+            "type=lnbank;server=https://example.com/",
+            false);
+
+        Assert.True(capabilities.CanGetInfo);
+        Assert.True(capabilities.CanGetBalance);
+        Assert.True(capabilities.CanPayBolt11);
+        Assert.True(capabilities.CanConnectPeer);
+        Assert.True(capabilities.CanOpenChannel);
+        Assert.True(capabilities.CanListChannels);
+        Assert.False(capabilities.CanCloseChannel);
     }
 }
