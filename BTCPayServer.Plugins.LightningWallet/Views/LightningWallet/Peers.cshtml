@@ -1,0 +1,88 @@
+@model PeersViewModel
+
+<partial name="LightningWallet/_SectionTabs" model="Model.Tabs" />
+
+<div class="sticky-header">
+    <h2>Connect Lightning Peer</h2>
+</div>
+
+@if (!Model.IsConfigured)
+{
+    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+}
+
+@if (Model.Result is not null)
+{
+    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
+        <div>@Model.Result.Message</div>
+        @if (!string.IsNullOrWhiteSpace(Model.Result.Detail))
+        {
+            <div class="small text-muted mt-1">@Model.Result.Detail</div>
+        }
+    </div>
+}
+
+@foreach (var notice in Model.Notices)
+{
+    <div class="alert alert-info">@notice</div>
+}
+
+<div class="card">
+    <div class="card-body">
+        <h3 class="h5">Peer Connection</h3>
+        <form asp-controller="LightningWallet"
+              asp-action="ConnectPeer"
+              asp-route-storeId="@Model.StoreId"
+              asp-route-cryptoCode="@Model.CryptoCode"
+              method="post">
+            <div class="mb-3">
+                <label class="form-label" for="nodeUri">Node URI</label>
+                <input class="form-control" id="nodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" />
+                <div class="form-text">Use the format <code>pubkey@host[:port]</code>.</div>
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanConnectPeer)">Connect peer</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <h3 class="h5">Connected Peers</h3>
+        @if (!string.IsNullOrWhiteSpace(Model.PeerListMessage))
+        {
+            <p class="text-muted mb-0">@Model.PeerListMessage</p>
+        }
+        else if (Model.Peers.Count == 0)
+        {
+            <p class="text-muted mb-0">No peers found.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                    <tr>
+                        <th>Peer</th>
+                        <th>Address</th>
+                        <th>Direction</th>
+                        <th>Sent</th>
+                        <th>Received</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var peer in Model.Peers)
+                    {
+                        <tr>
+                            <td><code>@peer.NodeId</code></td>
+                            <td>@(string.IsNullOrWhiteSpace(peer.Address) ? "-" : peer.Address)</td>
+                            <td>@(string.IsNullOrWhiteSpace(peer.Direction) ? "-" : peer.Direction)</td>
+                            <td>@(string.IsNullOrWhiteSpace(peer.BytesSentDisplay) ? "-" : peer.BytesSentDisplay)</td>
+                            <td>@(string.IsNullOrWhiteSpace(peer.BytesReceivedDisplay) ? "-" : peer.BytesReceivedDisplay)</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>

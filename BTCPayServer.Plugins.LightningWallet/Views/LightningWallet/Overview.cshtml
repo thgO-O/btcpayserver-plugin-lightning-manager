@@ -1,0 +1,108 @@
+@model OverviewViewModel
+
+<partial name="LightningWallet/_SectionTabs" model="Model.Tabs" />
+
+<div class="sticky-header">
+    <h2>@Model.CryptoCode Lightning Wallet</h2>
+</div>
+
+@if (!Model.IsConfigured)
+{
+    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+}
+
+@if (Model.Result is not null)
+{
+    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">@Model.Result.Message</div>
+}
+
+@foreach (var notice in Model.Notices)
+{
+    <div class="alert alert-info">@notice</div>
+}
+
+<div class="mb-4">
+    <h3 class="h5">Capabilities</h3>
+    <partial name="LightningWallet/_CapabilityBadges" model="Model.Capabilities" />
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h3 class="h5">Summary</h3>
+                @if (Model.SummaryRows.Count == 0)
+                {
+                    <p class="text-muted mb-0">No node summary is available.</p>
+                }
+                else
+                {
+                    <dl class="mb-0">
+                        @foreach (var row in Model.SummaryRows)
+                        {
+                            <dt>@row.Label</dt>
+                            <dd>@row.Value</dd>
+                        }
+                    </dl>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h3 class="h5">Offchain Balance</h3>
+                @if (Model.OffchainBalanceRows.Count == 0)
+                {
+                    <p class="text-muted mb-0">No offchain balances are available.</p>
+                }
+                else
+                {
+                    <dl class="mb-0">
+                        @foreach (var row in Model.OffchainBalanceRows)
+                        {
+                            <dt>@row.Label</dt>
+                            <dd>@row.Value</dd>
+                        }
+                    </dl>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h3 class="h5">Onchain Balance</h3>
+                @if (Model.OnchainBalanceRows.Count == 0)
+                {
+                    <p class="text-muted mb-0">No onchain balances are available.</p>
+                }
+                else
+                {
+                    <dl class="mb-0">
+                        @foreach (var row in Model.OnchainBalanceRows)
+                        {
+                            <dt>@row.Label</dt>
+                            <dd>@row.Value</dd>
+                        }
+                    </dl>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (Model.NodeUris.Count > 0)
+{
+    <div class="card mt-4">
+        <div class="card-body">
+            <h3 class="h5">Node URIs</h3>
+            <ul class="mb-0">
+                @foreach (var nodeUri in Model.NodeUris)
+                {
+                    <li><code>@nodeUri</code></li>
+                }
+            </ul>
+        </div>
+    </div>
+}

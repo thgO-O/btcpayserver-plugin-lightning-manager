@@ -1,0 +1,64 @@
+@using BTCPayServer
+@using BTCPayServer.Abstractions.Contracts
+@inject IScopeProvider ScopeProvider
+@inject IStoreLightningWalletContextFactory ContextFactory
+@{
+    var storeId = ScopeProvider.GetCurrentStoreId();
+    var cryptoCode = ViewContext.RouteData.Values["cryptoCode"] as string;
+    var store = Context.GetStoreDataOrNull();
+    if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(cryptoCode) || store is null)
+    {
+        return;
+    }
+
+    var walletContext = await ContextFactory.CreateAsync(store, cryptoCode, User, Context);
+}
+
+<li class="nav-item nav-item-sub">
+    <a layout-menu-item="@LightningWalletNavPages.Overview"
+       asp-controller="LightningWallet"
+       asp-action="Overview"
+       asp-route-storeId="@storeId"
+       asp-route-cryptoCode="@cryptoCode">
+        Overview
+    </a>
+</li>
+
+@if (walletContext.Capabilities.CanPayBolt11)
+{
+    <li class="nav-item nav-item-sub">
+        <a layout-menu-item="@LightningWalletNavPages.Send"
+           asp-controller="LightningWallet"
+           asp-action="Send"
+           asp-route-storeId="@storeId"
+           asp-route-cryptoCode="@cryptoCode">
+            Send
+        </a>
+    </li>
+}
+
+@if (walletContext.Capabilities.CanConnectPeer)
+{
+    <li class="nav-item nav-item-sub">
+        <a layout-menu-item="@LightningWalletNavPages.Peers"
+           asp-controller="LightningWallet"
+           asp-action="Peers"
+           asp-route-storeId="@storeId"
+           asp-route-cryptoCode="@cryptoCode">
+            Peers
+        </a>
+    </li>
+}
+
+@if (walletContext.Capabilities.CanListChannels || walletContext.Capabilities.CanOpenChannel)
+{
+    <li class="nav-item nav-item-sub">
+        <a layout-menu-item="@LightningWalletNavPages.Channels"
+           asp-controller="LightningWallet"
+           asp-action="Channels"
+           asp-route-storeId="@storeId"
+           asp-route-cryptoCode="@cryptoCode">
+            Channels
+        </a>
+    </li>
+}

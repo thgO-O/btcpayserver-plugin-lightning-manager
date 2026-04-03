@@ -1,0 +1,20 @@
+@model LightningCapabilities
+
+@{
+    var items = new[]
+    {
+        ("Info", Model.CanGetInfo),
+        ("Balance", Model.CanGetBalance),
+        ("Pay BOLT11", Model.CanPayBolt11),
+        ("Connect Peer", Model.CanConnectPeer),
+        ("Open Channel", Model.CanOpenChannel),
+        ("List Channels", Model.CanListChannels)
+    };
+}
+
+<div class="d-flex flex-wrap gap-2">
+    @foreach (var item in items)
+    {
+        <span class="badge @(item.Item2 ? "bg-success" : "bg-secondary")">@item.Item1</span>
+    }
+</div>

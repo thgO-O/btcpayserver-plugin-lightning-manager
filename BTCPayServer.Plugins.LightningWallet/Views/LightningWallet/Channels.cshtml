@@ -1,0 +1,151 @@
+@model ChannelsViewModel
+
+<partial name="LightningWallet/_SectionTabs" model="Model.Tabs" />
+
+<div class="sticky-header">
+    <h2>Channels</h2>
+</div>
+
+@if (!Model.IsConfigured)
+{
+    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+}
+
+@if (Model.Result is not null)
+{
+    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
+        <div>@Model.Result.Message</div>
+        @if (!string.IsNullOrWhiteSpace(Model.Result.Detail))
+        {
+            <div class="small text-muted mt-1">@Model.Result.Detail</div>
+        }
+    </div>
+}
+
+@foreach (var notice in Model.Notices)
+{
+    <div class="alert alert-info">@notice</div>
+}
+
+<div class="card">
+    <div class="card-body">
+        <h3 class="h5">Open Channel</h3>
+        <form asp-controller="LightningWallet"
+              asp-action="PreviewChannel"
+              asp-route-storeId="@Model.StoreId"
+              asp-route-cryptoCode="@Model.CryptoCode"
+              method="post">
+            <div class="mb-3">
+                <label class="form-label" for="channelNodeUri">Node URI</label>
+                <input class="form-control" id="channelNodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="channelAmountSats">Channel amount (sats)</label>
+                <input class="form-control" id="channelAmountSats" name="channelAmountSats" value="@Model.ChannelAmountSats" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="feeRateSatsPerByte">Fee rate (sat/vB)</label>
+                <input class="form-control" id="feeRateSatsPerByte" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" />
+                <div class="form-text">Leave blank to use the default 1 sat/vB.</div>
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanOpenChannel)">Preview channel open</button>
+        </form>
+    </div>
+</div>
+
+@if (Model.Preview is not null)
+{
+    <div class="card mt-4">
+        <div class="card-body">
+            <h3 class="h5">Confirm Channel Open</h3>
+            <dl>
+                <dt>Peer</dt>
+                <dd><code>@Model.Preview.NodeUri</code></dd>
+                <dt>Amount</dt>
+                <dd>@Model.Preview.ChannelAmountDisplay</dd>
+                <dt>Fee rate</dt>
+                <dd>@Model.Preview.FeeRateDisplay</dd>
+            </dl>
+            <form asp-controller="LightningWallet"
+                  asp-action="OpenChannel"
+                  asp-route-storeId="@Model.StoreId"
+                  asp-route-cryptoCode="@Model.CryptoCode"
+                  method="post">
+                <input type="hidden" name="nodeUri" value="@Model.NodeUri" />
+                <input type="hidden" name="channelAmountSats" value="@Model.ChannelAmountSats" />
+                <input type="hidden" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" />
+                <button type="submit" class="btn btn-primary">Open channel</button>
+            </form>
+        </div>
+    </div>
+}
+
+<div class="card mt-4">
+    <div class="card-body">
+        <h3 class="h5">Existing Channels</h3>
+        @if (!string.IsNullOrWhiteSpace(Model.ChannelListMessage))
+        {
+            <p class="text-muted">@Model.ChannelListMessage</p>
+        }
+        else if (Model.Channels.Count == 0)
+        {
+            <p class="text-muted">No channels found.</p>
+        }
+        else
+        {
+            <div class="d-grid gap-3">
+                @foreach (var channel in Model.Channels)
+                {
+                    var localPercentage = channel.CapacitySats > 0
+                        ? Math.Round((decimal)channel.LocalBalanceSats / channel.CapacitySats * 100m, 1)
+                        : 0m;
+                    var remotePercentage = Math.Max(0m, 100m - localPercentage);
+
+                    <div class="border rounded p-3">
+                        <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+                            <div class="flex-grow-1">
+                                <div class="text-muted small mb-1">Peer</div>
+                                <div class="font-monospace small text-break">@channel.RemoteNode</div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 align-items-start">
+                                <span class="badge @(channel.IsActive ? "bg-success" : "bg-secondary")">
+                                    @(channel.IsActive ? "Active" : "Inactive")
+                                </span>
+                                <span class="badge @(channel.IsPublic ? "bg-primary" : "bg-dark")">
+                                    @(channel.IsPublic ? "Public" : "Private")
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="text-muted small mt-3 mb-1">Channel point</div>
+                        <div class="font-monospace small text-break">@channel.ChannelPoint</div>
+
+                        <div class="d-flex justify-content-between align-items-center small text-muted mt-3 mb-2">
+                            <span>Local @localPercentage.ToString("0.#")%</span>
+                            <span>Remote @remotePercentage.ToString("0.#")%</span>
+                        </div>
+                        <div class="progress" role="progressbar" aria-label="Channel balance split">
+                            <div class="progress-bar bg-success" style="width: @localPercentage.ToString(System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                            <div class="progress-bar bg-info" style="width: @remotePercentage.ToString(System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                        </div>
+
+                        <div class="row row-cols-1 row-cols-md-3 g-3 mt-1">
+                            <div class="col">
+                                <div class="small text-muted">Capacity</div>
+                                <div class="fw-semibold">@channel.CapacityDisplay</div>
+                            </div>
+                            <div class="col">
+                                <div class="small text-muted">Local balance</div>
+                                <div class="fw-semibold">@channel.LocalBalanceDisplay</div>
+                            </div>
+                            <div class="col">
+                                <div class="small text-muted">Remote balance</div>
+                                <div class="fw-semibold">@channel.RemoteBalanceDisplay</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>

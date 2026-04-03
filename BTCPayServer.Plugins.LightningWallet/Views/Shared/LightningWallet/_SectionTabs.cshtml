@@ -1,0 +1,52 @@
+@model LightningWalletTabsViewModel
+
+<ul class="nav nav-tabs mb-4">
+    @if (Model.ShowOverview)
+    {
+        <li class="nav-item">
+            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Overview ? "active" : "")"
+               asp-controller="LightningWallet"
+               asp-action="Overview"
+               asp-route-storeId="@Model.StoreId"
+               asp-route-cryptoCode="@Model.CryptoCode">
+                Overview
+            </a>
+        </li>
+    }
+    @if (Model.ShowSend)
+    {
+        <li class="nav-item">
+            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Send ? "active" : "")"
+               asp-controller="LightningWallet"
+               asp-action="Send"
+               asp-route-storeId="@Model.StoreId"
+               asp-route-cryptoCode="@Model.CryptoCode">
+                Send
+            </a>
+        </li>
+    }
+    @if (Model.ShowPeers)
+    {
+        <li class="nav-item">
+            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Peers ? "active" : "")"
+               asp-controller="LightningWallet"
+               asp-action="Peers"
+               asp-route-storeId="@Model.StoreId"
+               asp-route-cryptoCode="@Model.CryptoCode">
+                Peers
+            </a>
+        </li>
+    }
+    @if (Model.ShowChannels)
+    {
+        <li class="nav-item">
+            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Channels ? "active" : "")"
+               asp-controller="LightningWallet"
+               asp-action="Channels"
+               asp-route-storeId="@Model.StoreId"
+               asp-route-cryptoCode="@Model.CryptoCode">
+                Channels
+            </a>
+        </li>
+    }
+</ul>
