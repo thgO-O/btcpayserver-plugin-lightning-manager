@@ -149,38 +149,4 @@ public class LightningWalletControllerTests
         Assert.Equal("The BOLT11 invoice is invalid.", model.Result.Message);
     }
 
-    [Fact]
-    public async Task PreviewCloseChannel_WithValidChannel_PopulatesPreview()
-    {
-        var client = new FakeLightningClient
-        {
-            ListChannelsHandler = _ => Task.FromResult(new[]
-            {
-                new BTCPayServer.Lightning.LightningChannel
-                {
-                    ChannelId = "123x1x0",
-                    RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
-                    IsPublic = false,
-                    IsActive = true,
-                    Capacity = BTCPayServer.Lightning.LightMoney.Satoshis(20_000),
-                    LocalBalance = BTCPayServer.Lightning.LightMoney.Satoshis(10_000),
-                    ChannelPoint = new OutPoint(uint256.One, 0)
-                }
-            })
-        };
-        var controller = TestControllerFactory.CreateController(
-            TestContextFactory.CreateConfigured(LightningCapabilities.Full, client));
-
-        var result = await controller.PreviewCloseChannel(
-            "BTC",
-            "123x1x0",
-            "0000000000000000000000000000000000000000000000000000000000000001-0",
-            "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
-            CancellationToken.None);
-
-        var view = Assert.IsType<ViewResult>(result);
-        var model = Assert.IsType<ChannelsViewModel>(view.Model);
-        Assert.NotNull(model.ClosePreview);
-        Assert.Equal("123x1x0", model.ClosePreview!.ChannelId);
-    }
 }

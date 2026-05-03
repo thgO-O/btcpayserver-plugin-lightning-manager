@@ -10,16 +10,6 @@ public sealed class LightningCapabilities
         CanPayBolt11 = true,
         CanConnectPeer = true,
         CanOpenChannel = true,
-        CanListChannels = true,
-        CanCloseChannel = true
-    };
-    public static LightningCapabilities FullWithoutClose { get; } = new()
-    {
-        CanGetInfo = true,
-        CanGetBalance = true,
-        CanPayBolt11 = true,
-        CanConnectPeer = true,
-        CanOpenChannel = true,
         CanListChannels = true
     };
     public static LightningCapabilities InfoBalancePay { get; } = PayOnly();
@@ -31,10 +21,9 @@ public sealed class LightningCapabilities
     public bool CanConnectPeer { get; init; }
     public bool CanOpenChannel { get; init; }
     public bool CanListChannels { get; init; }
-    public bool CanCloseChannel { get; init; }
 
     public bool HasPeerManagement => CanConnectPeer;
-    public bool HasChannelManagement => CanOpenChannel || CanListChannels || CanCloseChannel;
+    public bool HasChannelManagement => CanOpenChannel || CanListChannels;
 
     public static LightningCapabilities PayOnly(bool canGetInfo = true, bool canGetBalance = true)
     {

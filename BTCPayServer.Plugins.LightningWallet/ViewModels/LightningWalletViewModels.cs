@@ -115,16 +115,8 @@ public class OpenChannelPreviewViewModel
     public string FeeRateDisplay { get; init; } = string.Empty;
 }
 
-public class CloseChannelPreviewViewModel
-{
-    public string ChannelId { get; init; } = string.Empty;
-    public string ChannelPoint { get; init; } = string.Empty;
-    public string RemoteNode { get; init; } = string.Empty;
-}
-
 public class LightningChannelItemViewModel
 {
-    public string? ChannelId { get; init; }
     public string RemoteNode { get; init; } = string.Empty;
     public string ChannelPoint { get; init; } = string.Empty;
     public decimal CapacitySats { get; init; }
@@ -135,7 +127,6 @@ public class LightningChannelItemViewModel
     public string RemoteBalanceDisplay { get; init; } = string.Empty;
     public bool IsActive { get; init; }
     public bool IsPublic { get; init; }
-    public bool CanClose { get; init; }
 }
 
 public class ChannelsViewModel : LightningWalletPageViewModel
@@ -144,7 +135,6 @@ public class ChannelsViewModel : LightningWalletPageViewModel
     public string? ChannelAmountSats { get; set; }
     public string? FeeRateSatsPerByte { get; set; }
     public OpenChannelPreviewViewModel? Preview { get; set; }
-    public CloseChannelPreviewViewModel? ClosePreview { get; set; }
     public List<LightningChannelItemViewModel> Channels { get; } = [];
     public string? ChannelListMessage { get; set; }
 }

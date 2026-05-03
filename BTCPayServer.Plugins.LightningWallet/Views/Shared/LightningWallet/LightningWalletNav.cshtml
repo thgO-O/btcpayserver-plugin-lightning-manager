@@ -50,7 +50,7 @@
     </li>
 }
 
-@if (walletContext.Capabilities.CanListChannels || walletContext.Capabilities.CanOpenChannel || walletContext.Capabilities.CanCloseChannel)
+@if (walletContext.Capabilities.CanListChannels || walletContext.Capabilities.CanOpenChannel)
 {
     <li class="nav-item nav-item-sub">
         <a layout-menu-item="@LightningWalletNavPages.Channels"

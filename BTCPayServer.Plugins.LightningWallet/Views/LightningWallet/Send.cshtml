@@ -1,10 +1,99 @@
 @model SendViewModel
+@{
+    Layout = "_LayoutWizard";
+    ViewData.SetTitle($"Send {Model.CryptoCode}");
+    var cancelUrl = Url.Action("Overview", "LightningWallet", new { storeId = Model.StoreId, cryptoCode = Model.CryptoCode });
+}
 
-<partial name="LightningWallet/_SectionTabs" model="Model.Tabs" />
+@section PageHeadContent
+{
+    <style>
+        .lw-send-summary {
+            display: grid;
+            gap: 1.5rem;
+        }
 
-<div class="sticky-header">
-    <h2>Send Lightning Payment</h2>
-</div>
+        .lw-send-hero {
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--btcpay-body-border-light, var(--bs-border-color));
+            text-align: center;
+        }
+
+        .lw-send-hero-label {
+            display: block;
+            margin-bottom: .5rem;
+            font-size: .8rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--bs-secondary-color);
+        }
+
+        .lw-send-hero-value {
+            margin: 0;
+            font-size: clamp(1.8rem, 4vw, 2.4rem);
+            font-weight: 700;
+            line-height: 1.1;
+        }
+
+        .lw-send-details {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .lw-send-detail {
+            display: grid;
+            grid-template-columns: minmax(7rem, 9rem) minmax(0, 1fr);
+            gap: 1rem;
+            align-items: start;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--btcpay-body-border-light, var(--bs-border-color));
+        }
+
+        .lw-send-detail:last-child {
+            border-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .lw-send-detail-label {
+            font-size: .8rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--bs-secondary-color);
+        }
+
+        .lw-send-detail-value {
+            min-width: 0;
+            margin: 0;
+            font-size: 1rem;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .lw-send-detail-value code {
+            font-size: .95em;
+            white-space: normal;
+        }
+
+        @@media (max-width: 575.98px) {
+            .lw-send-detail {
+                grid-template-columns: 1fr;
+                gap: .35rem;
+            }
+        }
+    </style>
+}
+
+@section Navbar {
+    <a href="@Url.EnsureLocal(cancelUrl, Context.Request)" id="CancelWizard" class="cancel">
+        <vc:icon symbol="cross" />
+    </a>
+}
+
+<header class="text-center">
+    <h1>@ViewData["Title"]</h1>
+</header>
 
 @if (!Model.IsConfigured)
 {
@@ -27,81 +116,122 @@
     <div class="alert alert-info">@notice</div>
 }
 
-<div class="card">
-    <div class="card-body">
-        <h3 class="h5">Invoice</h3>
-        <form asp-controller="LightningWallet"
-              asp-action="PreviewSend"
-              asp-route-storeId="@Model.StoreId"
-              asp-route-cryptoCode="@Model.CryptoCode"
-              method="post">
-            <div class="mb-3">
-                <label class="form-label" for="bolt11">BOLT11 invoice</label>
-                <textarea class="form-control" id="bolt11" name="bolt11" rows="5">@Model.Bolt11</textarea>
-            </div>
-            <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanPayBolt11)">Preview payment</button>
-        </form>
-    </div>
-</div>
-
-@if (Model.Preview is not null)
-{
-    <div class="card mt-4">
-        <div class="card-body">
-            <h3 class="h5">Confirm Payment</h3>
-            <dl>
-                <dt>Amount</dt>
-                <dd>@Model.Preview.AmountDisplay</dd>
-                <dt>Description</dt>
-                <dd>@Model.Preview.Description</dd>
-                <dt>Payee</dt>
-                <dd><code>@Model.Preview.Payee</code></dd>
-                <dt>Payment hash</dt>
-                <dd><code>@Model.Preview.PaymentHash</code></dd>
-                <dt>Expires</dt>
-                <dd>@Model.Preview.ExpiresAt.ToString("u")</dd>
-            </dl>
-            <form asp-controller="LightningWallet"
-                  asp-action="ExecuteSend"
-                  asp-route-storeId="@Model.StoreId"
-                  asp-route-cryptoCode="@Model.CryptoCode"
-                  method="post">
-                <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
-                <button type="submit" class="btn btn-primary">Send payment</button>
-            </form>
-        </div>
-    </div>
-}
-
 @if (Model.Payment is not null)
 {
-    <div class="card mt-4">
-        <div class="card-body">
-            <h3 class="h5">Payment Result</h3>
-            <dl class="mb-0">
-                <dt>Status</dt>
-                <dd>@Model.Payment.Status</dd>
-                @if (!string.IsNullOrWhiteSpace(Model.Payment.TotalAmountDisplay))
-                {
-                    <dt>Total amount</dt>
-                    <dd>@Model.Payment.TotalAmountDisplay</dd>
-                }
+    <div class="payment-box">
+        <h2 class="h4 mb-4 text-center">Payment Result</h2>
+        <div class="lw-send-summary">
+            @if (!string.IsNullOrWhiteSpace(Model.Payment.TotalAmountDisplay))
+            {
+                <div class="lw-send-hero">
+                    <span class="lw-send-hero-label">Total Sent</span>
+                    <p class="lw-send-hero-value">@Model.Payment.TotalAmountDisplay</p>
+                </div>
+            }
+            <div class="lw-send-details">
+                <div class="lw-send-detail">
+                    <div class="lw-send-detail-label">Status</div>
+                    <div class="lw-send-detail-value">@Model.Payment.Status</div>
+                </div>
                 @if (!string.IsNullOrWhiteSpace(Model.Payment.FeeAmountDisplay))
                 {
-                    <dt>Fee</dt>
-                    <dd>@Model.Payment.FeeAmountDisplay</dd>
+                    <div class="lw-send-detail">
+                        <div class="lw-send-detail-label">Fee</div>
+                        <div class="lw-send-detail-value">@Model.Payment.FeeAmountDisplay</div>
+                    </div>
                 }
                 @if (!string.IsNullOrWhiteSpace(Model.Payment.PaymentHash))
                 {
-                    <dt>Payment hash</dt>
-                    <dd><code>@Model.Payment.PaymentHash</code></dd>
+                    <div class="lw-send-detail">
+                        <div class="lw-send-detail-label">Payment hash</div>
+                        <div class="lw-send-detail-value"><code>@Model.Payment.PaymentHash</code></div>
+                    </div>
                 }
                 @if (!string.IsNullOrWhiteSpace(Model.Payment.Preimage))
                 {
-                    <dt>Preimage</dt>
-                    <dd><code>@Model.Payment.Preimage</code></dd>
+                    <div class="lw-send-detail">
+                        <div class="lw-send-detail-label">Preimage</div>
+                        <div class="lw-send-detail-value"><code>@Model.Payment.Preimage</code></div>
+                    </div>
                 }
-            </dl>
+            </div>
+        </div>
+        <div class="mt-4">
+            <a asp-controller="LightningWallet"
+               asp-action="Send"
+               asp-route-storeId="@Model.StoreId"
+               asp-route-cryptoCode="@Model.CryptoCode"
+               class="btn btn-primary w-100">
+                Send another payment
+            </a>
         </div>
     </div>
+}
+else if (Model.Preview is not null)
+{
+    <div class="payment-box">
+        <h2 class="h4 mb-4 text-center">Confirm Payment</h2>
+        <div class="lw-send-summary">
+            <div class="lw-send-hero">
+                <span class="lw-send-hero-label">Amount</span>
+                <p class="lw-send-hero-value">@Model.Preview.AmountDisplay</p>
+            </div>
+            <div class="lw-send-details">
+                <div class="lw-send-detail">
+                    <div class="lw-send-detail-label">Description</div>
+                    <div class="lw-send-detail-value">@Model.Preview.Description</div>
+                </div>
+                <div class="lw-send-detail">
+                    <div class="lw-send-detail-label">Payee</div>
+                    <div class="lw-send-detail-value"><code>@Model.Preview.Payee</code></div>
+                </div>
+                <div class="lw-send-detail">
+                    <div class="lw-send-detail-label">Payment hash</div>
+                    <div class="lw-send-detail-value"><code>@Model.Preview.PaymentHash</code></div>
+                </div>
+                <div class="lw-send-detail">
+                    <div class="lw-send-detail-label">Expires</div>
+                    <div class="lw-send-detail-value">@Model.Preview.ExpiresAt.ToString("u")</div>
+                </div>
+            </div>
+        </div>
+        <form asp-controller="LightningWallet"
+              asp-action="ExecuteSend"
+              asp-route-storeId="@Model.StoreId"
+              asp-route-cryptoCode="@Model.CryptoCode"
+              method="post"
+              class="mt-4">
+            <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
+            <div class="d-grid gap-3">
+                <button type="submit" class="btn btn-primary">Send payment</button>
+                <a asp-controller="LightningWallet"
+                   asp-action="Send"
+                   asp-route-storeId="@Model.StoreId"
+                   asp-route-cryptoCode="@Model.CryptoCode"
+                   class="btn btn-secondary">
+                    Edit invoice
+                </a>
+            </div>
+        </form>
+    </div>
+}
+else
+{
+    <form asp-controller="LightningWallet"
+          asp-action="PreviewSend"
+          asp-route-storeId="@Model.StoreId"
+          asp-route-cryptoCode="@Model.CryptoCode"
+          method="post"
+          class="my-5">
+        <div class="payment-box">
+            <div class="form-group mb-0">
+                <label class="form-label" for="bolt11">BOLT11 invoice</label>
+                <textarea class="form-control font-monospace" id="bolt11" name="bolt11" rows="6" placeholder="lnbc...">@Model.Bolt11</textarea>
+                <div class="form-text">Paste the full invoice exactly as received.</div>
+            </div>
+            <div class="mt-4">
+                <button type="submit" class="btn btn-primary w-100" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanPayBolt11)">Preview payment</button>
+            </div>
+        </div>
+    </form>
 }

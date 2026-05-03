@@ -59,7 +59,6 @@ internal class FakeLightningClient : ILightningClient
     public Func<string, CancellationToken, Task<PayResponse>>? PayBolt11Handler { get; set; }
     public Func<NodeInfo, CancellationToken, Task<ConnectionResult>>? ConnectToHandler { get; set; }
     public Func<OpenChannelRequest, CancellationToken, Task<OpenChannelResponse>>? OpenChannelHandler { get; set; }
-    public Func<CloseChannelRequest, CancellationToken, Task<CloseChannelResponse>>? CloseChannelHandler { get; set; }
     public Func<CancellationToken, Task<LightningChannel[]>>? ListChannelsHandler { get; set; }
     public Func<string, CancellationToken, Task<LightningPayment>>? GetPaymentHandler { get; set; }
 
@@ -85,8 +84,6 @@ internal class FakeLightningClient : ILightningClient
         PayBolt11Handler is null ? throw new NotSupportedException() : PayBolt11Handler(bolt11, cancellation);
     public Task<OpenChannelResponse> OpenChannel(OpenChannelRequest openChannelRequest, CancellationToken cancellation = default) =>
         OpenChannelHandler is null ? throw new NotSupportedException() : OpenChannelHandler(openChannelRequest, cancellation);
-    public Task<CloseChannelResponse> CloseChannel(CloseChannelRequest closeChannelRequest, CancellationToken cancellation = default) =>
-        CloseChannelHandler is null ? throw new NotSupportedException() : CloseChannelHandler(closeChannelRequest, cancellation);
     public Task<BitcoinAddress> GetDepositAddress(CancellationToken cancellation = default) => throw new NotSupportedException();
     public Task<ConnectionResult> ConnectTo(NodeInfo nodeInfo, CancellationToken cancellation = default) =>
         ConnectToHandler is null ? throw new NotSupportedException() : ConnectToHandler(nodeInfo, cancellation);
@@ -200,7 +197,8 @@ internal static class TestContextFactory
         bool isInternalNode = false,
         bool isSharedBackend = false,
         bool isReadOnly = false,
-        string? sharedBackendNotice = null)
+        string? sharedBackendNotice = null,
+        string? connectionString = null)
     {
         return new StoreLightningWalletContext
         {
@@ -209,6 +207,7 @@ internal static class TestContextFactory
             CryptoCode = "BTC",
             Network = TestNetworkFactory.GetBitcoinNetwork(),
             Client = client ?? new FakeLightningClient(),
+            ConnectionString = connectionString,
             IsInternalNode = isInternalNode,
             IsSharedBackend = isSharedBackend,
             IsReadOnly = isReadOnly,

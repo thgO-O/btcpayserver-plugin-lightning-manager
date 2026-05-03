@@ -177,60 +177,6 @@ public class LightningWalletController : Controller
         return View("Channels", model);
     }
 
-    [HttpPost("channels/close/preview")]
-    [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
-    public async Task<IActionResult> PreviewCloseChannel(
-        [FromRoute] string cryptoCode,
-        [FromForm] string? channelId,
-        [FromForm] string? channelPoint,
-        [FromForm] string? remoteNode,
-        CancellationToken cancellationToken)
-    {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningWalletNavPages.Channels);
-
-        if (_lightningWalletService.TryCreateCloseChannelPreview(
-                context,
-                channelId,
-                channelPoint,
-                remoteNode,
-                out var preview,
-                out var error))
-        {
-            model.ClosePreview = preview;
-        }
-        else
-        {
-            model.Result = new ActionResultViewModel
-            {
-                IsSuccess = false,
-                Message = error ?? "The close channel request is invalid."
-            };
-        }
-
-        await _lightningWalletService.PopulateChannelsAsync(model, context, cancellationToken);
-        return View("Channels", model);
-    }
-
-    [HttpPost("channels/close")]
-    [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
-    public async Task<IActionResult> CloseChannel(
-        [FromRoute] string cryptoCode,
-        [FromForm] string? channelId,
-        [FromForm] string? channelPoint,
-        CancellationToken cancellationToken)
-    {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningWalletNavPages.Channels);
-        model.Result = await _lightningWalletService.CloseChannelAsync(
-            context,
-            channelId,
-            channelPoint,
-            cancellationToken);
-        await _lightningWalletService.PopulateChannelsAsync(model, context, cancellationToken);
-        return View("Channels", model);
-    }
-
     protected virtual async Task<StoreLightningWalletContext> GetContextAsync(string cryptoCode, CancellationToken cancellationToken)
     {
         return await _contextFactory.CreateAsync(

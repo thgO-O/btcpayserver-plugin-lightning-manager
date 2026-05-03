@@ -10,18 +10,22 @@ public interface ILightningCapabilityService
 
 public class LightningCapabilityService : ILightningCapabilityService
 {
+    private const string CLightning = "clightning";
+    private const string LndRest = "lnd-rest";
+    private const string LndGrpc = "lnd-grpc";
+    private const string Eclair = "eclair";
+    private const string Lnbank = "lnbank";
+    private const string Charge = "charge";
+    private const string LndHub = "lndhub";
+
     private static readonly HashSet<string> FullNodeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        LightningConnectionType.CLightning,
-        LightningConnectionType.LndREST,
-        LightningConnectionType.LndGRPC,
-        LightningConnectionType.Eclair,
+        CLightning,
+        LndRest,
+        LndGrpc,
+        Eclair,
+        Lnbank,
         "ldk-rest"
-    };
-
-    private static readonly HashSet<string> FullNodeTypesWithoutClose = new(StringComparer.OrdinalIgnoreCase)
-    {
-        LightningConnectionType.LNbank
     };
 
     private static readonly HashSet<string> PayFocusedTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -30,8 +34,8 @@ public class LightningCapabilityService : ILightningCapabilityService
         "breez",
         "micro",
         "nwc",
-        LightningConnectionType.Charge,
-        LightningConnectionType.LNDhub,
+        Charge,
+        LndHub,
         "ldk-rest"
     };
 
@@ -56,11 +60,6 @@ public class LightningCapabilityService : ILightningCapabilityService
         if (FullNodeTypes.Contains(type))
         {
             return LightningCapabilities.Full;
-        }
-
-        if (FullNodeTypesWithoutClose.Contains(type))
-        {
-            return LightningCapabilities.FullWithoutClose;
         }
 
         if (type.Equals("blink", StringComparison.OrdinalIgnoreCase))
@@ -150,22 +149,22 @@ public class LightningCapabilityService : ILightningCapabilityService
 
         if (typeName.Contains("CLightning", StringComparison.OrdinalIgnoreCase))
         {
-            return LightningConnectionType.CLightning;
+            return CLightning;
         }
 
         if (typeName.Contains("Lnd", StringComparison.OrdinalIgnoreCase))
         {
-            return LightningConnectionType.LndREST;
+            return LndRest;
         }
 
         if (typeName.Contains("Eclair", StringComparison.OrdinalIgnoreCase))
         {
-            return LightningConnectionType.Eclair;
+            return Eclair;
         }
 
         if (typeName.Contains("LndHub", StringComparison.OrdinalIgnoreCase))
         {
-            return LightningConnectionType.LNDhub;
+            return LndHub;
         }
 
         if (typeName.Contains("Ldk", StringComparison.OrdinalIgnoreCase))
@@ -175,7 +174,7 @@ public class LightningCapabilityService : ILightningCapabilityService
 
         if (typeName.Contains("LNbank", StringComparison.OrdinalIgnoreCase))
         {
-            return LightningConnectionType.LNbank;
+            return Lnbank;
         }
 
         return null;

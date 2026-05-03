@@ -257,6 +257,41 @@ public class LightningWalletServiceTests
     }
 
     [Fact]
+    public async Task PopulateOverviewAsync_WithNullBalanceFields_SkipsMissingRows()
+    {
+        var client = new FakeLightningClient
+        {
+            GetBalanceHandler = _ => Task.FromResult(
+                new LightningNodeBalance(
+                    new OnchainBalance
+                    {
+                        Confirmed = Money.Satoshis(1000),
+                        Unconfirmed = Money.Satoshis(250),
+                        Reserved = null
+                    },
+                    new OffchainBalance
+                    {
+                        Opening = LightMoney.Satoshis(100),
+                        Local = LightMoney.Satoshis(200),
+                        Remote = LightMoney.Satoshis(300),
+                        Closing = LightMoney.Satoshis(400)
+                    }))
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities { CanGetBalance = true },
+            client,
+            connectionString: "type=eclair;server=http://127.0.0.1:8285/;password=eclairpw");
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Contains(model.OnchainBalanceRows, row => row.Label == "Confirmed");
+        Assert.Contains(model.OffchainBalanceRows, row => row.Label == "Remote");
+        Assert.DoesNotContain(model.OnchainBalanceRows, row => row.Label == "Reserved");
+        Assert.DoesNotContain(model.Notices, notice => notice.StartsWith("Could not load balances:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task PopulateChannelsAsync_WithReadOnlySharedInternalNode_ShowsReadOnlyMessage()
     {
         var context = TestContextFactory.CreateConfigured(
@@ -284,7 +319,6 @@ public class LightningWalletServiceTests
             {
                 new LightningChannel
                 {
-                    ChannelId = "123x1x0",
                     RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
                     IsPublic = false,
                     IsActive = true,
@@ -300,37 +334,30 @@ public class LightningWalletServiceTests
         await _service.PopulateChannelsAsync(model, context);
 
         var channel = Assert.Single(model.Channels);
-        Assert.Equal("123x1x0", channel.ChannelId);
-        Assert.True(channel.CanClose);
+        Assert.Equal("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", channel.RemoteNode);
     }
 
     [Fact]
-    public void TryCreateCloseChannelPreview_WithoutCapability_ReturnsFriendlyError()
-    {
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.FullWithoutClose);
-
-        var ok = _service.TryCreateCloseChannelPreview(context, "123x1x0", "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f-0", null, out _, out var error);
-
-        Assert.False(ok);
-        Assert.Equal("Channel closing is not supported by this backend.", error);
-    }
-
-    [Fact]
-    public async Task CloseChannelAsync_WithSuccessfulResponse_ReturnsSuccess()
+    public async Task OpenChannelAsync_WithEclairFollowUpChannelIdParseError_ReturnsSuccess()
     {
         var client = new FakeLightningClient
         {
-            CloseChannelHandler = (_, _) => Task.FromResult(new CloseChannelResponse(CloseChannelResult.Ok))
+            OpenChannelHandler = (_, _) => throw new Exception(
+                "The form field 'channelId' was malformed: Invalid hexadecimal character 'w' at index 65")
         };
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            client,
+            connectionString: "type=eclair;server=http://127.0.0.1:8285/;password=eclairpw");
 
-        var result = await _service.CloseChannelAsync(
+        var result = await _service.OpenChannelAsync(
             context,
-            "123x1x0",
-            "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f-0");
+            "038c0bcbad6a83cc11e8ec8c1cb0f2ffaa39e6ee5ded3d679b9a160ad18d2deda6@127.0.0.1:9735",
+            "100000",
+            null);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal("Channel close request submitted.", result.Message);
+        Assert.Equal("Channel opening request submitted.", result.Message);
     }
 
     [Fact]
