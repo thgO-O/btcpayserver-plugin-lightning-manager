@@ -15,6 +15,11 @@
     <Version>0.1.0</Version>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
   <ItemDefinitionGroup>
     <ProjectReference>
       <Properties>StaticWebAssetsEnabled=false</Properties>
@@ -25,6 +30,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../btcpayserver/BTCPayServer/BTCPayServer.csproj" />
-    <PackageReference Include="BTCPayServer.Lightning.All" Version="1.6.14" />
+    <PackageReference Include="BTCPayServer.Lightning.All" Version="1.6.15" />
   </ItemGroup>
 </Project>

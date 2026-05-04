@@ -88,9 +88,9 @@ public class LightningWalletService : ILightningWalletService
             {
                 model.Notices.Add("Node information is not available for this backend.");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                model.Notices.Add($"Could not load node information: {ex.Message}");
+                model.Notices.Add("Could not load node information.");
             }
         }
 
@@ -118,9 +118,9 @@ public class LightningWalletService : ILightningWalletService
             {
                 model.Notices.Add("Balance information is not available for this backend.");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                model.Notices.Add($"Could not load balances: {ex.Message}");
+                model.Notices.Add("Could not load balances.");
             }
         }
 
@@ -230,8 +230,8 @@ public class LightningWalletService : ILightningWalletService
                 {
                     Result = new ActionResultViewModel
                     {
-                        IsSuccess = true,
-                        Message = "Payment submitted, but the final status is still unknown."
+                        IsSuccess = false,
+                        Message = "Payment status is unknown. Check the Lightning node before retrying."
                     },
                     Payment = details
                 },
@@ -240,8 +240,7 @@ public class LightningWalletService : ILightningWalletService
                     Result = new ActionResultViewModel
                     {
                         IsSuccess = false,
-                        Message = "No route to the invoice destination was found.",
-                        Detail = payResponse.ErrorDetail
+                        Message = "No route to the invoice destination was found."
                     }
                 },
                 PayResult.Error => new SendExecutionResult
@@ -249,8 +248,7 @@ public class LightningWalletService : ILightningWalletService
                     Result = new ActionResultViewModel
                     {
                         IsSuccess = false,
-                        Message = NormalizePayError(payResponse.ErrorDetail),
-                        Detail = payResponse.ErrorDetail
+                        Message = NormalizePayError(payResponse.ErrorDetail)
                     }
                 },
                 _ => new SendExecutionResult
@@ -274,15 +272,14 @@ public class LightningWalletService : ILightningWalletService
                 }
             };
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             return new SendExecutionResult
             {
                 Result = new ActionResultViewModel
                 {
                     IsSuccess = false,
-                    Message = "Lightning payment failed.",
-                    Detail = ex.Message
+                    Message = "Lightning payment failed."
                 }
             };
         }
@@ -327,9 +324,9 @@ public class LightningWalletService : ILightningWalletService
         {
             return Failure("Peer connections are not supported by this backend.");
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            return Failure("Peer connection failed.", ex.Message);
+            return Failure("Peer connection failed.");
         }
     }
 
@@ -367,9 +364,9 @@ public class LightningWalletService : ILightningWalletService
         {
             model.PeerListMessage = "Peer listing is not available for this backend.";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            model.PeerListMessage = $"Could not load peers: {ex.Message}";
+            model.PeerListMessage = "Could not load peers.";
         }
     }
 
@@ -428,9 +425,9 @@ public class LightningWalletService : ILightningWalletService
         {
             model.ChannelListMessage = "Channel listing is not supported by this backend.";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            model.ChannelListMessage = $"Could not load channels: {ex.Message}";
+            model.ChannelListMessage = "Could not load channels.";
         }
     }
 
@@ -495,7 +492,7 @@ public class LightningWalletService : ILightningWalletService
                 return Success("Channel opening request submitted.");
             }
 
-            return Failure("Channel opening failed.", ex.Message);
+            return Failure("Channel opening failed.");
         }
     }
 

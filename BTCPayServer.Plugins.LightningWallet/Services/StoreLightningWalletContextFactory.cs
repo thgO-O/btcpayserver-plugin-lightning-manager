@@ -113,9 +113,9 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
                     NodeHost = client.GetServerUri(connectionString)?.Host
                 };
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                return CreateUnavailableContext(store, cryptoCode, $"Lightning backend unavailable: {ex.Message}", network, config, connectionString);
+                return CreateUnavailableContext(store, cryptoCode, "Lightning backend unavailable.", network, config, connectionString);
             }
         }
 

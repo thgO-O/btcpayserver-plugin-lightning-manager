@@ -1,5 +1,6 @@
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningWallet.Services;
+using BTCPayServer.Plugins.LightningWallet.ViewModels;
 using NBitcoin;
 using Xunit;
 
@@ -34,6 +35,42 @@ public class LightningWalletServiceTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal("The node URI is invalid. Use pubkey@host[:port].", result.Message);
+    }
+
+    [Fact]
+    public async Task SendAsync_WithUnknownPayResult_DoesNotMarkPaymentAsSuccessful()
+    {
+        var service = new BypassingValidationLightningWalletService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Unknown))
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await service.SendAsync(context, "lnbcrt1test");
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
+        Assert.NotNull(result.Payment);
+        Assert.Equal(LightningPaymentStatus.Unknown, result.Payment.Status);
+    }
+
+    [Fact]
+    public async Task SendAsync_WithProviderError_DoesNotExposeRawErrorDetail()
+    {
+        var service = new BypassingValidationLightningWalletService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Error, "server=http://127.0.0.1;macaroon=/Users/test/admin.macaroon"))
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await service.SendAsync(context, "lnbcrt1test");
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Lightning payment failed.", result.Result.Message);
+        Assert.Null(result.Result.Detail);
     }
 
     [Fact]
@@ -370,5 +407,27 @@ public class LightningWalletServiceTests
         Assert.False(ok);
         Assert.Null(preview);
         Assert.Equal("This invoice has already expired.", error);
+    }
+
+    private sealed class BypassingValidationLightningWalletService : LightningWalletService
+    {
+        public override bool TryCreateSendPreview(
+            StoreLightningWalletContext context,
+            string? bolt11,
+            out SendPreviewViewModel? preview,
+            out string? error)
+        {
+            preview = new SendPreviewViewModel
+            {
+                Bolt11 = bolt11 ?? string.Empty,
+                AmountDisplay = "1 sat",
+                Description = "Test invoice",
+                PaymentHash = "test-hash",
+                Payee = "test-payee",
+                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5)
+            };
+            error = null;
+            return true;
+        }
     }
 }
