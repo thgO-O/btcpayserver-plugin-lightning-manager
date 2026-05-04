@@ -2,10 +2,10 @@
 using System.Collections;
 using System.Reflection;
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LightningWallet.ViewModels;
+using BTCPayServer.Plugins.LightningManager.ViewModels;
 using NBitcoin;
 
-namespace BTCPayServer.Plugins.LightningWallet.Services;
+namespace BTCPayServer.Plugins.LightningManager.Services;
 
 public class SendExecutionResult
 {
@@ -13,39 +13,39 @@ public class SendExecutionResult
     public SendResultDetailsViewModel? Payment { get; init; }
 }
 
-public interface ILightningWalletService
+public interface ILightningManagerService
 {
-    LightningWalletTabsViewModel CreateTabs(StoreLightningWalletContext context, string activePage);
-    Task PopulateOverviewAsync(OverviewViewModel model, StoreLightningWalletContext context, CancellationToken cancellationToken = default);
-    bool TryCreateSendPreview(StoreLightningWalletContext context, string? bolt11, out SendPreviewViewModel? preview, out string? error);
-    Task<SendExecutionResult> SendAsync(StoreLightningWalletContext context, string bolt11, CancellationToken cancellationToken = default);
-    Task<ActionResultViewModel> ConnectPeerAsync(StoreLightningWalletContext context, string? nodeUri, CancellationToken cancellationToken = default);
-    Task PopulatePeersAsync(PeersViewModel model, StoreLightningWalletContext context, CancellationToken cancellationToken = default);
-    Task PopulateChannelsAsync(ChannelsViewModel model, StoreLightningWalletContext context, CancellationToken cancellationToken = default);
+    LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage);
+    Task PopulateOverviewAsync(OverviewViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
+    bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, out SendPreviewViewModel? preview, out string? error);
+    Task<SendExecutionResult> SendAsync(StoreLightningManagerContext context, string bolt11, CancellationToken cancellationToken = default);
+    Task<ActionResultViewModel> ConnectPeerAsync(StoreLightningManagerContext context, string? nodeUri, CancellationToken cancellationToken = default);
+    Task PopulatePeersAsync(PeersViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
+    Task PopulateChannelsAsync(ChannelsViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
     bool TryCreateOpenChannelPreview(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string? nodeUri,
         string? channelAmountSats,
         string? feeRateSatsPerByte,
         out OpenChannelPreviewViewModel? preview,
         out string? error);
     Task<ActionResultViewModel> OpenChannelAsync(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string nodeUri,
         string channelAmountSats,
         string? feeRateSatsPerByte,
         CancellationToken cancellationToken = default);
 }
 
-public class LightningWalletService : ILightningWalletService
+public class LightningManagerService : ILightningManagerService
 {
     private const decimal DefaultChannelOpenFeeRate = 1.0m;
     private const long MinimumLndChannelAmountSats = 20_000;
-    private const string SharedInternalNodeReadOnlyMessage = "Wallet actions are disabled for stores using the server's shared internal Lightning node.";
+    private const string SharedInternalNodeReadOnlyMessage = "Lightning actions are disabled for stores using the server's shared internal Lightning node.";
 
-    public virtual LightningWalletTabsViewModel CreateTabs(StoreLightningWalletContext context, string activePage)
+    public virtual LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage)
     {
-        return new LightningWalletTabsViewModel
+        return new LightningManagerTabsViewModel
         {
             StoreId = context.StoreId,
             CryptoCode = context.CryptoCode,
@@ -58,7 +58,7 @@ public class LightningWalletService : ILightningWalletService
 
     public virtual async Task PopulateOverviewAsync(
         OverviewViewModel model,
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         CancellationToken cancellationToken = default)
     {
         if (!context.IsConfigured || context.Client is null)
@@ -134,7 +134,7 @@ public class LightningWalletService : ILightningWalletService
         AddSummaryRow(model.SummaryRows, "Pending channels", model.PendingChannelsCount?.ToString());
     }
 
-    public virtual bool TryCreateSendPreview(StoreLightningWalletContext context, string? bolt11, out SendPreviewViewModel? preview, out string? error)
+    public virtual bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, out SendPreviewViewModel? preview, out string? error)
     {
         preview = null;
         error = null;
@@ -171,7 +171,7 @@ public class LightningWalletService : ILightningWalletService
 
         if (paymentRequest.MinimumAmount is null || paymentRequest.MinimumAmount == LightMoney.Zero)
         {
-            error = "Amountless invoices are not supported by this wallet UI.";
+            error = "Amountless invoices are not supported by this interface.";
             return false;
         }
 
@@ -194,7 +194,7 @@ public class LightningWalletService : ILightningWalletService
     }
 
     public virtual async Task<SendExecutionResult> SendAsync(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string bolt11,
         CancellationToken cancellationToken = default)
     {
@@ -286,7 +286,7 @@ public class LightningWalletService : ILightningWalletService
     }
 
     public virtual async Task<ActionResultViewModel> ConnectPeerAsync(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string? nodeUri,
         CancellationToken cancellationToken = default)
     {
@@ -332,7 +332,7 @@ public class LightningWalletService : ILightningWalletService
 
     public virtual async Task PopulatePeersAsync(
         PeersViewModel model,
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         CancellationToken cancellationToken = default)
     {
         if (!context.IsConfigured || context.Client is null)
@@ -372,7 +372,7 @@ public class LightningWalletService : ILightningWalletService
 
     public virtual async Task PopulateChannelsAsync(
         ChannelsViewModel model,
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         CancellationToken cancellationToken = default)
     {
         if (!context.IsConfigured || context.Client is null)
@@ -432,7 +432,7 @@ public class LightningWalletService : ILightningWalletService
     }
 
     public virtual bool TryCreateOpenChannelPreview(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string? nodeUri,
         string? channelAmountSats,
         string? feeRateSatsPerByte,
@@ -457,7 +457,7 @@ public class LightningWalletService : ILightningWalletService
     }
 
     public virtual async Task<ActionResultViewModel> OpenChannelAsync(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string nodeUri,
         string channelAmountSats,
         string? feeRateSatsPerByte,
@@ -497,7 +497,7 @@ public class LightningWalletService : ILightningWalletService
     }
 
     protected virtual bool TryBuildOpenChannelRequest(
-        StoreLightningWalletContext context,
+        StoreLightningManagerContext context,
         string? nodeUri,
         string? channelAmountSats,
         string? feeRateSatsPerByte,
@@ -640,7 +640,7 @@ public class LightningWalletService : ILightningWalletService
         return "Lightning payment failed.";
     }
 
-    private static bool IsBenignEclairOpenChannelFollowUpError(StoreLightningWalletContext context, Exception exception)
+    private static bool IsBenignEclairOpenChannelFollowUpError(StoreLightningManagerContext context, Exception exception)
     {
         if (string.IsNullOrWhiteSpace(exception.Message))
         {

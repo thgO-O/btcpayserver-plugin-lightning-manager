@@ -4,26 +4,26 @@ using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
-using BTCPayServer.Plugins.LightningWallet.Services;
-using BTCPayServer.Plugins.LightningWallet.ViewModels;
+using BTCPayServer.Plugins.LightningManager.Services;
+using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace BTCPayServer.Plugins.LightningWallet.Controllers;
+namespace BTCPayServer.Plugins.LightningManager.Controllers;
 
-[Route("stores/{storeId}/lightning/{cryptoCode}/wallet")]
+[Route("stores/{storeId}/lightning/{cryptoCode}/manager")]
 [Authorize(Policy = Policies.CanUseLightningNodeInStore, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
-public class LightningWalletController : Controller
+public class LightningManagerController : Controller
 {
-    private readonly IStoreLightningWalletContextFactory _contextFactory;
-    private readonly ILightningWalletService _lightningWalletService;
+    private readonly IStoreLightningManagerContextFactory _contextFactory;
+    private readonly ILightningManagerService _lightningManagerService;
 
-    public LightningWalletController(
-        IStoreLightningWalletContextFactory contextFactory,
-        ILightningWalletService lightningWalletService)
+    public LightningManagerController(
+        IStoreLightningManagerContextFactory contextFactory,
+        ILightningManagerService lightningManagerService)
     {
         _contextFactory = contextFactory;
-        _lightningWalletService = lightningWalletService;
+        _lightningManagerService = lightningManagerService;
     }
 
     [HttpGet("")]
@@ -36,8 +36,8 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> Overview([FromRoute] string cryptoCode, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<OverviewViewModel>(context, "Overview", LightningWalletNavPages.Overview);
-        await _lightningWalletService.PopulateOverviewAsync(model, context, cancellationToken);
+        var model = CreatePageModel<OverviewViewModel>(context, "Overview", LightningManagerNavPages.Overview);
+        await _lightningManagerService.PopulateOverviewAsync(model, context, cancellationToken);
         return View(model);
     }
 
@@ -45,7 +45,7 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> Send([FromRoute] string cryptoCode, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        return View(CreatePageModel<SendViewModel>(context, "Send", LightningWalletNavPages.Send));
+        return View(CreatePageModel<SendViewModel>(context, "Send", LightningManagerNavPages.Send));
     }
 
     [HttpPost("send/preview")]
@@ -53,10 +53,10 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> PreviewSend([FromRoute] string cryptoCode, [FromForm] string? bolt11, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<SendViewModel>(context, "Send", LightningWalletNavPages.Send);
+        var model = CreatePageModel<SendViewModel>(context, "Send", LightningManagerNavPages.Send);
         model.Bolt11 = bolt11;
 
-        if (_lightningWalletService.TryCreateSendPreview(context, bolt11, out var preview, out var error))
+        if (_lightningManagerService.TryCreateSendPreview(context, bolt11, out var preview, out var error))
         {
             model.Preview = preview;
         }
@@ -77,9 +77,9 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> ExecuteSend([FromRoute] string cryptoCode, [FromForm] string bolt11, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<SendViewModel>(context, "Send", LightningWalletNavPages.Send);
+        var model = CreatePageModel<SendViewModel>(context, "Send", LightningManagerNavPages.Send);
         model.Bolt11 = bolt11;
-        var result = await _lightningWalletService.SendAsync(context, bolt11, cancellationToken);
+        var result = await _lightningManagerService.SendAsync(context, bolt11, cancellationToken);
         model.Result = result.Result;
         model.Payment = result.Payment;
         return View("Send", model);
@@ -89,8 +89,8 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> Peers([FromRoute] string cryptoCode, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<PeersViewModel>(context, "Peers", LightningWalletNavPages.Peers);
-        await _lightningWalletService.PopulatePeersAsync(model, context, cancellationToken);
+        var model = CreatePageModel<PeersViewModel>(context, "Peers", LightningManagerNavPages.Peers);
+        await _lightningManagerService.PopulatePeersAsync(model, context, cancellationToken);
         return View(model);
     }
 
@@ -99,10 +99,10 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> ConnectPeer([FromRoute] string cryptoCode, [FromForm] string? nodeUri, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<PeersViewModel>(context, "Peers", LightningWalletNavPages.Peers);
+        var model = CreatePageModel<PeersViewModel>(context, "Peers", LightningManagerNavPages.Peers);
         model.NodeUri = nodeUri;
-        model.Result = await _lightningWalletService.ConnectPeerAsync(context, nodeUri, cancellationToken);
-        await _lightningWalletService.PopulatePeersAsync(model, context, cancellationToken);
+        model.Result = await _lightningManagerService.ConnectPeerAsync(context, nodeUri, cancellationToken);
+        await _lightningManagerService.PopulatePeersAsync(model, context, cancellationToken);
         return View("Peers", model);
     }
 
@@ -110,8 +110,8 @@ public class LightningWalletController : Controller
     public async Task<IActionResult> Channels([FromRoute] string cryptoCode, CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningWalletNavPages.Channels);
-        await _lightningWalletService.PopulateChannelsAsync(model, context, cancellationToken);
+        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningManagerNavPages.Channels);
+        await _lightningManagerService.PopulateChannelsAsync(model, context, cancellationToken);
         return View(model);
     }
 
@@ -125,12 +125,12 @@ public class LightningWalletController : Controller
         CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningWalletNavPages.Channels);
+        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningManagerNavPages.Channels);
         model.NodeUri = nodeUri;
         model.ChannelAmountSats = channelAmountSats;
         model.FeeRateSatsPerByte = feeRateSatsPerByte;
 
-        if (_lightningWalletService.TryCreateOpenChannelPreview(
+        if (_lightningManagerService.TryCreateOpenChannelPreview(
                 context,
                 nodeUri,
                 channelAmountSats,
@@ -149,7 +149,7 @@ public class LightningWalletController : Controller
             };
         }
 
-        await _lightningWalletService.PopulateChannelsAsync(model, context, cancellationToken);
+        await _lightningManagerService.PopulateChannelsAsync(model, context, cancellationToken);
         return View("Channels", model);
     }
 
@@ -163,21 +163,21 @@ public class LightningWalletController : Controller
         CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningWalletNavPages.Channels);
+        var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningManagerNavPages.Channels);
         model.NodeUri = nodeUri;
         model.ChannelAmountSats = channelAmountSats;
         model.FeeRateSatsPerByte = feeRateSatsPerByte;
-        model.Result = await _lightningWalletService.OpenChannelAsync(
+        model.Result = await _lightningManagerService.OpenChannelAsync(
             context,
             nodeUri,
             channelAmountSats,
             feeRateSatsPerByte,
             cancellationToken);
-        await _lightningWalletService.PopulateChannelsAsync(model, context, cancellationToken);
+        await _lightningManagerService.PopulateChannelsAsync(model, context, cancellationToken);
         return View("Channels", model);
     }
 
-    protected virtual async Task<StoreLightningWalletContext> GetContextAsync(string cryptoCode, CancellationToken cancellationToken)
+    protected virtual async Task<StoreLightningManagerContext> GetContextAsync(string cryptoCode, CancellationToken cancellationToken)
     {
         return await _contextFactory.CreateAsync(
             HttpContext.GetStoreData(),
@@ -187,10 +187,10 @@ public class LightningWalletController : Controller
             cancellationToken);
     }
 
-    private T CreatePageModel<T>(StoreLightningWalletContext context, string title, string activePage)
-        where T : LightningWalletPageViewModel, new()
+    private T CreatePageModel<T>(StoreLightningManagerContext context, string title, string activePage)
+        where T : LightningManagerPageViewModel, new()
     {
-        ViewData.SetLayoutModel(new LayoutModel(activePage, $"{context.CryptoCode} Lightning Wallet: {title}")
+        ViewData.SetLayoutModel(new LayoutModel(activePage, $"{context.CryptoCode} Lightning Manager: {title}")
             .SetCategory(WellKnownCategories.ForLightning(context.CryptoCode)));
 
         var model = new T
@@ -199,7 +199,7 @@ public class LightningWalletController : Controller
             CryptoCode = context.CryptoCode,
             Title = title,
             Capabilities = context.Capabilities,
-            Tabs = _lightningWalletService.CreateTabs(context, activePage),
+            Tabs = _lightningManagerService.CreateTabs(context, activePage),
             IsConfigured = context.IsConfigured,
             ConfigurationMessage = context.ConfigurationError,
             NodeDisplayName = context.DisplayName,

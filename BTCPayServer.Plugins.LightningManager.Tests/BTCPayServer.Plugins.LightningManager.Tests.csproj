@@ -20,7 +20,7 @@
 
   <ItemGroup>
     <PackageReference Include="BTCPayServer.Lightning.All" Version="1.6.15" />
-    <ProjectReference Include="../BTCPayServer.Plugins.LightningWallet/BTCPayServer.Plugins.LightningWallet.csproj">
+    <ProjectReference Include="../BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj">
       <Properties>StaticWebAssetsEnabled=false</Properties>
     </ProjectReference>
   </ItemGroup>

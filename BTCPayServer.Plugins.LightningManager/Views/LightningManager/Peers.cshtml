@@ -1,6 +1,6 @@
 @model PeersViewModel
 
-<partial name="LightningWallet/_SectionTabs" model="Model.Tabs" />
+<partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
 
 <div class="sticky-header">
     <h2>Connect Lightning Peer</h2>
@@ -30,7 +30,7 @@
 <div class="card">
     <div class="card-body">
         <h3 class="h5">Peer Connection</h3>
-        <form asp-controller="LightningWallet"
+        <form asp-controller="LightningManager"
               asp-action="ConnectPeer"
               asp-route-storeId="@Model.StoreId"
               asp-route-cryptoCode="@Model.CryptoCode"

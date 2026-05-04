@@ -2,7 +2,7 @@
 @{
     Layout = "_LayoutWizard";
     ViewData.SetTitle($"Send {Model.CryptoCode}");
-    var cancelUrl = Url.Action("Overview", "LightningWallet", new { storeId = Model.StoreId, cryptoCode = Model.CryptoCode });
+    var cancelUrl = Url.Action("Overview", "LightningManager", new { storeId = Model.StoreId, cryptoCode = Model.CryptoCode });
 }
 
 @section PageHeadContent
@@ -157,7 +157,7 @@
             </div>
         </div>
         <div class="mt-4">
-            <a asp-controller="LightningWallet"
+            <a asp-controller="LightningManager"
                asp-action="Send"
                asp-route-storeId="@Model.StoreId"
                asp-route-cryptoCode="@Model.CryptoCode"
@@ -195,7 +195,7 @@ else if (Model.Preview is not null)
                 </div>
             </div>
         </div>
-        <form asp-controller="LightningWallet"
+        <form asp-controller="LightningManager"
               asp-action="ExecuteSend"
               asp-route-storeId="@Model.StoreId"
               asp-route-cryptoCode="@Model.CryptoCode"
@@ -204,7 +204,7 @@ else if (Model.Preview is not null)
             <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
             <div class="d-grid gap-3">
                 <button type="submit" class="btn btn-primary">Send payment</button>
-                <a asp-controller="LightningWallet"
+                <a asp-controller="LightningManager"
                    asp-action="Send"
                    asp-route-storeId="@Model.StoreId"
                    asp-route-cryptoCode="@Model.CryptoCode"
@@ -217,7 +217,7 @@ else if (Model.Preview is not null)
 }
 else
 {
-    <form asp-controller="LightningWallet"
+    <form asp-controller="LightningManager"
           asp-action="PreviewSend"
           asp-route-storeId="@Model.StoreId"
           asp-route-cryptoCode="@Model.CryptoCode"

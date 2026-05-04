@@ -1,17 +1,17 @@
-using BTCPayServer.Plugins.LightningWallet.Services;
-using BTCPayServer.Plugins.LightningWallet.ViewModels;
+using BTCPayServer.Plugins.LightningManager.Services;
+using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using NBitcoin;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LightningWallet.Tests;
+namespace BTCPayServer.Plugins.LightningManager.Tests;
 
-public class LightningWalletControllerTests
+public class LightningManagerControllerTests
 {
     private const string SharedBackendNotice =
-        "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Wallet actions are disabled for non-admin users.";
+        "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Lightning actions are disabled for non-admin users.";
     private const string SharedInternalNodeReadOnlyMessage =
-        "Wallet actions are disabled for stores using the server's shared internal Lightning node.";
+        "Lightning actions are disabled for stores using the server's shared internal Lightning node.";
 
     [Fact]
     public async Task SendPage_UsesCapabilityDrivenTabs()

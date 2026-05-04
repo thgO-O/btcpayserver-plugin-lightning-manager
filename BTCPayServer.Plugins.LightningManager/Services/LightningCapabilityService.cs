@@ -1,7 +1,7 @@
 #nullable enable
 using BTCPayServer.Lightning;
 
-namespace BTCPayServer.Plugins.LightningWallet.Services;
+namespace BTCPayServer.Plugins.LightningManager.Services;
 
 public interface ILightningCapabilityService
 {

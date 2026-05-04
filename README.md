@@ -1,9 +1,9 @@
-# BTCPayServer.Plugins.LightningWallet
+# BTCPayServer.Plugins.LightningManager
 
-External BTCPay Server plugin that adds a store-scoped Lightning wallet UI.
+External BTCPay Server plugin that adds a store-scoped Lightning management UI.
 
 The plugin is intended for operators who already have a Lightning backend
-configured in a BTCPay store and want basic wallet actions directly from the
+configured in a BTCPay store and want basic Lightning actions directly from the
 BTCPay UI.
 
 ## Features
@@ -69,7 +69,7 @@ Not included in v0.1:
 Use the packaged plugin artifact:
 
 ```text
-artifacts/plugin-packages/BTCPayServer.Plugins.LightningWallet/0.1.0.0/BTCPayServer.Plugins.LightningWallet.btcpay
+artifacts/plugin-packages/BTCPayServer.Plugins.LightningManager/0.1.0.0/BTCPayServer.Plugins.LightningManager.btcpay
 ```
 
 Install it through the BTCPay Server plugin UI or place it in the plugin
@@ -78,7 +78,7 @@ directory used by your deployment, then restart BTCPay Server.
 After restart, the logs should include:
 
 ```text
-Running plugin BTCPayServer.Plugins.LightningWallet - 0.1.0.0
+Running plugin BTCPayServer.Plugins.LightningManager - 0.1.0.0
 ```
 
 ## Mainnet Smoke Test
@@ -89,7 +89,7 @@ artifact:
 1. Install the `.btcpay` package on a BTCPay Server instance.
 2. Restart BTCPay Server and confirm the plugin loads.
 3. Open a store with Lightning configured.
-4. Open the Lightning Wallet page and confirm the provider capabilities match
+4. Open the Lightning Manager page and confirm the provider capabilities match
    the table above.
 5. Pay a small BOLT11 invoice with the provider under test.
 6. Confirm the destination wallet received the payment.
@@ -104,19 +104,19 @@ Recommended release sign-off:
 ## Build
 
 ```bash
-dotnet build BTCPayServer.Plugins.LightningWallet/BTCPayServer.Plugins.LightningWallet.csproj
+dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj
 ```
 
 Release build:
 
 ```bash
-dotnet build BTCPayServer.Plugins.LightningWallet/BTCPayServer.Plugins.LightningWallet.csproj -c Release
+dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj -c Release
 ```
 
 ## Test
 
 ```bash
-dotnet test BTCPayServer.Plugins.LightningWallet.Tests/BTCPayServer.Plugins.LightningWallet.Tests.csproj
+dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
 ```
 
 ## Package
@@ -126,15 +126,15 @@ the sibling BTCPay Server repository:
 
 ```bash
 dotnet ../btcpayserver/BTCPayServer.PluginPacker/bin/Release/net10.0/BTCPayServer.PluginPacker.dll \
-  BTCPayServer.Plugins.LightningWallet/bin/Release/net10.0 \
-  BTCPayServer.Plugins.LightningWallet \
+  BTCPayServer.Plugins.LightningManager/bin/Release/net10.0 \
+  BTCPayServer.Plugins.LightningManager \
   artifacts/plugin-packages
 ```
 
 The package directory contains:
 
-- `BTCPayServer.Plugins.LightningWallet.btcpay`
-- `BTCPayServer.Plugins.LightningWallet.btcpay.json`
+- `BTCPayServer.Plugins.LightningManager.btcpay`
+- `BTCPayServer.Plugins.LightningManager.btcpay.json`
 - `SHA256SUMS`
 - `SHA256SUMS.asc`
 

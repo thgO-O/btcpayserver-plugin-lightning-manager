@@ -1,18 +1,18 @@
 #nullable enable
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LightningWallet.Services;
+using BTCPayServer.Plugins.LightningManager.Services;
 
-namespace BTCPayServer.Plugins.LightningWallet.ViewModels;
+namespace BTCPayServer.Plugins.LightningManager.ViewModels;
 
-public static class LightningWalletNavPages
+public static class LightningManagerNavPages
 {
-    public const string Overview = "LightningWalletOverview";
-    public const string Send = "LightningWalletSend";
-    public const string Peers = "LightningWalletPeers";
-    public const string Channels = "LightningWalletChannels";
+    public const string Overview = "LightningManagerOverview";
+    public const string Send = "LightningManagerSend";
+    public const string Peers = "LightningManagerPeers";
+    public const string Channels = "LightningManagerChannels";
 }
 
-public class LightningWalletTabsViewModel
+public class LightningManagerTabsViewModel
 {
     public string StoreId { get; init; } = string.Empty;
     public string CryptoCode { get; init; } = string.Empty;
@@ -36,13 +36,13 @@ public class ValueRowViewModel
     public string Value { get; init; } = string.Empty;
 }
 
-public abstract class LightningWalletPageViewModel
+public abstract class LightningManagerPageViewModel
 {
     public string StoreId { get; init; } = string.Empty;
     public string CryptoCode { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public LightningCapabilities Capabilities { get; init; } = LightningCapabilities.None;
-    public LightningWalletTabsViewModel Tabs { get; init; } = new();
+    public LightningManagerTabsViewModel Tabs { get; init; } = new();
     public bool IsConfigured { get; init; }
     public string? ConfigurationMessage { get; init; }
     public string? NodeDisplayName { get; set; }
@@ -51,7 +51,7 @@ public abstract class LightningWalletPageViewModel
     public ActionResultViewModel? Result { get; set; }
 }
 
-public class OverviewViewModel : LightningWalletPageViewModel
+public class OverviewViewModel : LightningManagerPageViewModel
 {
     public string? Alias { get; set; }
     public string? Version { get; set; }
@@ -85,14 +85,14 @@ public class SendResultDetailsViewModel
     public string? Preimage { get; init; }
 }
 
-public class SendViewModel : LightningWalletPageViewModel
+public class SendViewModel : LightningManagerPageViewModel
 {
     public string? Bolt11 { get; set; }
     public SendPreviewViewModel? Preview { get; set; }
     public SendResultDetailsViewModel? Payment { get; set; }
 }
 
-public class PeersViewModel : LightningWalletPageViewModel
+public class PeersViewModel : LightningManagerPageViewModel
 {
     public string? NodeUri { get; set; }
     public List<LightningPeerItemViewModel> Peers { get; } = [];
@@ -129,7 +129,7 @@ public class LightningChannelItemViewModel
     public bool IsPublic { get; init; }
 }
 
-public class ChannelsViewModel : LightningWalletPageViewModel
+public class ChannelsViewModel : LightningManagerPageViewModel
 {
     public string? NodeUri { get; set; }
     public string? ChannelAmountSats { get; set; }

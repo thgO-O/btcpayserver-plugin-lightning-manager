@@ -1,11 +1,11 @@
-@model LightningWalletTabsViewModel
+@model LightningManagerTabsViewModel
 
 <ul class="nav nav-tabs mb-4">
     @if (Model.ShowOverview)
     {
         <li class="nav-item">
-            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Overview ? "active" : "")"
-               asp-controller="LightningWallet"
+            <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Overview ? "active" : "")"
+               asp-controller="LightningManager"
                asp-action="Overview"
                asp-route-storeId="@Model.StoreId"
                asp-route-cryptoCode="@Model.CryptoCode">
@@ -16,8 +16,8 @@
     @if (Model.ShowSend)
     {
         <li class="nav-item">
-            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Send ? "active" : "")"
-               asp-controller="LightningWallet"
+            <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Send ? "active" : "")"
+               asp-controller="LightningManager"
                asp-action="Send"
                asp-route-storeId="@Model.StoreId"
                asp-route-cryptoCode="@Model.CryptoCode">
@@ -28,8 +28,8 @@
     @if (Model.ShowPeers)
     {
         <li class="nav-item">
-            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Peers ? "active" : "")"
-               asp-controller="LightningWallet"
+            <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Peers ? "active" : "")"
+               asp-controller="LightningManager"
                asp-action="Peers"
                asp-route-storeId="@Model.StoreId"
                asp-route-cryptoCode="@Model.CryptoCode">
@@ -40,8 +40,8 @@
     @if (Model.ShowChannels)
     {
         <li class="nav-item">
-            <a class="nav-link @(Model.ActivePage == LightningWalletNavPages.Channels ? "active" : "")"
-               asp-controller="LightningWallet"
+            <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Channels ? "active" : "")"
+               asp-controller="LightningManager"
                asp-action="Channels"
                asp-route-storeId="@Model.StoreId"
                asp-route-cryptoCode="@Model.CryptoCode">

@@ -1,7 +1,7 @@
-using BTCPayServer.Plugins.LightningWallet.Services;
+using BTCPayServer.Plugins.LightningManager.Services;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LightningWallet.Tests;
+namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningCapabilityServiceTests
 {

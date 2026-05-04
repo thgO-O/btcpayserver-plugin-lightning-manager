@@ -2,7 +2,7 @@
 using BTCPayServer;
 using BTCPayServer.Data;
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LightningWallet.Services;
+using BTCPayServer.Plugins.LightningManager.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NBitcoin;
@@ -10,7 +10,7 @@ using NBXplorer;
 using System.Runtime.CompilerServices;
 using System.Reflection;
 
-namespace BTCPayServer.Plugins.LightningWallet.Tests;
+namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 internal static class TestNetworkFactory
 {
@@ -174,11 +174,11 @@ internal class TestPeerResponse
     public long BytesRecv { get; init; }
 }
 
-internal sealed class FakeStoreLightningWalletContextFactory : IStoreLightningWalletContextFactory
+internal sealed class FakeStoreLightningManagerContextFactory : IStoreLightningManagerContextFactory
 {
-    public required StoreLightningWalletContext Context { get; init; }
+    public required StoreLightningManagerContext Context { get; init; }
 
-    public Task<StoreLightningWalletContext> CreateAsync(
+    public Task<StoreLightningManagerContext> CreateAsync(
         StoreData store,
         string cryptoCode,
         System.Security.Claims.ClaimsPrincipal user,
@@ -191,7 +191,7 @@ internal sealed class FakeStoreLightningWalletContextFactory : IStoreLightningWa
 
 internal static class TestContextFactory
 {
-    public static StoreLightningWalletContext CreateConfigured(
+    public static StoreLightningManagerContext CreateConfigured(
         LightningCapabilities capabilities,
         ILightningClient? client = null,
         bool isInternalNode = false,
@@ -200,7 +200,7 @@ internal static class TestContextFactory
         string? sharedBackendNotice = null,
         string? connectionString = null)
     {
-        return new StoreLightningWalletContext
+        return new StoreLightningManagerContext
         {
             Store = new StoreData { Id = "store-1", StoreName = "Test Store" },
             StoreId = "store-1",
@@ -220,11 +220,11 @@ internal static class TestContextFactory
 
 internal static class TestControllerFactory
 {
-    public static Controllers.LightningWalletController CreateController(StoreLightningWalletContext context)
+    public static Controllers.LightningManagerController CreateController(StoreLightningManagerContext context)
     {
-        var controller = new Controllers.LightningWalletController(
-            new FakeStoreLightningWalletContextFactory { Context = context },
-            new LightningWalletService());
+        var controller = new Controllers.LightningManagerController(
+            new FakeStoreLightningManagerContextFactory { Context = context },
+            new LightningManagerService());
 
         var httpContext = new DefaultHttpContext();
         httpContext.SetStoreData(context.Store);

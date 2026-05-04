@@ -1,12 +1,12 @@
 using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Hosting;
-using BTCPayServer.Plugins.LightningWallet.Services;
+using BTCPayServer.Plugins.LightningManager.Services;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace BTCPayServer.Plugins.LightningWallet;
+namespace BTCPayServer.Plugins.LightningManager;
 
-public class LightningWalletPlugin : BaseBTCPayServerPlugin
+public class LightningManagerPlugin : BaseBTCPayServerPlugin
 {
     public override IBTCPayServerPlugin.PluginDependency[] Dependencies { get; } =
     [
@@ -18,8 +18,8 @@ public class LightningWalletPlugin : BaseBTCPayServerPlugin
         var plugins = (PluginServiceCollection)services;
 
         plugins.AddSingleton<ILightningCapabilityService, LightningCapabilityService>();
-        plugins.AddScoped<IStoreLightningWalletContextFactory, StoreLightningWalletContextFactory>();
-        plugins.AddSingleton<ILightningWalletService, LightningWalletService>();
-        plugins.AddUIExtension("lightning-nav", "LightningWallet/LightningWalletNav");
+        plugins.AddScoped<IStoreLightningManagerContextFactory, StoreLightningManagerContextFactory>();
+        plugins.AddSingleton<ILightningManagerService, LightningManagerService>();
+        plugins.AddUIExtension("lightning-nav", "LightningManager/LightningManagerNav");
     }
 }

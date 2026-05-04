@@ -1,19 +1,19 @@
 using BTCPayServer.Lightning;
-using BTCPayServer.Plugins.LightningWallet.Services;
-using BTCPayServer.Plugins.LightningWallet.ViewModels;
+using BTCPayServer.Plugins.LightningManager.Services;
+using BTCPayServer.Plugins.LightningManager.ViewModels;
 using NBitcoin;
 using Xunit;
 
-namespace BTCPayServer.Plugins.LightningWallet.Tests;
+namespace BTCPayServer.Plugins.LightningManager.Tests;
 
-public class LightningWalletServiceTests
+public class LightningManagerServiceTests
 {
     private const string ValidBolt11 =
         "lnbcrt20u1psd66dppp5m4ughz9keyptj80qcn35cx9w52p7gc8eyx4m6y5456jlhm04wfvsdqqcqzpgxqyz5vqsp5pdsxhsnrs69n940373fnec2zxw5yzlksnev40ejcq39lnju5lt3s9qyyssqpq760qvf46y3cch948wau8e5ym0zungnqfvdx5wruy6f0hru2pp9txtc9up2lfc439a2xuz6nvgjw40vsddhywjpc5qmm0q3dj4m3dcqxzjjeg";
     private const string SharedInternalNodeReadOnlyMessage =
-        "Wallet actions are disabled for stores using the server's shared internal Lightning node.";
+        "Lightning actions are disabled for stores using the server's shared internal Lightning node.";
 
-    private readonly LightningWalletService _service = new();
+    private readonly LightningManagerService _service = new();
 
     [Fact]
     public void TryCreateSendPreview_WithInvalidBolt11_ReturnsFriendlyError()
@@ -40,7 +40,7 @@ public class LightningWalletServiceTests
     [Fact]
     public async Task SendAsync_WithUnknownPayResult_DoesNotMarkPaymentAsSuccessful()
     {
-        var service = new BypassingValidationLightningWalletService();
+        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Unknown))
@@ -58,7 +58,7 @@ public class LightningWalletServiceTests
     [Fact]
     public async Task SendAsync_WithProviderError_DoesNotExposeRawErrorDetail()
     {
-        var service = new BypassingValidationLightningWalletService();
+        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -251,7 +251,7 @@ public class LightningWalletServiceTests
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly());
 
-        var tabs = _service.CreateTabs(context, ViewModels.LightningWalletNavPages.Send);
+        var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Send);
 
         Assert.True(tabs.ShowSend);
         Assert.False(tabs.ShowPeers);
@@ -271,7 +271,7 @@ public class LightningWalletServiceTests
             isSharedBackend: true,
             isReadOnly: true);
 
-        var tabs = _service.CreateTabs(context, ViewModels.LightningWalletNavPages.Overview);
+        var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Overview);
 
         Assert.False(tabs.ShowSend);
         Assert.False(tabs.ShowPeers);
@@ -409,10 +409,10 @@ public class LightningWalletServiceTests
         Assert.Equal("This invoice has already expired.", error);
     }
 
-    private sealed class BypassingValidationLightningWalletService : LightningWalletService
+    private sealed class BypassingValidationLightningManagerService : LightningManagerService
     {
         public override bool TryCreateSendPreview(
-            StoreLightningWalletContext context,
+            StoreLightningManagerContext context,
             string? bolt11,
             out SendPreviewViewModel? preview,
             out string? error)

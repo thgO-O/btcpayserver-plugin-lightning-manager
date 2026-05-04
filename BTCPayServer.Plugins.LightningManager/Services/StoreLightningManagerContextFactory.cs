@@ -15,9 +15,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
-namespace BTCPayServer.Plugins.LightningWallet.Services;
+namespace BTCPayServer.Plugins.LightningManager.Services;
 
-public class StoreLightningWalletContext
+public class StoreLightningManagerContext
 {
     public required StoreData Store { get; init; }
     public required string StoreId { get; init; }
@@ -37,9 +37,9 @@ public class StoreLightningWalletContext
     public bool IsConfigured => Client is not null && string.IsNullOrEmpty(ConfigurationError);
 }
 
-public interface IStoreLightningWalletContextFactory
+public interface IStoreLightningManagerContextFactory
 {
-    Task<StoreLightningWalletContext> CreateAsync(
+    Task<StoreLightningManagerContext> CreateAsync(
         StoreData store,
         string cryptoCode,
         ClaimsPrincipal user,
@@ -47,7 +47,7 @@ public interface IStoreLightningWalletContextFactory
         CancellationToken cancellationToken = default);
 }
 
-public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFactory
+public class StoreLightningManagerContextFactory : IStoreLightningManagerContextFactory
 {
     private readonly BTCPayNetworkProvider _networkProvider;
     private readonly PaymentMethodHandlerDictionary _handlers;
@@ -56,7 +56,7 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
     private readonly IOptions<LightningNetworkOptions> _lightningNetworkOptions;
     private readonly IAuthorizationService _authorizationService;
 
-    public StoreLightningWalletContextFactory(
+    public StoreLightningManagerContextFactory(
         BTCPayNetworkProvider networkProvider,
         PaymentMethodHandlerDictionary handlers,
         LightningClientFactoryService lightningClientFactory,
@@ -72,7 +72,7 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
         _authorizationService = authorizationService;
     }
 
-    public virtual async Task<StoreLightningWalletContext> CreateAsync(
+    public virtual async Task<StoreLightningManagerContext> CreateAsync(
         StoreData store,
         string cryptoCode,
         ClaimsPrincipal user,
@@ -98,7 +98,7 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
             {
                 var client = _lightningClientFactory.Create(connectionString, network);
                 var capabilities = _lightningCapabilityService.GetCapabilities(client, connectionString, false);
-                return new StoreLightningWalletContext
+                return new StoreLightningManagerContext
                 {
                     Store = store,
                     StoreId = store.Id,
@@ -143,7 +143,7 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
         var backendCapabilities = _lightningCapabilityService.GetCapabilities(internalClient, null, true);
         var isReadOnly = !isServerAdmin;
 
-        return new StoreLightningWalletContext
+        return new StoreLightningManagerContext
         {
             Store = store,
             StoreId = store.Id,
@@ -157,12 +157,12 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
             Capabilities = isReadOnly ? CreateReadOnlyCapabilities(backendCapabilities) : backendCapabilities,
             DisplayName = "Internal node",
             SharedBackendNotice = isReadOnly
-                ? "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Wallet actions are disabled for non-admin users."
-                : "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Wallet actions here affect every store using this backend."
+                ? "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Lightning actions are disabled for non-admin users."
+                : "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Lightning actions here affect every store using this backend."
         };
     }
 
-    private StoreLightningWalletContext CreateUnavailableContext(
+    private StoreLightningManagerContext CreateUnavailableContext(
         StoreData store,
         string cryptoCode,
         string configurationError,
@@ -171,7 +171,7 @@ public class StoreLightningWalletContextFactory : IStoreLightningWalletContextFa
         string? connectionString = null,
         bool isInternalNode = false)
     {
-        return new StoreLightningWalletContext
+        return new StoreLightningManagerContext
         {
             Store = store,
             StoreId = store.Id,

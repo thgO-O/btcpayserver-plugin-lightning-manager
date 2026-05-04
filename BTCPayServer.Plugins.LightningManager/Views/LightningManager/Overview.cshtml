@@ -1,9 +1,9 @@
 @model OverviewViewModel
 
-<partial name="LightningWallet/_SectionTabs" model="Model.Tabs" />
+<partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
 
 <div class="sticky-header">
-    <h2>@Model.CryptoCode Lightning Wallet</h2>
+    <h2>@Model.CryptoCode Lightning Manager</h2>
 </div>
 
 @if (!Model.IsConfigured)
@@ -23,7 +23,7 @@
 
 <div class="mb-4">
     <h3 class="h5">Capabilities</h3>
-    <partial name="LightningWallet/_CapabilityBadges" model="Model.Capabilities" />
+    <partial name="LightningManager/_CapabilityBadges" model="Model.Capabilities" />
 </div>
 
 <div class="row g-4">
