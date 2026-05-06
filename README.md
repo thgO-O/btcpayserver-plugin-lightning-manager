@@ -20,8 +20,8 @@ peer or channel actions.
 
 - BTCPay Server `2.3.7` or newer.
 - .NET `10.0` SDK for local development.
-- A sibling BTCPay Server source tree at `../btcpayserver` when building from
-  this repository.
+- The BTCPay Server submodule initialized at `submodules/btcpayserver` when
+  building from this repository.
 
 ## Provider Support
 
@@ -103,6 +103,12 @@ Recommended release sign-off:
 
 ## Build
 
+Initialize the BTCPay Server submodule first:
+
+```bash
+git submodule update --init --recursive
+```
+
 ```bash
 dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj
 ```
@@ -125,7 +131,7 @@ Build the plugin in Release mode first, then run the BTCPay plugin packer from
 the sibling BTCPay Server repository:
 
 ```bash
-dotnet ../btcpayserver/BTCPayServer.PluginPacker/bin/Release/net10.0/BTCPayServer.PluginPacker.dll \
+dotnet submodules/btcpayserver/BTCPayServer.PluginPacker/bin/Release/net10.0/BTCPayServer.PluginPacker.dll \
   BTCPayServer.Plugins.LightningManager/bin/Release/net10.0 \
   BTCPayServer.Plugins.LightningManager \
   artifacts/plugin-packages
