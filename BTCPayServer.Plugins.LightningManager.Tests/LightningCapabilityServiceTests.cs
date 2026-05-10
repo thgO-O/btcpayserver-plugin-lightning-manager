@@ -56,7 +56,7 @@ public class LightningCapabilityServiceTests
     }
 
     [Fact]
-    public void LnbankCapabilities_AreFull()
+    public void LnbankCapabilities_ArePayFocused()
     {
         var capabilities = _service.GetCapabilities(
             new FakeLightningClient(),
@@ -66,8 +66,24 @@ public class LightningCapabilityServiceTests
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
         Assert.True(capabilities.CanPayBolt11);
-        Assert.True(capabilities.CanConnectPeer);
-        Assert.True(capabilities.CanOpenChannel);
-        Assert.True(capabilities.CanListChannels);
+        Assert.False(capabilities.CanConnectPeer);
+        Assert.False(capabilities.CanOpenChannel);
+        Assert.False(capabilities.CanListChannels);
+    }
+
+    [Fact]
+    public void LndHubClientType_DoesNotInferFullLndCapabilities()
+    {
+        var capabilities = _service.GetCapabilities(
+            new LndHubLikeLightningClient(),
+            null,
+            false);
+
+        Assert.True(capabilities.CanGetInfo);
+        Assert.True(capabilities.CanGetBalance);
+        Assert.True(capabilities.CanPayBolt11);
+        Assert.False(capabilities.CanConnectPeer);
+        Assert.False(capabilities.CanOpenChannel);
+        Assert.False(capabilities.CanListChannels);
     }
 }

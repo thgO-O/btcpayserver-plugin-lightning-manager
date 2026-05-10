@@ -1,3 +1,4 @@
+using System.Globalization;
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
@@ -20,7 +21,7 @@ public class LightningManagerServiceTests
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
 
-        var ok = _service.TryCreateSendPreview(context, "not-a-bolt11", out _, out var error);
+        var ok = _service.TryCreateSendPreview(context, "not-a-bolt11", null, out _, out var error);
 
         Assert.False(ok);
         Assert.Equal("The BOLT11 invoice is invalid.", error);
@@ -47,7 +48,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test");
+        var result = await service.SendAsync(context, "lnbcrt1test", null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
@@ -66,7 +67,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test");
+        var result = await service.SendAsync(context, "lnbcrt1test", null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Lightning payment failed.", result.Result.Message);
@@ -74,145 +75,141 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task PopulatePeersAsync_WithPeerListingSupport_PopulatesPeerTable()
+    public async Task SendAsync_UsesExplicitMaximumFee()
     {
-        var client = new LndLikePeerListingClient
+        var service = new BypassingValidationLightningManagerService();
+        PayInvoiceParams? capturedParams = null;
+        var client = new FakeLightningClient
         {
-            ListPeersHandler = _ => Task.FromResult(new TestPeerListResponse
+            PayBolt11WithParamsHandler = (_, payParams, _) =>
             {
-                Peers =
-                [
-                    new TestPeerResponse
-                    {
-                        PubKey = "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        Address = "127.0.0.1:9735",
-                        Inbound = false,
-                        BytesSent = 321,
-                        BytesRecv = 654
-                    }
-                ]
-            })
-        };
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
-        var model = new ViewModels.PeersViewModel();
-
-        await _service.PopulatePeersAsync(model, context);
-
-        var peer = Assert.Single(model.Peers);
-        Assert.Equal("02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", peer.NodeId);
-        Assert.Equal("127.0.0.1:9735", peer.Address);
-        Assert.Equal("Outbound", peer.Direction);
-        Assert.Equal("321 bytes", peer.BytesSentDisplay);
-        Assert.Equal("654 bytes", peer.BytesReceivedDisplay);
-        Assert.Null(model.PeerListMessage);
-    }
-
-    [Fact]
-    public async Task PopulatePeersAsync_WithNestedPeerListingSupport_PopulatesPeerTable()
-    {
-        var client = new WrappedPeerListingClient
-        {
-            Api = new WrappedPeerListingApi
-            {
-                ListPeersHandler = _ => Task.FromResult(new TestPeerListResponse
-                {
-                    Peers =
-                    [
-                        new TestPeerResponse
-                        {
-                            PubKey = "03cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-                            Address = "172.22.0.5:9735",
-                            Inbound = true,
-                            BytesSent = 11,
-                            BytesRecv = 22
-                        }
-                    ]
-                })
+                capturedParams = payParams;
+                return Task.FromResult(new PayResponse(PayResult.Ok));
             }
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
-        var model = new ViewModels.PeersViewModel();
 
-        await _service.PopulatePeersAsync(model, context);
+        var result = await service.SendAsync(context, "lnbcrt1test", "21");
 
-        var peer = Assert.Single(model.Peers);
-        Assert.Equal("03cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", peer.NodeId);
-        Assert.Equal("Inbound", peer.Direction);
-        Assert.Equal("11 bytes", peer.BytesSentDisplay);
-        Assert.Equal("22 bytes", peer.BytesReceivedDisplay);
+        Assert.True(result.Result.IsSuccess);
+        Assert.NotNull(capturedParams);
+        Assert.Equal(21, capturedParams!.MaxFeeFlat!.Satoshi);
     }
 
     [Fact]
-    public async Task PopulatePeersAsync_WithDeeplyNestedPeerListingSupport_PopulatesPeerTable()
+    public void TryCreateSendPreview_WithInvalidMaxFee_ReturnsFriendlyError()
     {
-        var client = new DeepWrappedPeerListingClient
-        {
-            Layer = new DeepWrappedPeerListingLayer
-            {
-                Api = new WrappedPeerListingApi
-                {
-                    ListPeersHandler = _ => Task.FromResult(new TestPeerListResponse
-                    {
-                        Peers =
-                        [
-                            new TestPeerResponse
-                            {
-                                PubKey = "02dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                                Address = "10.0.0.2:9735",
-                                Inbound = false,
-                                BytesSent = 7,
-                                BytesRecv = 9
-                            }
-                        ]
-                    })
-                }
-            }
-        };
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
-        var model = new ViewModels.PeersViewModel();
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
 
-        await _service.PopulatePeersAsync(model, context);
+        var ok = _service.TryCreateSendPreview(context, "lnbc1test", "-1", out _, out var error);
 
-        var peer = Assert.Single(model.Peers);
-        Assert.Equal("02dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", peer.NodeId);
-        Assert.Equal("10.0.0.2:9735", peer.Address);
+        Assert.False(ok);
+        Assert.Equal("Maximum fee must be a non-negative whole number of sats.", error);
     }
 
     [Fact]
-    public async Task PopulatePeersAsync_WithSnakeCasePeerListingSupport_PopulatesPeerTable()
+    public async Task SendAsync_WhenPayThrowsAndPaymentIsUnknown_ReturnsUnknown()
     {
-        var client = new SnakeCasePeerListingClient
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
         {
-            ListPeersHandler = _ => Task.FromResult(new SnakeCasePeerListResponse
+            PayBolt11Handler = (_, _) => throw new TimeoutException("timed out"),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
             {
-                peers =
-                [
-                    new SnakeCasePeerResponse
-                    {
-                        pub_key = "02350414cb759398e4a24aa6d8baee23daa9d937dade63c00fb2f94fa0b9d36aca",
-                        address = "172.22.0.5:9735",
-                        inbound = false,
-                        bytes_sent = "13922",
-                        bytes_recv = "12378"
-                    }
-                ]
+                Status = LightningPaymentStatus.Unknown,
+                PaymentHash = "test-hash"
             })
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
-        var model = new ViewModels.PeersViewModel();
 
-        await _service.PopulatePeersAsync(model, context);
+        var result = await service.SendAsync(context, "lnbcrt1test", null);
 
-        var peer = Assert.Single(model.Peers);
-        Assert.Equal("02350414cb759398e4a24aa6d8baee23daa9d937dade63c00fb2f94fa0b9d36aca", peer.NodeId);
-        Assert.Equal("172.22.0.5:9735", peer.Address);
-        Assert.Equal("Outbound", peer.Direction);
-        Assert.Equal("13922 bytes", peer.BytesSentDisplay);
-        Assert.Equal("12378 bytes", peer.BytesReceivedDisplay);
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
+        Assert.NotNull(result.Payment);
+        Assert.Equal(LightningPaymentStatus.Unknown, result.Payment.Status);
     }
 
     [Fact]
-    public async Task PopulatePeersAsync_WithoutPeerListingSupport_ShowsUnavailableMessage()
+    public async Task SendAsync_WhenPayThrowsAndPaymentCompleted_ReturnsSuccess()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => throw new TimeoutException("timed out"),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Complete,
+                PaymentHash = "test-hash",
+                AmountSent = LightMoney.Satoshis(2),
+                Fee = new LightMoney(100),
+                Preimage = "preimage"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null);
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal("Payment sent successfully.", result.Result.Message);
+        Assert.NotNull(result.Payment);
+        Assert.Equal(LightningPaymentStatus.Complete, result.Payment.Status);
+        Assert.Equal("test-hash", result.Payment.PaymentHash);
+        Assert.Equal("preimage", result.Payment.Preimage);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenPayReturnsErrorButPaymentCompleted_ReturnsSuccess()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Error)),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Complete,
+                PaymentHash = "test-hash",
+                AmountSent = LightMoney.Satoshis(2),
+                Fee = new LightMoney(100),
+                Preimage = "preimage"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null);
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal("Payment sent successfully.", result.Result.Message);
+        Assert.NotNull(result.Payment);
+        Assert.Equal(LightningPaymentStatus.Complete, result.Payment.Status);
+        Assert.Equal("test-hash", result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenPayReturnsRouteFailureButPaymentPending_ReturnsUnknown()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.CouldNotFindRoute)),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Pending,
+                PaymentHash = "test-hash"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
+        Assert.NotNull(result.Payment);
+        Assert.Equal(LightningPaymentStatus.Pending, result.Payment.Status);
+    }
+
+    [Fact]
+    public async Task PopulatePeersAsync_ShowsUnavailableMessage()
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
         var model = new ViewModels.PeersViewModel();
@@ -220,6 +217,22 @@ public class LightningManagerServiceTests
         await _service.PopulatePeersAsync(model, context);
 
         Assert.Equal("Peer listing is not available for this backend.", model.PeerListMessage);
+    }
+
+    [Fact]
+    public async Task PopulatePeersAsync_WithReadOnlySharedInternalNode_DoesNotListNodePeers()
+    {
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.None,
+            new FakeLightningClient(),
+            isInternalNode: true,
+            isSharedBackend: true,
+            isReadOnly: true);
+        var model = new ViewModels.PeersViewModel();
+
+        await _service.PopulatePeersAsync(model, context);
+
+        Assert.Equal(SharedInternalNodeReadOnlyMessage, model.PeerListMessage);
     }
 
     [Fact]
@@ -247,6 +260,31 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
+    public void TryCreateOpenChannelPreview_ParsesFeeRateWithInvariantCulture()
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUICulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pt-BR");
+            CultureInfo.CurrentUICulture = new CultureInfo("pt-BR");
+            var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
+            const string nodeUri = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735";
+
+            var ok = _service.TryCreateOpenChannelPreview(context, nodeUri, "25000", "1.5", out var preview, out var error);
+
+            Assert.True(ok, error);
+            Assert.NotNull(preview);
+            Assert.Equal("1.5 sat/vB", preview.FeeRateDisplay);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUICulture;
+        }
+    }
+
+    [Fact]
     public void CreateTabs_WithPayOnlyCapabilities_HidesPeerAndChannelTabs()
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly());
@@ -254,6 +292,7 @@ public class LightningManagerServiceTests
         var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Send);
 
         Assert.True(tabs.ShowSend);
+        Assert.False(tabs.ShowHistory);
         Assert.False(tabs.ShowPeers);
         Assert.False(tabs.ShowChannels);
     }
@@ -273,6 +312,28 @@ public class LightningManagerServiceTests
 
         var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Overview);
 
+        Assert.False(tabs.ShowOverview);
+        Assert.True(tabs.ShowStoreBalance);
+        Assert.True(tabs.ShowHistory);
+        Assert.False(tabs.ShowSend);
+        Assert.False(tabs.ShowPeers);
+        Assert.False(tabs.ShowChannels);
+    }
+
+    [Fact]
+    public void CreateTabs_WithInternalNode_HidesGlobalNodeActions()
+    {
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            isInternalNode: true,
+            isSharedBackend: true,
+            isReadOnly: false);
+
+        var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.StoreBalance);
+
+        Assert.False(tabs.ShowOverview);
+        Assert.True(tabs.ShowStoreBalance);
+        Assert.True(tabs.ShowHistory);
         Assert.False(tabs.ShowSend);
         Assert.False(tabs.ShowPeers);
         Assert.False(tabs.ShowChannels);
@@ -287,7 +348,7 @@ public class LightningManagerServiceTests
             isSharedBackend: true,
             isReadOnly: true);
 
-        var ok = _service.TryCreateSendPreview(context, "lnbc1test", out _, out var error);
+        var ok = _service.TryCreateSendPreview(context, "lnbc1test", null, out _, out var error);
 
         Assert.False(ok);
         Assert.Equal(SharedInternalNodeReadOnlyMessage, error);
@@ -326,6 +387,30 @@ public class LightningManagerServiceTests
         Assert.Contains(model.OffchainBalanceRows, row => row.Label == "Remote");
         Assert.DoesNotContain(model.OnchainBalanceRows, row => row.Label == "Reserved");
         Assert.DoesNotContain(model.Notices, notice => notice.StartsWith("Could not load balances:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WithChannelListingSupport_DerivesChannelCountsFromListChannels()
+    {
+        var client = new FakeLightningClient
+        {
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel { IsActive = true },
+                new LightningChannel { IsActive = false }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities { CanListChannels = true },
+            client);
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(1, model.ActiveChannelsCount);
+        Assert.Equal(1, model.InactiveChannelsCount);
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "1");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "1");
     }
 
     [Fact]
@@ -372,6 +457,40 @@ public class LightningManagerServiceTests
 
         var channel = Assert.Single(model.Channels);
         Assert.Equal("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", channel.RemoteNode);
+        Assert.Equal("20,000 sats", channel.CapacityDisplay);
+        Assert.Equal("12,000 sats", channel.LocalBalanceDisplay);
+        Assert.Equal("8,000 sats", channel.RemoteBalanceDisplay);
+    }
+
+    [Fact]
+    public async Task PopulateChannelsAsync_WhenLocalBalanceExceedsCapacity_ClampsDisplay()
+    {
+        var client = new FakeLightningClient
+        {
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel
+                {
+                    RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
+                    IsPublic = false,
+                    IsActive = true,
+                    Capacity = LightMoney.Satoshis(20_000),
+                    LocalBalance = LightMoney.Satoshis(25_000),
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var model = new ViewModels.ChannelsViewModel();
+
+        await _service.PopulateChannelsAsync(model, context);
+
+        var channel = Assert.Single(model.Channels);
+        Assert.Equal(20_000m, channel.CapacitySats);
+        Assert.Equal(20_000m, channel.LocalBalanceSats);
+        Assert.Equal(0m, channel.RemoteBalanceSats);
+        Assert.Equal("20,000 sats", channel.LocalBalanceDisplay);
+        Assert.Equal("0 sats", channel.RemoteBalanceDisplay);
     }
 
     [Fact]
@@ -402,7 +521,7 @@ public class LightningManagerServiceTests
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
 
-        var ok = _service.TryCreateSendPreview(context, ValidBolt11, out var preview, out var error);
+        var ok = _service.TryCreateSendPreview(context, ValidBolt11, null, out var preview, out var error);
 
         Assert.False(ok);
         Assert.Null(preview);
@@ -414,13 +533,21 @@ public class LightningManagerServiceTests
         public override bool TryCreateSendPreview(
             StoreLightningManagerContext context,
             string? bolt11,
+            string? maxFeeSats,
             out SendPreviewViewModel? preview,
             out string? error)
         {
+            var maxFeeDisplay = string.IsNullOrWhiteSpace(maxFeeSats)
+                ? LightningManagerDefaults.SendMaxFeeSats.ToString(CultureInfo.InvariantCulture)
+                : maxFeeSats;
             preview = new SendPreviewViewModel
             {
                 Bolt11 = bolt11 ?? string.Empty,
                 AmountDisplay = "1 sat",
+                MaxFeeSats = string.IsNullOrWhiteSpace(maxFeeSats)
+                    ? LightningManagerDefaults.SendMaxFeeSats
+                    : long.Parse(maxFeeSats, CultureInfo.InvariantCulture),
+                MaxFeeDisplay = $"{maxFeeDisplay} sats",
                 Description = "Test invoice",
                 PaymentHash = "test-hash",
                 Payee = "test-payee",

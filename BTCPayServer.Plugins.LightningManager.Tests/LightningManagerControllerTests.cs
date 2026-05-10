@@ -1,18 +1,14 @@
+using BTCPayServer.Abstractions.Constants;
+using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.AspNetCore.Mvc;
-using NBitcoin;
 using Xunit;
 
 namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningManagerControllerTests
 {
-    private const string SharedBackendNotice =
-        "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Lightning actions are disabled for non-admin users.";
-    private const string SharedInternalNodeReadOnlyMessage =
-        "Lightning actions are disabled for stores using the server's shared internal Lightning node.";
-
     [Fact]
     public async Task SendPage_UsesCapabilityDrivenTabs()
     {
@@ -29,28 +25,95 @@ public class LightningManagerControllerTests
     }
 
     [Fact]
-    public async Task SendPage_WithReadOnlySharedInternalNode_ShowsNoticeAndHidesMutatingTabs()
+    public async Task OverviewPage_WithInternalNode_RedirectsToStoreBalance()
     {
         var controller = TestControllerFactory.CreateController(
             TestContextFactory.CreateConfigured(
-                new LightningCapabilities
-                {
-                    CanGetInfo = true,
-                    CanGetBalance = true
-                },
+                LightningCapabilities.None,
                 isInternalNode: true,
                 isSharedBackend: true,
-                isReadOnly: true,
-                sharedBackendNotice: SharedBackendNotice));
+                isReadOnly: true));
 
-        var result = await controller.Send("BTC", CancellationToken.None);
+        var result = await controller.Overview("BTC", CancellationToken.None);
+
+        AssertRedirectsToStoreBalance(result);
+    }
+
+    [Fact]
+    public async Task StoreBalance_WithInternalNode_ShowsStoreScopedTabsOnly()
+    {
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(
+                LightningCapabilities.None,
+                isInternalNode: true,
+                isSharedBackend: true,
+                isReadOnly: true));
+
+        var result = await controller.StoreBalance("BTC", CancellationToken.None);
 
         var view = Assert.IsType<ViewResult>(result);
-        var model = Assert.IsType<SendViewModel>(view.Model);
-        Assert.Contains(SharedBackendNotice, model.Notices);
+        var model = Assert.IsType<StoreBalanceViewModel>(view.Model);
+        Assert.False(model.Tabs.ShowOverview);
+        Assert.True(model.Tabs.ShowStoreBalance);
+        Assert.True(model.Tabs.ShowHistory);
         Assert.False(model.Tabs.ShowSend);
         Assert.False(model.Tabs.ShowPeers);
         Assert.False(model.Tabs.ShowChannels);
+    }
+
+    [Fact]
+    public async Task History_WithInternalNode_ReturnsStoreHistory()
+    {
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(
+                LightningCapabilities.None,
+                isInternalNode: true,
+                isSharedBackend: true,
+                isReadOnly: true));
+
+        var result = await controller.History("BTC", null, null, null, null, null, CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<StoreHistoryViewModel>(view.Model);
+        Assert.Equal(ViewModels.LightningManagerNavPages.History, model.Tabs.ActivePage);
+        Assert.True(model.Tabs.ShowStoreBalance);
+        Assert.True(model.Tabs.ShowHistory);
+        Assert.False(model.Tabs.ShowSend);
+        Assert.True(model.AccountEnabled);
+    }
+
+    [Fact]
+    public async Task History_WithExternalNode_RedirectsToOverview()
+    {
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.Full));
+
+        var result = await controller.History("BTC", null, null, null, null, null, CancellationToken.None);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Overview", redirect.ActionName);
+        Assert.NotNull(redirect.RouteValues);
+        Assert.Equal("store-1", redirect.RouteValues!["storeId"]);
+        Assert.Equal("BTC", redirect.RouteValues!["cryptoCode"]);
+    }
+
+    [Fact]
+    public async Task StoreBalance_WithStoreOwner_ShowsPayWithoutServerAdmin()
+    {
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(
+                LightningCapabilities.None,
+                isInternalNode: true,
+                isSharedBackend: true,
+                isReadOnly: true),
+            BTCPayServer.Client.Policies.CanModifyStoreSettings);
+
+        var result = await controller.StoreBalance("BTC", CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<StoreBalanceViewModel>(view.Model);
+        Assert.True(model.AccountEnabled);
+        Assert.False(model.IsServerAdmin);
     }
 
     [Fact]
@@ -67,71 +130,44 @@ public class LightningManagerControllerTests
     }
 
     [Fact]
-    public async Task ConnectPeer_WithInvalidNodeUri_ReturnsFailureOnModel()
+    public async Task ConnectPeer_WithInvalidNodeUri_RedirectsWithErrorMessage()
     {
         var controller = TestControllerFactory.CreateController(
             TestContextFactory.CreateConfigured(LightningCapabilities.Full));
 
         var result = await controller.ConnectPeer("BTC", "invalid-node-uri", CancellationToken.None);
 
-        var view = Assert.IsType<ViewResult>(result);
-        var model = Assert.IsType<PeersViewModel>(view.Model);
-        Assert.NotNull(model.Result);
-        Assert.False(model.Result!.IsSuccess);
-        Assert.Equal("The node URI is invalid. Use pubkey@host[:port].", model.Result.Message);
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("Peers", redirect.ActionName);
+        Assert.Equal("The node URI is invalid. Use pubkey@host[:port].", controller.TempData[WellKnownTempData.ErrorMessage]);
     }
 
     [Fact]
-    public async Task PeersPage_WithPeerListingSupport_ShowsConnectedPeers()
+    public async Task PeersPage_ShowsUnavailableMessage()
     {
-        var client = new LndLikePeerListingClient
-        {
-            ListPeersHandler = _ => Task.FromResult(new TestPeerListResponse
-            {
-                Peers =
-                [
-                    new TestPeerResponse
-                    {
-                        PubKey = "02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                        Address = "172.22.0.5:9735",
-                        Inbound = true,
-                        BytesSent = 100,
-                        BytesRecv = 200
-                    }
-                ]
-            })
-        };
         var controller = TestControllerFactory.CreateController(
-            TestContextFactory.CreateConfigured(LightningCapabilities.Full, client));
+            TestContextFactory.CreateConfigured(LightningCapabilities.Full));
 
         var result = await controller.Peers("BTC", CancellationToken.None);
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<PeersViewModel>(view.Model);
-        var peer = Assert.Single(model.Peers);
-        Assert.Equal("02bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", peer.NodeId);
-        Assert.Equal("Inbound", peer.Direction);
-        Assert.Null(model.PeerListMessage);
+        Assert.Equal("Peer listing is not available for this backend.", model.PeerListMessage);
     }
 
     [Fact]
-    public async Task ConnectPeer_WithReadOnlySharedInternalNode_ReturnsFailureOnModel()
+    public async Task ConnectPeer_WithInternalNode_RedirectsToStoreBalance()
     {
         var controller = TestControllerFactory.CreateController(
             TestContextFactory.CreateConfigured(
-                LightningCapabilities.Full,
+                LightningCapabilities.None,
                 isInternalNode: true,
                 isSharedBackend: true,
-                isReadOnly: true,
-                sharedBackendNotice: SharedBackendNotice));
+                isReadOnly: true));
 
         var result = await controller.ConnectPeer("BTC", "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735", CancellationToken.None);
 
-        var view = Assert.IsType<ViewResult>(result);
-        var model = Assert.IsType<PeersViewModel>(view.Model);
-        Assert.NotNull(model.Result);
-        Assert.False(model.Result!.IsSuccess);
-        Assert.Equal(SharedInternalNodeReadOnlyMessage, model.Result.Message);
+        AssertRedirectsToStoreBalance(result);
     }
 
     [Fact]
@@ -140,7 +176,7 @@ public class LightningManagerControllerTests
         var controller = TestControllerFactory.CreateController(
             TestContextFactory.CreateConfigured(LightningCapabilities.Full));
 
-        var result = await controller.PreviewSend("BTC", "invalid", CancellationToken.None);
+        var result = await controller.PreviewSend("BTC", "invalid", null, CancellationToken.None);
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<SendViewModel>(view.Model);
@@ -149,4 +185,53 @@ public class LightningManagerControllerTests
         Assert.Equal("The BOLT11 invoice is invalid.", model.Result.Message);
     }
 
+    [Fact]
+    public async Task ExecuteSend_RedirectsAndNextSendPageShowsPaymentDetails()
+    {
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
+            new SuccessfulSendLightningManagerService());
+
+        var executeResult = await controller.ExecuteSend("BTC", "lnbcrt1test", null, CancellationToken.None);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(executeResult);
+        Assert.Equal("Send", redirect.ActionName);
+        var sendResult = await controller.Send("BTC", CancellationToken.None);
+        var view = Assert.IsType<ViewResult>(sendResult);
+        var model = Assert.IsType<SendViewModel>(view.Model);
+        Assert.NotNull(model.Payment);
+        Assert.Equal(LightningPaymentStatus.Complete, model.Payment!.Status);
+        Assert.False(string.IsNullOrWhiteSpace(model.Payment.PaymentHash));
+        Assert.Equal("preimage", model.Payment.Preimage);
+    }
+
+    private static void AssertRedirectsToStoreBalance(IActionResult result)
+    {
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal("StoreBalance", redirect.ActionName);
+        Assert.NotNull(redirect.RouteValues);
+        Assert.Equal("store-1", redirect.RouteValues!["storeId"]);
+        Assert.Equal("BTC", redirect.RouteValues!["cryptoCode"]);
+    }
+
+    private sealed class SuccessfulSendLightningManagerService : LightningManagerService
+    {
+        public override Task<SendExecutionResult> SendAsync(
+            StoreLightningManagerContext context,
+            string bolt11,
+            string? maxFeeSats,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new SendExecutionResult
+            {
+                Result = new ActionResultViewModel { IsSuccess = true, Message = "Payment sent successfully." },
+                Payment = new SendResultDetailsViewModel
+                {
+                    Status = LightningPaymentStatus.Complete,
+                    PaymentHash = "test-hash",
+                    Preimage = "preimage"
+                }
+            });
+        }
+    }
 }
