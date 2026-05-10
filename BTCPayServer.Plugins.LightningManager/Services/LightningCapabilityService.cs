@@ -23,8 +23,7 @@ public class LightningCapabilityService : ILightningCapabilityService
         CLightning,
         LndRest,
         LndGrpc,
-        Eclair,
-        Lnbank
+        Eclair
     };
 
     private static readonly HashSet<string> PayFocusedTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -33,6 +32,7 @@ public class LightningCapabilityService : ILightningCapabilityService
         "breez",
         "micro",
         "nwc",
+        Lnbank,
         Charge,
         LndHub
     };
@@ -150,6 +150,11 @@ public class LightningCapabilityService : ILightningCapabilityService
             return CLightning;
         }
 
+        if (typeName.Contains("LndHub", StringComparison.OrdinalIgnoreCase))
+        {
+            return LndHub;
+        }
+
         if (typeName.Contains("Lnd", StringComparison.OrdinalIgnoreCase))
         {
             return LndRest;
@@ -158,11 +163,6 @@ public class LightningCapabilityService : ILightningCapabilityService
         if (typeName.Contains("Eclair", StringComparison.OrdinalIgnoreCase))
         {
             return Eclair;
-        }
-
-        if (typeName.Contains("LndHub", StringComparison.OrdinalIgnoreCase))
-        {
-            return LndHub;
         }
 
         if (typeName.Contains("LNbank", StringComparison.OrdinalIgnoreCase))

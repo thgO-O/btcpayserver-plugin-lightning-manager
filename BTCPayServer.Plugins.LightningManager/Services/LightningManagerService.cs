@@ -1,6 +1,5 @@
 #nullable enable
-using System.Collections;
-using System.Reflection;
+using System.Globalization;
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using NBitcoin;
@@ -17,8 +16,8 @@ public interface ILightningManagerService
 {
     LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage);
     Task PopulateOverviewAsync(OverviewViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
-    bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, out SendPreviewViewModel? preview, out string? error);
-    Task<SendExecutionResult> SendAsync(StoreLightningManagerContext context, string bolt11, CancellationToken cancellationToken = default);
+    bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, string? maxFeeSats, out SendPreviewViewModel? preview, out string? error);
+    Task<SendExecutionResult> SendAsync(StoreLightningManagerContext context, string bolt11, string? maxFeeSats, CancellationToken cancellationToken = default);
     Task<ActionResultViewModel> ConnectPeerAsync(StoreLightningManagerContext context, string? nodeUri, CancellationToken cancellationToken = default);
     Task PopulatePeersAsync(PeersViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
     Task PopulateChannelsAsync(ChannelsViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
@@ -45,14 +44,18 @@ public class LightningManagerService : ILightningManagerService
 
     public virtual LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage)
     {
+        var showNodeActions = !context.IsInternalNode && !context.IsReadOnly;
         return new LightningManagerTabsViewModel
         {
             StoreId = context.StoreId,
             CryptoCode = context.CryptoCode,
             ActivePage = activePage,
-            ShowSend = !context.IsReadOnly && context.Capabilities.CanPayBolt11,
-            ShowPeers = !context.IsReadOnly && context.Capabilities.CanConnectPeer,
-            ShowChannels = !context.IsReadOnly && (context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel)
+            ShowOverview = !context.IsInternalNode,
+            ShowStoreBalance = context.IsInternalNode,
+            ShowHistory = context.IsInternalNode,
+            ShowSend = showNodeActions && context.Capabilities.CanPayBolt11,
+            ShowPeers = showNodeActions && context.Capabilities.CanConnectPeer,
+            ShowChannels = showNodeActions && (context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel)
         };
     }
 
@@ -91,6 +94,20 @@ public class LightningManagerService : ILightningManagerService
             catch (Exception)
             {
                 model.Notices.Add("Could not load node information.");
+            }
+        }
+
+        if (context.Capabilities.CanListChannels)
+        {
+            try
+            {
+                var channels = await context.Client.ListChannels(cancellationToken);
+                model.ActiveChannelsCount = channels.LongCount(channel => channel.IsActive);
+                model.InactiveChannelsCount = channels.LongCount(channel => !channel.IsActive);
+            }
+            catch
+            {
+                // Keep GetInfo channel counts when ListChannels is unavailable for a backend.
             }
         }
 
@@ -134,7 +151,12 @@ public class LightningManagerService : ILightningManagerService
         AddSummaryRow(model.SummaryRows, "Pending channels", model.PendingChannelsCount?.ToString());
     }
 
-    public virtual bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, out SendPreviewViewModel? preview, out string? error)
+    public virtual bool TryCreateSendPreview(
+        StoreLightningManagerContext context,
+        string? bolt11,
+        string? maxFeeSats,
+        out SendPreviewViewModel? preview,
+        out string? error)
     {
         preview = null;
         error = null;
@@ -163,6 +185,12 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
+        if (!TryParseMaxFeeSats(maxFeeSats, out var maxFee))
+        {
+            error = "Maximum fee must be a non-negative whole number of sats.";
+            return false;
+        }
+
         if (!BOLT11PaymentRequest.TryParse(bolt11.Trim(), out var paymentRequest, context.Network.NBitcoinNetwork) || paymentRequest is null)
         {
             error = "The BOLT11 invoice is invalid.";
@@ -181,12 +209,20 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
+        if (paymentRequest.PaymentHash is null)
+        {
+            error = "The BOLT11 invoice is missing a payment hash.";
+            return false;
+        }
+
         preview = new SendPreviewViewModel
         {
             Bolt11 = bolt11.Trim(),
             AmountDisplay = FormatLightMoney(paymentRequest.MinimumAmount),
+            MaxFeeSats = maxFee,
+            MaxFeeDisplay = FormatMoney(Money.Satoshis(maxFee)),
             Description = paymentRequest.ShortDescription ?? "No description",
-            PaymentHash = paymentRequest.PaymentHash?.ToString() ?? "Unavailable",
+            PaymentHash = paymentRequest.PaymentHash.ToString(),
             Payee = paymentRequest.GetPayeePubKey().ToString(),
             ExpiresAt = paymentRequest.ExpiryDate
         };
@@ -196,9 +232,10 @@ public class LightningManagerService : ILightningManagerService
     public virtual async Task<SendExecutionResult> SendAsync(
         StoreLightningManagerContext context,
         string bolt11,
+        string? maxFeeSats,
         CancellationToken cancellationToken = default)
     {
-        if (!TryCreateSendPreview(context, bolt11, out _, out var validationError))
+        if (!TryCreateSendPreview(context, bolt11, maxFeeSats, out var preview, out var validationError))
         {
             return new SendExecutionResult
             {
@@ -212,8 +249,23 @@ public class LightningManagerService : ILightningManagerService
 
         try
         {
-            var payResponse = await context.Client!.Pay(bolt11, cancellationToken);
+            var payResponse = await context.Client!.Pay(
+                bolt11,
+                new PayInvoiceParams
+                {
+                    MaxFeeFlat = Money.Satoshis(preview!.MaxFeeSats)
+                },
+                cancellationToken);
             var details = await TryLoadPaymentDetailsAsync(context.Client, bolt11, context.Network!.NBitcoinNetwork, payResponse, cancellationToken);
+            if (payResponse.Result != PayResult.Ok)
+            {
+                var knownPayment = await TryLoadPaymentAsync(context.Client, preview!.PaymentHash, CancellationToken.None);
+                var knownResult = ResolveKnownPaymentResult(preview.PaymentHash, knownPayment);
+                if (knownResult is not null)
+                {
+                    return knownResult;
+                }
+            }
 
             return payResponse.Result switch
             {
@@ -248,7 +300,7 @@ public class LightningManagerService : ILightningManagerService
                     Result = new ActionResultViewModel
                     {
                         IsSuccess = false,
-                        Message = NormalizePayError(payResponse.ErrorDetail)
+                        Message = LightningPaymentErrorMessages.NormalizePayError(payResponse.ErrorDetail)
                     }
                 },
                 _ => new SendExecutionResult
@@ -274,14 +326,17 @@ public class LightningManagerService : ILightningManagerService
         }
         catch (Exception)
         {
-            return new SendExecutionResult
-            {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = false,
-                    Message = "Lightning payment failed."
-                }
-            };
+            var payment = await TryLoadPaymentAsync(context.Client!, preview!.PaymentHash, CancellationToken.None);
+            return ResolveKnownPaymentResult(preview.PaymentHash, payment) ??
+                   new SendExecutionResult
+                   {
+                       Result = new ActionResultViewModel
+                       {
+                           IsSuccess = false,
+                           Message = "Payment status is unknown. Check the Lightning node before retrying."
+                       },
+                       Payment = CreatePaymentDetails(preview.PaymentHash, payment)
+                   };
         }
     }
 
@@ -330,7 +385,7 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    public virtual async Task PopulatePeersAsync(
+    public virtual Task PopulatePeersAsync(
         PeersViewModel model,
         StoreLightningManagerContext context,
         CancellationToken cancellationToken = default)
@@ -338,36 +393,17 @@ public class LightningManagerService : ILightningManagerService
         if (!context.IsConfigured || context.Client is null)
         {
             model.PeerListMessage = "Lightning is not available for this store.";
-            return;
+            return Task.CompletedTask;
         }
 
-        try
+        if (context.IsReadOnly)
         {
-            var peers = await TryListPeersAsync(context.Client, cancellationToken);
-            if (peers is null)
-            {
-                model.PeerListMessage = "Peer listing is not available for this backend.";
-                return;
-            }
+            model.PeerListMessage = SharedInternalNodeReadOnlyMessage;
+            return Task.CompletedTask;
+        }
 
-            foreach (var peer in peers.OrderBy(p => p.NodeId, StringComparer.OrdinalIgnoreCase))
-            {
-                model.Peers.Add(peer);
-            }
-
-            if (model.Peers.Count == 0)
-            {
-                model.PeerListMessage = "No peers found.";
-            }
-        }
-        catch (NotSupportedException)
-        {
-            model.PeerListMessage = "Peer listing is not available for this backend.";
-        }
-        catch (Exception)
-        {
-            model.PeerListMessage = "Could not load peers.";
-        }
+        model.PeerListMessage = "Peer listing is not available for this backend.";
+        return Task.CompletedTask;
     }
 
     public virtual async Task PopulateChannelsAsync(
@@ -400,16 +436,18 @@ public class LightningManagerService : ILightningManagerService
                          .OrderByDescending(c => c.IsActive)
                          .ThenByDescending(c => c.Capacity))
             {
-                var remoteBalance = channel.Capacity - channel.LocalBalance;
+                var capacity = new LightMoney(Math.Max(0, channel.Capacity.MilliSatoshi));
+                var localBalance = new LightMoney(Math.Clamp(channel.LocalBalance.MilliSatoshi, 0, capacity.MilliSatoshi));
+                var remoteBalance = capacity - localBalance;
                 model.Channels.Add(new LightningChannelItemViewModel
                 {
                     RemoteNode = channel.RemoteNode.ToString(),
                     ChannelPoint = channel.ChannelPoint.ToString(),
-                    CapacitySats = channel.Capacity.ToUnit(LightMoneyUnit.Satoshi),
-                    LocalBalanceSats = channel.LocalBalance.ToUnit(LightMoneyUnit.Satoshi),
+                    CapacitySats = capacity.ToUnit(LightMoneyUnit.Satoshi),
+                    LocalBalanceSats = localBalance.ToUnit(LightMoneyUnit.Satoshi),
                     RemoteBalanceSats = remoteBalance.ToUnit(LightMoneyUnit.Satoshi),
-                    CapacityDisplay = FormatLightMoney(channel.Capacity),
-                    LocalBalanceDisplay = FormatLightMoney(channel.LocalBalance),
+                    CapacityDisplay = FormatLightMoney(capacity),
+                    LocalBalanceDisplay = FormatLightMoney(localBalance),
                     RemoteBalanceDisplay = FormatLightMoney(remoteBalance),
                     IsActive = channel.IsActive,
                     IsPublic = channel.IsPublic
@@ -451,7 +489,7 @@ public class LightningManagerService : ILightningManagerService
         {
             NodeUri = request!.NodeInfo.ToString(),
             ChannelAmountDisplay = FormatMoney(request.ChannelAmount),
-            FeeRateDisplay = $"{request.FeeRate.SatoshiPerByte:0.########} sat/vB"
+            FeeRateDisplay = $"{request.FeeRate.SatoshiPerByte.ToString("0.########", CultureInfo.InvariantCulture)} sat/vB"
         };
         return true;
     }
@@ -531,13 +569,13 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
-        if (!long.TryParse(channelAmountSats?.Trim(), out var sats) || sats <= 0)
+        if (!TryParseChannelAmount(channelAmountSats, out var channelAmount))
         {
             error = "Channel amount must be a positive whole number of sats.";
             return false;
         }
 
-        if (IsLndClient(context.Client) && sats < MinimumLndChannelAmountSats)
+        if (IsLndClient(context.Client) && channelAmount.Satoshi < MinimumLndChannelAmountSats)
         {
             error = $"Channel amount must be at least {MinimumLndChannelAmountSats} sats for LND backends.";
             return false;
@@ -552,10 +590,65 @@ public class LightningManagerService : ILightningManagerService
         request = new OpenChannelRequest
         {
             NodeInfo = nodeInfo,
-            ChannelAmount = Money.Satoshis(sats),
+            ChannelAmount = channelAmount,
             FeeRate = feeRate
         };
         return true;
+    }
+
+    private static bool TryParseMaxFeeSats(string? maxFeeSats, out long sats)
+    {
+        if (string.IsNullOrWhiteSpace(maxFeeSats))
+        {
+            sats = LightningManagerDefaults.SendMaxFeeSats;
+            return true;
+        }
+
+        if (!long.TryParse(
+                maxFeeSats.Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out sats) ||
+            sats < 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            Money.Satoshis(sats);
+            return true;
+        }
+        catch
+        {
+            sats = 0;
+            return false;
+        }
+    }
+
+    private static bool TryParseChannelAmount(string? channelAmountSats, out Money channelAmount)
+    {
+        channelAmount = Money.Zero;
+        if (!long.TryParse(
+                channelAmountSats?.Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var sats) ||
+            sats <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            channelAmount = Money.Satoshis(sats);
+            return true;
+        }
+        catch
+        {
+            channelAmount = Money.Zero;
+            return false;
+        }
     }
 
     private static bool TryParseFeeRate(string? feeRateSatsPerByte, out FeeRate feeRate)
@@ -566,10 +659,21 @@ public class LightningManagerService : ILightningManagerService
             return true;
         }
 
-        if (decimal.TryParse(feeRateSatsPerByte.Trim(), out var satPerByte) && satPerByte > 0)
+        if (decimal.TryParse(
+                feeRateSatsPerByte.Trim(),
+                NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture,
+                out var satPerByte) &&
+            satPerByte > 0)
         {
-            feeRate = new FeeRate(satPerByte);
-            return true;
+            try
+            {
+                feeRate = new FeeRate(satPerByte);
+                return true;
+            }
+            catch
+            {
+            }
         }
 
         feeRate = new FeeRate(DefaultChannelOpenFeeRate);
@@ -619,25 +723,66 @@ public class LightningManagerService : ILightningManagerService
         };
     }
 
-    private static string NormalizePayError(string? errorDetail)
+    private static async Task<LightningPayment?> TryLoadPaymentAsync(
+        ILightningClient client,
+        string paymentHash,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(errorDetail))
+        try
         {
-            return "Lightning payment failed.";
+            return await client.GetPayment(paymentHash, cancellationToken);
         }
-
-        if (errorDetail.Contains("route", StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            return "No route to the invoice destination was found.";
+            return null;
         }
+    }
 
-        if (errorDetail.Contains("insufficient", StringComparison.OrdinalIgnoreCase) ||
-            errorDetail.Contains("balance", StringComparison.OrdinalIgnoreCase))
+    private static SendResultDetailsViewModel CreatePaymentDetails(string paymentHash, LightningPayment? payment)
+    {
+        return new SendResultDetailsViewModel
         {
-            return "Insufficient balance to send the payment.";
-        }
+            Status = payment?.Status ?? LightningPaymentStatus.Unknown,
+            TotalAmountDisplay = payment?.AmountSent is null ? null : FormatLightMoney(payment.AmountSent),
+            FeeAmountDisplay = payment?.Fee is null ? null : FormatLightMoney(payment.Fee),
+            PaymentHash = payment?.PaymentHash ?? paymentHash,
+            Preimage = payment?.Preimage
+        };
+    }
 
-        return "Lightning payment failed.";
+    private static SendExecutionResult? ResolveKnownPaymentResult(string paymentHash, LightningPayment? payment)
+    {
+        return payment?.Status switch
+        {
+            LightningPaymentStatus.Complete => new SendExecutionResult
+            {
+                Result = new ActionResultViewModel
+                {
+                    IsSuccess = true,
+                    Message = "Payment sent successfully."
+                },
+                Payment = CreatePaymentDetails(paymentHash, payment)
+            },
+            LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown => new SendExecutionResult
+            {
+                Result = new ActionResultViewModel
+                {
+                    IsSuccess = false,
+                    Message = "Payment status is unknown. Check the Lightning node before retrying."
+                },
+                Payment = CreatePaymentDetails(paymentHash, payment)
+            },
+            LightningPaymentStatus.Failed => new SendExecutionResult
+            {
+                Result = new ActionResultViewModel
+                {
+                    IsSuccess = false,
+                    Message = "Lightning payment failed."
+                },
+                Payment = CreatePaymentDetails(paymentHash, payment)
+            },
+            _ => null
+        };
     }
 
     private static bool IsBenignEclairOpenChannelFollowUpError(StoreLightningManagerContext context, Exception exception)
@@ -665,61 +810,6 @@ public class LightningManagerService : ILightningManagerService
     private static ActionResultViewModel Failure(string message, string? detail = null)
     {
         return new ActionResultViewModel { IsSuccess = false, Message = message, Detail = detail };
-    }
-
-    private static async Task<List<LightningPeerItemViewModel>?> TryListPeersAsync(ILightningClient client, CancellationToken cancellationToken)
-    {
-        var methodTarget = FindPeerListingMethod(client);
-        if (methodTarget is null)
-        {
-            return null;
-        }
-
-        var response = await InvokeAsync(methodTarget.Value.Method, methodTarget.Value.Target, cancellationToken);
-        if (response is null)
-        {
-            return [];
-        }
-
-        var peersEnumerable = GetEnumerableProperty(response, "Peers");
-        if (peersEnumerable is null)
-        {
-            return [];
-        }
-
-        var peers = new List<LightningPeerItemViewModel>();
-        foreach (var peer in peersEnumerable)
-        {
-            if (peer is null)
-            {
-                continue;
-            }
-
-            var nodeId = GetStringProperty(peer, "PubKey") ??
-                         GetStringProperty(peer, "PeerId") ??
-                         GetStringProperty(peer, "NodeId");
-            if (string.IsNullOrWhiteSpace(nodeId))
-            {
-                continue;
-            }
-
-            var isInbound = GetBoolProperty(peer, "Inbound");
-            peers.Add(new LightningPeerItemViewModel
-            {
-                NodeId = nodeId,
-                Address = GetPeerAddress(peer),
-                Direction = isInbound switch
-                {
-                    true => "Inbound",
-                    false => "Outbound",
-                    null => null
-                },
-                BytesSentDisplay = FormatByteCount(GetLongProperty(peer, "BytesSent")),
-                BytesReceivedDisplay = FormatByteCount(GetLongProperty(peer, "BytesRecv") ?? GetLongProperty(peer, "BytesReceived"))
-            });
-        }
-
-        return peers;
     }
 
     private static bool IsLndClient(ILightningClient client)
@@ -754,290 +844,13 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    private static async Task<object?> InvokeAsync(MethodInfo method, object target, CancellationToken cancellationToken)
-    {
-        object? invocationResult = method.GetParameters() switch
-        {
-            [] => method.Invoke(target, []),
-            [{ ParameterType: var parameterType }] when parameterType == typeof(CancellationToken) => method.Invoke(target, [cancellationToken]),
-            _ => null
-        };
-
-        if (invocationResult is not Task task)
-        {
-            return invocationResult;
-        }
-
-        await task;
-        return task.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)?.GetValue(task);
-    }
-
-    private static (object Target, MethodInfo Method)? FindPeerListingMethod(object client)
-    {
-        foreach (var target in EnumeratePeerListingTargets(client))
-        {
-            var method = target.GetType()
-                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(m =>
-                    m.Name.EndsWith("ListPeersAsync", StringComparison.Ordinal) &&
-                    HasSupportedPeerListingSignature(m));
-
-            if (method is not null)
-            {
-                return (target, method);
-            }
-        }
-
-        return null;
-    }
-
-    private static bool HasSupportedPeerListingSignature(MethodInfo method)
-    {
-        var parameters = method.GetParameters();
-        return parameters.Length == 0 ||
-               (parameters.Length == 1 && parameters[0].ParameterType == typeof(CancellationToken));
-    }
-
-    private static IEnumerable<object> EnumeratePeerListingTargets(object client)
-    {
-        var queue = new Queue<(object Value, int Depth)>();
-        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
-        queue.Enqueue((client, 0));
-
-        while (queue.Count > 0)
-        {
-            var (value, depth) = queue.Dequeue();
-            if (!seen.Add(value))
-            {
-                continue;
-            }
-
-            yield return value;
-            if (depth >= 3)
-            {
-                continue;
-            }
-
-            foreach (var nested in GetNestedTargets(value))
-            {
-                queue.Enqueue((nested, depth + 1));
-            }
-        }
-    }
-
-    private static IEnumerable<object> GetNestedTargets(object source)
-    {
-        var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-
-        foreach (var property in source.GetType().GetProperties(flags))
-        {
-            if (property.GetIndexParameters().Length != 0)
-            {
-                continue;
-            }
-
-            object? value;
-            try
-            {
-                value = property.GetValue(source);
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (IsPeerListingTarget(value))
-            {
-                yield return value!;
-            }
-        }
-
-        foreach (var field in source.GetType().GetFields(flags))
-        {
-            object? value;
-            try
-            {
-                value = field.GetValue(source);
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (IsPeerListingTarget(value))
-            {
-                yield return value!;
-            }
-        }
-    }
-
-    private static bool IsPeerListingTarget(object? value)
-    {
-        if (value is null || value is string)
-        {
-            return false;
-        }
-
-        var type = value.GetType();
-        return !type.IsPrimitive &&
-               !type.IsEnum &&
-               type.Namespace != typeof(string).Namespace;
-    }
-
-    private static IEnumerable? GetEnumerableProperty(object source, string propertyName)
-    {
-        var value = GetPropertyValue(source, propertyName);
-        return value is IEnumerable enumerable && value is not string ? enumerable : null;
-    }
-
-    private static object? GetPropertyValue(object source, string propertyName)
-    {
-        var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.IgnoreCase;
-        var normalizedName = NormalizeMemberName(propertyName);
-
-        foreach (var property in source.GetType().GetProperties(flags))
-        {
-            if (NormalizeMemberName(property.Name) != normalizedName || property.GetIndexParameters().Length != 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                return property.GetValue(source);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        foreach (var field in source.GetType().GetFields(flags))
-        {
-            if (NormalizeMemberName(field.Name) != normalizedName)
-            {
-                continue;
-            }
-
-            try
-            {
-                return field.GetValue(source);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        return null;
-    }
-
-    private static string? GetStringProperty(object source, string propertyName)
-    {
-        var value = GetPropertyValue(source, propertyName);
-        return value switch
-        {
-            null => null,
-            string text when string.IsNullOrWhiteSpace(text) => null,
-            string text => text,
-            _ => value.ToString()
-        };
-    }
-
-    private static bool? GetBoolProperty(object source, string propertyName)
-    {
-        var value = GetPropertyValue(source, propertyName);
-        return value switch
-        {
-            bool boolean => boolean,
-            string text when bool.TryParse(text, out var boolean) => boolean,
-            _ => null
-        };
-    }
-
-    private static long? GetLongProperty(object source, string propertyName)
-    {
-        var value = GetPropertyValue(source, propertyName);
-        return value switch
-        {
-            byte number => number,
-            ushort number => number,
-            short number => number,
-            uint number => number,
-            int number => number,
-            long number => number,
-            ulong number when number <= long.MaxValue => (long)number,
-            string text when long.TryParse(text, out var number) => number,
-            _ => null
-        };
-    }
-
-    private static string? GetPeerAddress(object peer)
-    {
-        var address = GetStringProperty(peer, "Address");
-        if (!string.IsNullOrWhiteSpace(address))
-        {
-            return address;
-        }
-
-        var addresses = GetEnumerableProperty(peer, "Addresses");
-        if (addresses is null)
-        {
-            return null;
-        }
-
-        var values = new List<string>();
-        foreach (var item in addresses)
-        {
-            if (item is null)
-            {
-                continue;
-            }
-
-            var itemText = GetStringProperty(item, "Addr") ??
-                           GetStringProperty(item, "Address") ??
-                           item.ToString();
-            if (!string.IsNullOrWhiteSpace(itemText))
-            {
-                values.Add(itemText);
-            }
-        }
-
-        return values.Count == 0 ? null : string.Join(", ", values);
-    }
-
-    private static string? FormatByteCount(long? value)
-    {
-        return value is null ? null : $"{value.Value} bytes";
-    }
-
-    private static string NormalizeMemberName(string value)
-    {
-        return value.Replace("_", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
-    }
-
-    private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
-    {
-        public static ReferenceEqualityComparer Instance { get; } = new();
-
-        public new bool Equals(object? x, object? y)
-        {
-            return ReferenceEquals(x, y);
-        }
-
-        public int GetHashCode(object obj)
-        {
-            return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
-        }
-    }
-
     private static string FormatMoney(Money amount)
     {
-        return $"{amount.Satoshi} sats ({amount.ToDecimal(MoneyUnit.BTC):0.########} BTC)";
+        return $"{amount.Satoshi.ToString("#,0", CultureInfo.InvariantCulture)} sats ({amount.ToDecimal(MoneyUnit.BTC).ToString("#,0.########", CultureInfo.InvariantCulture)} BTC)";
     }
 
     private static string FormatLightMoney(LightMoney amount)
     {
-        return $"{amount.ToUnit(LightMoneyUnit.Satoshi):0.########} sats";
+        return $"{amount.ToUnit(LightMoneyUnit.Satoshi).ToString("#,0.########", CultureInfo.InvariantCulture)} sats";
     }
 }

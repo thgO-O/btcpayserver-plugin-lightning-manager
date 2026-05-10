@@ -6,25 +6,53 @@
     var storeId = ScopeProvider.GetCurrentStoreId();
     var cryptoCode = ViewContext.RouteData.Values["cryptoCode"] as string;
     var store = Context.GetStoreDataOrNull();
-    if (string.IsNullOrEmpty(storeId) || string.IsNullOrEmpty(cryptoCode) || store is null)
+    if (string.IsNullOrEmpty(storeId) ||
+        string.IsNullOrEmpty(cryptoCode) ||
+        store is null ||
+        !LightningManagerCrypto.IsSupported(cryptoCode))
     {
         return;
     }
 
-    var managerContext = await ContextFactory.CreateAsync(store, cryptoCode, User, Context);
+    var managerContext = await ContextFactory.CreateAsync(store, cryptoCode);
 }
 
-<li class="nav-item nav-item-sub">
-    <a layout-menu-item="@LightningManagerNavPages.Overview"
-       asp-controller="LightningManager"
-       asp-action="Overview"
-       asp-route-storeId="@storeId"
-       asp-route-cryptoCode="@cryptoCode">
-        Overview
-    </a>
-</li>
+@if (!managerContext.IsInternalNode)
+{
+    <li class="nav-item nav-item-sub">
+        <a layout-menu-item="@LightningManagerNavPages.Overview"
+           asp-controller="LightningManager"
+           asp-action="Overview"
+           asp-route-storeId="@storeId"
+           asp-route-cryptoCode="@cryptoCode">
+            Overview
+        </a>
+    </li>
+}
 
-@if (managerContext.Capabilities.CanPayBolt11)
+@if (managerContext.IsInternalNode)
+{
+    <li class="nav-item nav-item-sub">
+        <a layout-menu-item="@LightningManagerNavPages.StoreBalance"
+           asp-controller="LightningManager"
+           asp-action="StoreBalance"
+           asp-route-storeId="@storeId"
+           asp-route-cryptoCode="@cryptoCode">
+            Pay
+        </a>
+    </li>
+    <li class="nav-item nav-item-sub">
+        <a layout-menu-item="@LightningManagerNavPages.History"
+           asp-controller="LightningManager"
+           asp-action="History"
+           asp-route-storeId="@storeId"
+           asp-route-cryptoCode="@cryptoCode">
+            History
+        </a>
+    </li>
+}
+
+@if (!managerContext.IsInternalNode && managerContext.Capabilities.CanPayBolt11)
 {
     <li class="nav-item nav-item-sub">
         <a layout-menu-item="@LightningManagerNavPages.Send"
@@ -37,7 +65,7 @@
     </li>
 }
 
-@if (managerContext.Capabilities.CanConnectPeer)
+@if (!managerContext.IsInternalNode && managerContext.Capabilities.CanConnectPeer)
 {
     <li class="nav-item nav-item-sub">
         <a layout-menu-item="@LightningManagerNavPages.Peers"
@@ -50,7 +78,7 @@
     </li>
 }
 
-@if (managerContext.Capabilities.CanListChannels || managerContext.Capabilities.CanOpenChannel)
+@if (!managerContext.IsInternalNode && (managerContext.Capabilities.CanListChannels || managerContext.Capabilities.CanOpenChannel))
 {
     <li class="nav-item nav-item-sub">
         <a layout-menu-item="@LightningManagerNavPages.Channels"

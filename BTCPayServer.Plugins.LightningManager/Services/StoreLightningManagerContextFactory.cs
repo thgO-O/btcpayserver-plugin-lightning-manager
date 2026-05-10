@@ -1,18 +1,13 @@
 #nullable enable
-using System.Security.Claims;
 using BTCPayServer;
 using BTCPayServer.Abstractions.Models;
-using BTCPayServer.Client;
 using BTCPayServer.Configuration;
 using BTCPayServer.Data;
 using BTCPayServer.Lightning;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
-using BTCPayServer.Security;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
@@ -30,6 +25,7 @@ public class StoreLightningManagerContext
     public bool IsSharedBackend { get; init; }
     public bool IsReadOnly { get; init; }
     public required LightningCapabilities Capabilities { get; init; }
+    public LightningCapabilities BackendCapabilities { get; init; } = LightningCapabilities.None;
     public string? DisplayName { get; init; }
     public string? NodeHost { get; init; }
     public string? SharedBackendNotice { get; init; }
@@ -42,8 +38,6 @@ public interface IStoreLightningManagerContextFactory
     Task<StoreLightningManagerContext> CreateAsync(
         StoreData store,
         string cryptoCode,
-        ClaimsPrincipal user,
-        HttpContext httpContext,
         CancellationToken cancellationToken = default);
 }
 
@@ -54,42 +48,46 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
     private readonly LightningClientFactoryService _lightningClientFactory;
     private readonly ILightningCapabilityService _lightningCapabilityService;
     private readonly IOptions<LightningNetworkOptions> _lightningNetworkOptions;
-    private readonly IAuthorizationService _authorizationService;
 
     public StoreLightningManagerContextFactory(
         BTCPayNetworkProvider networkProvider,
         PaymentMethodHandlerDictionary handlers,
         LightningClientFactoryService lightningClientFactory,
         ILightningCapabilityService lightningCapabilityService,
-        IOptions<LightningNetworkOptions> lightningNetworkOptions,
-        IAuthorizationService authorizationService)
+        IOptions<LightningNetworkOptions> lightningNetworkOptions)
     {
         _networkProvider = networkProvider;
         _handlers = handlers;
         _lightningClientFactory = lightningClientFactory;
         _lightningCapabilityService = lightningCapabilityService;
         _lightningNetworkOptions = lightningNetworkOptions;
-        _authorizationService = authorizationService;
     }
 
-    public virtual async Task<StoreLightningManagerContext> CreateAsync(
+    public virtual Task<StoreLightningManagerContext> CreateAsync(
         StoreData store,
         string cryptoCode,
-        ClaimsPrincipal user,
-        HttpContext httpContext,
         CancellationToken cancellationToken = default)
     {
+        var requestedCryptoCode = cryptoCode;
+        if (!LightningManagerCrypto.TryNormalizeSupported(cryptoCode, out cryptoCode))
+        {
+            return Task.FromResult(CreateUnavailableContext(
+                store,
+                requestedCryptoCode?.ToUpperInvariant() ?? string.Empty,
+                LightningManagerCrypto.UnsupportedMessage));
+        }
+
         var network = _networkProvider.GetNetwork<BTCPayNetwork>(cryptoCode);
         if (network is null)
         {
-            return CreateUnavailableContext(store, cryptoCode, "Unsupported cryptocurrency.");
+            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Unsupported cryptocurrency."));
         }
 
         var paymentMethodId = PaymentTypes.LN.GetPaymentMethodId(cryptoCode);
         var config = store.GetPaymentMethodConfig<LightningPaymentMethodConfig>(paymentMethodId, _handlers);
         if (config is null)
         {
-            return CreateUnavailableContext(store, cryptoCode, "Lightning is not configured for this store.", network, config);
+            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning is not configured for this store.", network, config));
         }
 
         if (config.GetExternalLightningUrl() is { } connectionString)
@@ -98,7 +96,7 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             {
                 var client = _lightningClientFactory.Create(connectionString, network);
                 var capabilities = _lightningCapabilityService.GetCapabilities(client, connectionString, false);
-                return new StoreLightningManagerContext
+                return Task.FromResult(new StoreLightningManagerContext
                 {
                     Store = store,
                     StoreId = store.Id,
@@ -109,41 +107,30 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
                     ConnectionString = connectionString,
                     IsInternalNode = false,
                     Capabilities = capabilities,
+                    BackendCapabilities = capabilities,
                     DisplayName = client.GetDisplayName(connectionString),
                     NodeHost = client.GetServerUri(connectionString)?.Host
-                };
+                });
             }
             catch (Exception)
             {
-                return CreateUnavailableContext(store, cryptoCode, "Lightning backend unavailable.", network, config, connectionString);
+                return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning backend unavailable.", network, config, connectionString));
             }
         }
 
         if (!config.IsInternalNode)
         {
-            return CreateUnavailableContext(store, cryptoCode, "Lightning configuration is invalid.", network, config);
-        }
-
-        var authorizationResult = await _authorizationService.AuthorizeAsync(
-            user,
-            null,
-            new PolicyRequirement(Policies.CanUseInternalLightningNode));
-
-        if (!authorizationResult.Succeeded)
-        {
-            return CreateUnavailableContext(store, cryptoCode, "You are not allowed to use the internal Lightning node.", network, config, isInternalNode: true);
+            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning configuration is invalid.", network, config));
         }
 
         if (!_lightningNetworkOptions.Value.InternalLightningByCryptoCode.TryGetValue(cryptoCode.ToUpperInvariant(), out var internalClient))
         {
-            return CreateUnavailableContext(store, cryptoCode, "The internal Lightning node is not available.", network, config, isInternalNode: true);
+            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "The internal Lightning node is not available.", network, config, isInternalNode: true));
         }
 
-        var isServerAdmin = user.IsInRole(Roles.ServerAdmin);
         var backendCapabilities = _lightningCapabilityService.GetCapabilities(internalClient, null, true);
-        var isReadOnly = !isServerAdmin;
 
-        return new StoreLightningManagerContext
+        return Task.FromResult(new StoreLightningManagerContext
         {
             Store = store,
             StoreId = store.Id,
@@ -153,13 +140,11 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             Client = internalClient,
             IsInternalNode = true,
             IsSharedBackend = true,
-            IsReadOnly = isReadOnly,
-            Capabilities = isReadOnly ? CreateReadOnlyCapabilities(backendCapabilities) : backendCapabilities,
-            DisplayName = "Internal node",
-            SharedBackendNotice = isReadOnly
-                ? "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Lightning actions are disabled for non-admin users."
-                : "This store uses the server's shared internal Lightning node. Balances shown here are node-wide, not store-specific. Lightning actions here affect every store using this backend."
-        };
+            IsReadOnly = true,
+            Capabilities = LightningCapabilities.None,
+            BackendCapabilities = backendCapabilities,
+            DisplayName = "Internal node"
+        });
     }
 
     private StoreLightningManagerContext CreateUnavailableContext(
@@ -181,16 +166,9 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             ConnectionString = connectionString,
             IsInternalNode = isInternalNode,
             Capabilities = LightningCapabilities.None,
+            BackendCapabilities = LightningCapabilities.None,
             ConfigurationError = configurationError
         };
     }
 
-    private static LightningCapabilities CreateReadOnlyCapabilities(LightningCapabilities capabilities)
-    {
-        return new LightningCapabilities
-        {
-            CanGetInfo = capabilities.CanGetInfo,
-            CanGetBalance = capabilities.CanGetBalance
-        };
-    }
 }

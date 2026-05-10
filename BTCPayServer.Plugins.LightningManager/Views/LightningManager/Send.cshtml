@@ -95,6 +95,8 @@
     <h1>@ViewData["Title"]</h1>
 </header>
 
+<partial name="_StatusMessage" />
+
 @if (!Model.IsConfigured)
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>
@@ -182,6 +184,10 @@ else if (Model.Preview is not null)
                     <div class="lw-send-detail-value">@Model.Preview.Description</div>
                 </div>
                 <div class="lw-send-detail">
+                    <div class="lw-send-detail-label">Maximum fee</div>
+                    <div class="lw-send-detail-value">@Model.Preview.MaxFeeDisplay</div>
+                </div>
+                <div class="lw-send-detail">
                     <div class="lw-send-detail-label">Payee</div>
                     <div class="lw-send-detail-value"><code>@Model.Preview.Payee</code></div>
                 </div>
@@ -202,6 +208,7 @@ else if (Model.Preview is not null)
               method="post"
               class="mt-4">
             <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
+            <input type="hidden" name="maxFeeSats" value="@Model.Preview.MaxFeeSats" />
             <div class="d-grid gap-3">
                 <button type="submit" class="btn btn-primary">Send payment</button>
                 <a asp-controller="LightningManager"
@@ -228,6 +235,10 @@ else
                 <label class="form-label" for="bolt11">BOLT11 invoice</label>
                 <textarea class="form-control font-monospace" id="bolt11" name="bolt11" rows="6" placeholder="lnbc...">@Model.Bolt11</textarea>
                 <div class="form-text">Paste the full invoice exactly as received.</div>
+            </div>
+            <div class="form-group mt-3 mb-0">
+                <label class="form-label" for="maxFeeSats">Maximum fee sats</label>
+                <input class="form-control" id="maxFeeSats" name="maxFeeSats" value="@(Model.MaxFeeSats ?? Model.DefaultMaxFeeSats)" inputmode="numeric" />
             </div>
             <div class="mt-4">
                 <button type="submit" class="btn btn-primary w-100" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanPayBolt11)">Preview payment</button>

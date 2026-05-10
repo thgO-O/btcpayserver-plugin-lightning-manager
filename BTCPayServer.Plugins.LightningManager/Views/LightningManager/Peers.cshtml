@@ -6,6 +6,8 @@
     <h2>Connect Lightning Peer</h2>
 </div>
 
+<partial name="_StatusMessage" />
+
 @if (!Model.IsConfigured)
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>
@@ -42,47 +44,9 @@
             </div>
             <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanConnectPeer)">Connect peer</button>
         </form>
-    </div>
-</div>
-
-<div class="card mt-4">
-    <div class="card-body">
-        <h3 class="h5">Connected Peers</h3>
         @if (!string.IsNullOrWhiteSpace(Model.PeerListMessage))
         {
-            <p class="text-muted mb-0">@Model.PeerListMessage</p>
-        }
-        else if (Model.Peers.Count == 0)
-        {
-            <p class="text-muted mb-0">No peers found.</p>
-        }
-        else
-        {
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead>
-                    <tr>
-                        <th>Peer</th>
-                        <th>Address</th>
-                        <th>Direction</th>
-                        <th>Sent</th>
-                        <th>Received</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @foreach (var peer in Model.Peers)
-                    {
-                        <tr>
-                            <td><code>@peer.NodeId</code></td>
-                            <td>@(string.IsNullOrWhiteSpace(peer.Address) ? "-" : peer.Address)</td>
-                            <td>@(string.IsNullOrWhiteSpace(peer.Direction) ? "-" : peer.Direction)</td>
-                            <td>@(string.IsNullOrWhiteSpace(peer.BytesSentDisplay) ? "-" : peer.BytesSentDisplay)</td>
-                            <td>@(string.IsNullOrWhiteSpace(peer.BytesReceivedDisplay) ? "-" : peer.BytesReceivedDisplay)</td>
-                        </tr>
-                    }
-                    </tbody>
-                </table>
-            </div>
+            <p class="text-muted mt-3 mb-0">@Model.PeerListMessage</p>
         }
     </div>
 </div>

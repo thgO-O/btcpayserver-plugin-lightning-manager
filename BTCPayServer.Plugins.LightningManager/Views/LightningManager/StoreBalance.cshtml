@@ -1,0 +1,159 @@
+@model StoreBalanceViewModel
+
+<partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
+
+<div class="sticky-header">
+    <h2>@Model.CryptoCode Pay</h2>
+</div>
+
+<partial name="_StatusMessage" />
+
+@if (!Model.IsConfigured)
+{
+    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+}
+
+@if (Model.Result is not null)
+{
+    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
+        <div>@Model.Result.Message</div>
+        @if (!string.IsNullOrWhiteSpace(Model.Result.Detail))
+        {
+            <div class="small text-muted mt-1">@Model.Result.Detail</div>
+        }
+    </div>
+}
+
+@foreach (var notice in Model.Notices)
+{
+    <div class="alert alert-info">@notice</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.BalanceMessage))
+{
+    <div class="alert alert-warning">@Model.BalanceMessage</div>
+}
+
+@if (Model.AccountEnabled)
+{
+    <div class="row g-4 mb-4">
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="h5">Available</h3>
+                    <p class="h2 mb-0">@Model.AvailableBalanceDisplay</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="h5">Pending</h3>
+                    <p class="h2 mb-0">@Model.ReservedBalanceDisplay</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="h5">Total</h3>
+                    <p class="h2 mb-0">@Model.TotalBalanceDisplay</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.Payment is not null)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h3 class="h5">Payment Result</h3>
+                <dl class="mb-0">
+                    <dt>Status</dt>
+                    <dd>@Model.Payment.Status</dd>
+                    @if (!string.IsNullOrWhiteSpace(Model.Payment.TotalAmountDisplay))
+                    {
+                        <dt>Total sent</dt>
+                        <dd>@Model.Payment.TotalAmountDisplay</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Model.Payment.FeeAmountDisplay))
+                    {
+                        <dt>Fee</dt>
+                        <dd>@Model.Payment.FeeAmountDisplay</dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Model.Payment.PaymentHash))
+                    {
+                        <dt>Payment hash</dt>
+                        <dd><code>@Model.Payment.PaymentHash</code></dd>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Model.Payment.Preimage))
+                    {
+                        <dt>Preimage</dt>
+                        <dd><code>@Model.Payment.Preimage</code></dd>
+                    }
+                </dl>
+            </div>
+        </div>
+    }
+    else if (Model.Preview is not null)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h3 class="h5">Confirm Payment</h3>
+                <dl>
+                    <dt>Amount</dt>
+                    <dd>@Model.Preview.AmountDisplay</dd>
+                    <dt>Maximum fee</dt>
+                    <dd>@Model.Preview.MaxFeeDisplay</dd>
+                    <dt>Pending</dt>
+                    <dd>@Model.Preview.ReservedDisplay</dd>
+                    <dt>Description</dt>
+                    <dd>@Model.Preview.Description</dd>
+                    <dt>Payee</dt>
+                    <dd><code>@Model.Preview.Payee</code></dd>
+                    <dt>Payment hash</dt>
+                    <dd><code>@Model.Preview.PaymentHash</code></dd>
+                    <dt>Expires</dt>
+                    <dd>@Model.Preview.ExpiresAt.ToString("u")</dd>
+                </dl>
+                <form asp-controller="LightningManager"
+                      asp-action="ExecuteStoreBalanceSend"
+                      asp-route-storeId="@Model.StoreId"
+                      asp-route-cryptoCode="@Model.CryptoCode"
+                      method="post">
+                    <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
+                    <input type="hidden" name="maxFeeSats" value="@Model.MaxFeeSats" />
+                    <button type="submit" class="btn btn-primary">Send payment</button>
+                    <a asp-controller="LightningManager"
+                       asp-action="StoreBalance"
+                       asp-route-storeId="@Model.StoreId"
+                       asp-route-cryptoCode="@Model.CryptoCode"
+                       class="btn btn-secondary">
+                        Edit invoice
+                    </a>
+                </form>
+            </div>
+        </div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h3 class="h5">Pay Invoice</h3>
+            <form asp-controller="LightningManager"
+                  asp-action="PreviewStoreBalanceSend"
+                  asp-route-storeId="@Model.StoreId"
+                  asp-route-cryptoCode="@Model.CryptoCode"
+                  method="post">
+                <div class="form-group">
+                    <label class="form-label" for="bolt11">BOLT11 invoice</label>
+                    <textarea class="form-control font-monospace" id="bolt11" name="bolt11" rows="5" placeholder="lnbc...">@Model.Bolt11</textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="maxFeeSats">Maximum fee sats</label>
+                    <input class="form-control" id="maxFeeSats" name="maxFeeSats" value="@(Model.MaxFeeSats ?? Model.DefaultMaxFeeSats)" inputmode="numeric" />
+                </div>
+                <button type="submit" class="btn btn-primary" disabled="@(!Model.CanSendFromLedger)">Preview payment</button>
+            </form>
+        </div>
+    </div>
+}

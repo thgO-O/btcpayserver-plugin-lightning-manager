@@ -1,0 +1,162 @@
+@model StoreHistoryViewModel
+
+<partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
+
+<div class="sticky-header">
+    <h2>@Model.CryptoCode History</h2>
+</div>
+
+@if (!Model.IsConfigured)
+{
+    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+}
+
+@foreach (var notice in Model.Notices)
+{
+    <div class="alert alert-info">@notice</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.HistoryMessage))
+{
+    <div class="alert alert-warning">@Model.HistoryMessage</div>
+}
+
+@if (Model.CanViewHistory)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <form asp-controller="LightningManager"
+                  asp-action="History"
+                  asp-route-storeId="@Model.StoreId"
+                  asp-route-cryptoCode="@Model.CryptoCode"
+                  method="get"
+                  class="row g-3 align-items-end">
+                <input type="hidden" name="skip" value="0" />
+                <input type="hidden" name="count" value="@Model.Pager.Count" />
+                <div class="col-xl-6 col-lg-12">
+                    <label class="form-label" for="search">Search</label>
+                    <input class="form-control" id="search" name="searchTerm" value="@Model.Pager.SearchTerm" placeholder="Invoice, payment hash, description" />
+                </div>
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label" for="eventType">Event</label>
+                    <select class="form-select" id="eventType" name="eventType">
+                        <option value="">All events</option>
+                        @foreach (var option in Model.EventOptions)
+                        {
+                            if (option.Value == Model.EventType)
+                            {
+                                <option value="@option.Value" selected>@option.Label</option>
+                            }
+                            else
+                            {
+                                <option value="@option.Value">@option.Label</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label" for="status">Status</label>
+                    <select class="form-select" id="status" name="status">
+                        <option value="">All statuses</option>
+                        @foreach (var option in Model.StatusOptions)
+                        {
+                            if (option.Value == Model.Status)
+                            {
+                                <option value="@option.Value" selected>@option.Label</option>
+                            }
+                            else
+                            {
+                                <option value="@option.Value">@option.Label</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="col-xl-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Filter</button>
+                    @if (Model.HasFilters || Model.Pager.Skip > 0)
+                    {
+                        <a asp-controller="LightningManager"
+                           asp-action="History"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-secondary">
+                            Clear
+                        </a>
+                    }
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h3 class="h5">History</h3>
+            @if (Model.Entries.Count == 0)
+            {
+                <p class="text-muted mb-0">@(Model.HasFilters ? "No matching history." : "No history yet.")</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Event</th>
+                            <th>Status</th>
+                            <th class="text-end">Amount</th>
+                            <th class="text-end">Pending</th>
+                            <th>Details</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var entry in Model.Entries)
+                        {
+                            <tr>
+                                <td>@entry.CreatedAt.ToString("u")</td>
+                                <td>@entry.Event</td>
+                                <td>@entry.Status</td>
+                                <td class="text-end @SignedAmountClass(entry.AmountDisplay)">@entry.AmountDisplay</td>
+                                <td class="text-end @SignedAmountClass(entry.PendingDisplay)">@entry.PendingDisplay</td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(entry.InvoiceId))
+                                    {
+                                        <div>Invoice <code>@entry.InvoiceId</code></div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(entry.PaymentHash))
+                                    {
+                                        <div>Payment <code>@entry.PaymentHash</code></div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(entry.Description))
+                                    {
+                                        <div class="text-muted">@entry.Description</div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <vc:pager view-model="Model.Pager" />
+}
+
+@functions {
+    private static string SignedAmountClass(string value)
+    {
+        if (value.StartsWith("+", StringComparison.Ordinal))
+        {
+            return "text-success fw-semibold";
+        }
+
+        if (value.StartsWith("-", StringComparison.Ordinal))
+        {
+            return "text-danger fw-semibold";
+        }
+
+        return string.Empty;
+    }
+}

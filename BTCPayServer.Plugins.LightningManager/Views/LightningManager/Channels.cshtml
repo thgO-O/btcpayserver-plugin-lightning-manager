@@ -6,6 +6,8 @@
     <h2>Channels</h2>
 </div>
 
+<partial name="_StatusMessage" />
+
 @if (!Model.IsConfigured)
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>
@@ -97,7 +99,7 @@
                 @foreach (var channel in Model.Channels)
                 {
                     var localPercentage = channel.CapacitySats > 0
-                        ? Math.Round((decimal)channel.LocalBalanceSats / channel.CapacitySats * 100m, 1)
+                        ? Math.Clamp(Math.Round((decimal)channel.LocalBalanceSats / channel.CapacitySats * 100m, 1), 0m, 100m)
                         : 0m;
                     var remotePercentage = Math.Max(0m, 100m - localPercentage);
 
