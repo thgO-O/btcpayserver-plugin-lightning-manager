@@ -1,0 +1,244 @@
+@model ServerLightningManagerViewModel
+
+@{
+    var ledgerSummary = Model.Nodes.FirstOrDefault(node => node.CryptoCode == Model.SelectedCryptoCode) ??
+                        Model.Nodes.FirstOrDefault();
+}
+
+<div class="sticky-header">
+    <h2>Server Lightning Manager</h2>
+</div>
+
+<partial name="_StatusMessage" />
+<partial name="_Result" model="Model.Result" />
+
+@if (Model.InternalCryptoCodes.Count > 1)
+{
+    <form asp-controller="ServerLightningManager" asp-action="Index" method="get" class="mb-4">
+        <label class="form-label" for="serverCryptoCode">Internal node</label>
+        <select class="form-select w-auto" id="serverCryptoCode" name="cryptoCode" onchange="this.form.submit()">
+            @foreach (var cryptoCode in Model.InternalCryptoCodes)
+            {
+                <option value="@cryptoCode" selected="@(cryptoCode == Model.SelectedCryptoCode)">@cryptoCode</option>
+            }
+        </select>
+    </form>
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.SelectedCryptoCode))
+{
+    <div class="mb-4">
+        <h3 class="h4">Internal Node Overview</h3>
+        @if (!Model.NodeOverview.IsConfigured)
+        {
+            <div class="alert alert-warning">@Model.NodeOverview.ConfigurationMessage</div>
+        }
+        else
+        {
+            <partial name="LightningManager/_CapabilityBadges" model="Model.NodeOverview.Capabilities" />
+        }
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-xl-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="h5">Summary</h3>
+                    @if (Model.NodeOverview.SummaryRows.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No node summary is available.</p>
+                    }
+                    else
+                    {
+                        <dl class="mb-0">
+                            @foreach (var row in Model.NodeOverview.SummaryRows)
+                            {
+                                <dt>@row.Label</dt>
+                                <dd>@row.Value</dd>
+                            }
+                        </dl>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="h5">Offchain Balance</h3>
+                    @if (Model.NodeOverview.OffchainBalanceRows.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No offchain balances are available.</p>
+                    }
+                    else
+                    {
+                        <dl class="mb-0">
+                            @foreach (var row in Model.NodeOverview.OffchainBalanceRows)
+                            {
+                                <dt>@row.Label</dt>
+                                <dd>@row.Value</dd>
+                            }
+                        </dl>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="h5">Onchain Balance</h3>
+                    @if (Model.NodeOverview.OnchainBalanceRows.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No onchain balances are available.</p>
+                    }
+                    else
+                    {
+                        <dl class="mb-0">
+                            @foreach (var row in Model.NodeOverview.OnchainBalanceRows)
+                            {
+                                <dt>@row.Label</dt>
+                                <dd>@row.Value</dd>
+                            }
+                        </dl>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.NodeOverview.NodeUris.Count > 0)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h3 class="h5">Node URIs</h3>
+                <ul class="mb-0">
+                    @foreach (var nodeUri in Model.NodeOverview.NodeUris)
+                    {
+                        <li><code>@nodeUri</code></li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h3 class="h5">Adjust Store Balance</h3>
+        <form asp-controller="ServerLightningManager" asp-action="AddAdjustment" method="post">
+            <input type="hidden" name="operationId" value="@Model.AdjustmentOperationId" />
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-lg-4">
+                    <label class="form-label" for="account">Store account</label>
+                    <select class="form-select" id="account" name="account" required>
+                        <option value="">Select account</option>
+                        @foreach (var account in Model.Accounts)
+                        {
+                            <option value="@account.AccountValue" selected="@(Model.AdjustmentAccount == account.AccountValue)">
+                                @account.StoreName@(account.CanManageAccess ? "" : " (detached)")
+                            </option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-sm-6 col-lg-3">
+                    <label class="form-label" for="amountSats">Amount sats</label>
+                    <input class="form-control" id="amountSats" name="amountSats" value="@Model.AdjustmentAmountSats" inputmode="numeric" placeholder="10000 or -10000" />
+                </div>
+                <div class="col-12 col-sm-6 col-lg-3">
+                    <label class="form-label" for="memo">Memo</label>
+                    <input class="form-control" id="memo" name="memo" value="@Model.AdjustmentMemo" />
+                </div>
+                <div class="col-12 col-lg-auto">
+                    <button type="submit" class="btn btn-secondary" disabled="@(!Model.Accounts.Any())">Adjust balance</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <h3 class="h5">Store Accounts</h3>
+        @if (Model.Accounts.Count == 0)
+        {
+            <p class="text-muted mb-0">No store ledger accounts have been created yet.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0" style="table-layout: fixed;">
+                    <colgroup>
+                        <col />
+                        <col style="width: 10rem;" />
+                        <col style="width: 8rem;" />
+                        <col style="width: 8rem;" />
+                        <col style="width: 8rem;" />
+                    </colgroup>
+                    <thead>
+                    <tr>
+                        <th>Store</th>
+                        <th>Access</th>
+                        <th class="text-end">Available</th>
+                        <th class="text-end">Pending</th>
+                        <th class="text-end">Total</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var account in Model.Accounts)
+                    {
+                        <tr>
+                            <td class="text-break">
+                                @account.StoreName
+                                <div class="text-muted small text-break">@account.StoreId</div>
+                            </td>
+                            <td class="text-nowrap">
+                                @if (account.CanManageAccess)
+                                {
+                                    <form asp-controller="ServerLightningManager"
+                                          asp-action="SetStoreAccess"
+                                          method="post"
+                                          class="d-inline-flex align-items-center gap-2">
+                                        <input type="hidden" name="account" value="@account.AccountValue" />
+                                        <input type="checkbox"
+                                               name="enabled"
+                                               value="true"
+                                               class="btcpay-toggle"
+                                               checked="@(account.Enabled ? "checked" : null)"
+                                               data-submit-on-change
+                                               aria-label="@(account.Enabled ? $"Disable {account.StoreName}" : $"Enable {account.StoreName}")" />
+                                        <input type="hidden" name="enabled" value="false" />
+                                        <span class="text-muted small">@(account.Enabled ? "Enabled" : "Disabled")</span>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">Detached</span>
+                                }
+                            </td>
+                            <td class="text-end">@account.AvailableDisplay</td>
+                            <td class="text-end">@account.PendingDisplay</td>
+                            <td class="text-end">@account.TotalDisplay</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+    @if (Model.Accounts.Count > 0 && ledgerSummary is not null)
+    {
+        <div class="card-footer bg-transparent d-flex justify-content-end">
+            <div class="d-flex gap-3 align-items-baseline">
+                <span class="text-muted">Ledger total</span>
+                <span class="fw-semibold">@ledgerSummary.LedgerTotalDisplay</span>
+            </div>
+        </div>
+    }
+</div>
+
+<script>
+    document.querySelectorAll('[data-submit-on-change]').forEach(function (toggle) {
+        toggle.addEventListener('change', function () {
+            toggle.form.submit();
+        });
+    });
+</script>

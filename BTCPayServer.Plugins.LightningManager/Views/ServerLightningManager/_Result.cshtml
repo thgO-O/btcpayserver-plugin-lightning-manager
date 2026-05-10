@@ -1,0 +1,12 @@
+@model ActionResultViewModel?
+
+@if (Model is not null)
+{
+    <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")">
+        <div>@Model.Message</div>
+        @if (!string.IsNullOrWhiteSpace(Model.Detail))
+        {
+            <div class="small text-muted mt-1">@Model.Detail</div>
+        }
+    </div>
+}
