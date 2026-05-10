@@ -1,7 +1,7 @@
 @model SendViewModel
 @{
     Layout = "_LayoutWizard";
-    ViewData.SetTitle($"Send {Model.CryptoCode}");
+    ViewData.SetTitle($"Pay {Model.CryptoCode}");
     var cancelUrl = Url.Action("Overview", "LightningManager", new { storeId = Model.StoreId, cryptoCode = Model.CryptoCode });
 }
 
@@ -126,7 +126,7 @@
             @if (!string.IsNullOrWhiteSpace(Model.Payment.TotalAmountDisplay))
             {
                 <div class="lw-send-hero">
-                    <span class="lw-send-hero-label">Total Sent</span>
+                    <span class="lw-send-hero-label">Total paid</span>
                     <p class="lw-send-hero-value">@Model.Payment.TotalAmountDisplay</p>
                 </div>
             }
@@ -164,7 +164,7 @@
                asp-route-storeId="@Model.StoreId"
                asp-route-cryptoCode="@Model.CryptoCode"
                class="btn btn-primary w-100">
-                Send another payment
+                Pay another invoice
             </a>
         </div>
     </div>
@@ -210,7 +210,7 @@ else if (Model.Preview is not null)
             <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
             <input type="hidden" name="maxFeeSats" value="@Model.Preview.MaxFeeSats" />
             <div class="d-grid gap-3">
-                <button type="submit" class="btn btn-primary">Send payment</button>
+                <button type="submit" class="btn btn-primary">Pay invoice</button>
                 <a asp-controller="LightningManager"
                    asp-action="Send"
                    asp-route-storeId="@Model.StoreId"

@@ -149,7 +149,7 @@ public class LightningManagerController : Controller
             return RedirectToStoreBalance(context);
         }
 
-        var model = CreatePageModel<SendViewModel>(context, "Send", LightningManagerNavPages.Send);
+        var model = CreatePageModel<SendViewModel>(context, "Pay", LightningManagerNavPages.Send);
         model.Payment = GetPaymentResult();
         return View(model);
     }
@@ -168,7 +168,7 @@ public class LightningManagerController : Controller
             return RedirectToStoreBalance(context);
         }
 
-        var model = CreatePageModel<SendViewModel>(context, "Send", LightningManagerNavPages.Send);
+        var model = CreatePageModel<SendViewModel>(context, "Pay", LightningManagerNavPages.Send);
         model.Bolt11 = bolt11;
         model.MaxFeeSats = maxFeeSats;
 

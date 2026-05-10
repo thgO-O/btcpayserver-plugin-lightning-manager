@@ -123,7 +123,7 @@
                       method="post">
                     <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
                     <input type="hidden" name="maxFeeSats" value="@Model.MaxFeeSats" />
-                    <button type="submit" class="btn btn-primary">Send payment</button>
+                    <button type="submit" class="btn btn-primary">Pay invoice</button>
                     <a asp-controller="LightningManager"
                        asp-action="StoreBalance"
                        asp-route-storeId="@Model.StoreId"
