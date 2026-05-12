@@ -11,7 +11,7 @@
 
   <PropertyGroup>
     <Product>Lightning Manager</Product>
-    <Description>Store-scoped Lightning management UI for BTCPay Server.</Description>
+    <Description>BTC Lightning management UI for store operators and server admins.</Description>
     <Version>0.1.0</Version>
   </PropertyGroup>
 
