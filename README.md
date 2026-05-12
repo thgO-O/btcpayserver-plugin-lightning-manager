@@ -1,21 +1,26 @@
 # BTCPayServer.Plugins.LightningManager
 
-External BTCPay Server plugin that adds Lightning management screens for store
-operators and server admins.
+External BTCPay Server plugin that adds BTC Lightning management screens for
+store operators and server admins.
+
+Lightning Manager is BTC Lightning only. It does not try to manage Lightning
+balances or node operations for other currencies.
 
 The plugin supports two workflows:
 
-- store-scoped management for stores with their own Lightning backend;
+- store-scoped management for stores with their own BTC Lightning backend;
 - shared internal-node operation, where the server admin controls the node and
   each store gets a separate accounting balance.
 
 ## Features
 
-- `Overview`: node information, node URIs, on-chain balance, off-chain balance.
-- `Pay`: per-store virtual balance for stores using the shared
-  internal Lightning node.
-- `History`: store-scoped Pay history with filters and pagination.
-- `Send`: preview and pay fixed-amount BOLT11 invoices.
+- `Overview`: BTC Lightning node information, node URIs, on-chain balance, and
+  off-chain balance.
+- `Pay`: preview and pay fixed-amount BOLT11 invoices. For stores using the
+  shared internal Lightning node, this page also shows the store's accounting
+  balance.
+- `History`: store-scoped Pay history with filters and pagination for shared
+  internal-node stores.
 - `Peers`: connect to Lightning peers when the backend supports it.
 - `Channels`: list channels and open channels when the backend supports it.
 - `Server Lightning Manager`: server-admin view for the shared internal node,
@@ -35,13 +40,14 @@ in server-level views.
 
 ## Provider Support
 
-| Provider | Connection type | Overview | Send | Peers | Channels | Notes |
+| Provider | Connection type | Overview | Pay | Peers | Channels | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | LND | `lnd-rest`, `lnd-grpc` | Yes | Yes | Connect | List/open | Full-node workflow. Tested locally with Polar/regtest. |
 | Core Lightning | `clightning` | Yes | Yes | Connect | List/open | Full-node workflow. Tested locally with Polar/regtest. |
 | Eclair | `eclair` | Yes | Yes | Connect | List/open | Full-node workflow. Tested locally with Polar/regtest. Peer listing may be unavailable depending on the backend client. |
 | Phoenixd | `phoenixd` | Yes | Yes | No | No | Payment-focused workflow. Phoenixd is not regtest-friendly; validate with a real network wallet. |
 | Blink | `blink` | Limited | Yes | No | No | Payment-focused workflow. The Blink wallet network must match the BTCPay network. |
+| LndHub | `lndhub` | Yes | Yes | No | No | Payment-focused workflow. It is intentionally not treated as a full LND node. |
 | LNbank | `lnbank` | Yes | Yes | No | No | Payment-focused workflow. Smoke-test before advertising as production-ready. |
 
 ## v0.1 Scope
@@ -49,14 +55,14 @@ in server-level views.
 Included:
 
 - Store-scoped navigation under the existing BTCPay Lightning menu.
-- BOLT11 send flow with invoice preview.
+- BOLT11 Pay flow with invoice preview and maximum fee limit.
 - Friendly handling for invalid invoices, route failures, insufficient balance,
   and unknown payment status.
 - Capability-based UI for full-node and pay-focused providers.
-- Read-only behavior for non-admin users on the server shared internal
+- Store-level Pay and History pages for stores using the shared internal
   Lightning node.
 - Plugin-owned ledger tables for store-scoped internal node balances.
-- Managed sends from Pay with reserve, settle, and release entries.
+- Managed Pay payments with reserve, settle, and release entries.
 - Automatic invoice payment credits for internal-node stores.
 - Automatic credits for native `BTC-LN` and `BTC-LNURL` payments on
   internal-node stores.
@@ -83,7 +89,8 @@ Not included in v0.1:
   node-level fund separation.
 - The plugin reuses BTCPay store authorization.
 - Read-only pages require BTCPay's store Lightning permission.
-- Mutating actions, such as send, connect peer, and open channel, require
+- Mutating actions, such as paying an invoice, connecting a peer, and opening a
+  channel, require
   BTCPay's store settings modification permission.
 - Shared internal-node access is a server-admin permission. Disabling access
   also excludes native `BTC-LN` and `BTC-LNURL` checkout for that store.
@@ -95,6 +102,22 @@ Not included in v0.1:
   known failures.
 - Raw backend exception messages are not displayed in the UI.
 
+## External Node Workflow
+
+For a store with its own external BTC Lightning backend:
+
+1. The store configures a BTC Lightning connection string in BTCPay.
+2. The store opens `Lightning > Overview` to confirm node information and
+   detected capabilities.
+3. The store opens `Lightning > Pay` to preview and pay fixed-amount BOLT11
+   invoices with a maximum fee limit.
+4. Full-node backends can use `Lightning > Peers` to connect peers.
+5. Full-node backends can use `Lightning > Channels` to list channels and open
+   new channels.
+
+External-node payments are paid directly by that backend. They do not use the
+plugin ledger.
+
 ## Internal Node Workflow
 
 For a shared BTCPay internal Lightning node:
@@ -103,10 +126,10 @@ For a shared BTCPay internal Lightning node:
 2. The admin enables `Access` for the stores allowed to use the node.
 3. The store owner can enable native Lightning checkout settings if desired.
 4. Incoming `BTC-LN` and `BTC-LNURL` payments credit that store's Pay balance.
-5. Store users send through `Lightning > Pay`; the plugin reserves the balance
+5. Store users pay through `Lightning > Pay`; the plugin reserves the balance
    before paying and settles or releases the reservation afterward.
 6. Store users review activity in `Lightning > History`.
-7. The server admin manages node-wide send, peers, channels, access, and
+7. The server admin manages node-wide payments, peers, channels, access, and
    accounting adjustments from `Server Lightning Manager`.
 
 The ledger is the plugin's accounting source of truth for store balances. It
@@ -147,7 +170,8 @@ artifact:
 Recommended release sign-off:
 
 - LND, Core Lightning, and Eclair: regtest smoke with Polar.
-- Phoenixd and Blink: small-value real-network smoke focused on `Send`.
+- Phoenixd, Blink, LndHub, and LNbank: small-value real-network smoke focused
+  on `Pay`.
 
 ## Build
 
@@ -168,6 +192,10 @@ dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.Lightnin
 ```
 
 ## Test
+
+The test suite includes PostgreSQL-backed concurrency tests. It uses the
+standard BTCPay Server test stack by default at `127.0.0.1:39372`; set
+`TESTS_POSTGRES` to override the connection string.
 
 ```bash
 dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj -p:StaticWebAssetsEnabled=false
