@@ -331,6 +331,12 @@ public class LightningManagerLedgerInvoiceListener(
         string paymentHash,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(recordedMethod.PaymentHash) &&
+            !string.Equals(recordedMethod.PaymentHash, paymentHash, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         var verificationStatus = ResolveVerificationStatus(recordedMethod);
         if (verificationStatus == LightningManagerInvoicePaymentVerificationStatuses.Internal &&
             !string.IsNullOrEmpty(recordedMethod.PaymentHash))
@@ -338,34 +344,21 @@ public class LightningManagerLedgerInvoiceListener(
             return true;
         }
 
-        if (verificationStatus == LightningManagerInvoicePaymentVerificationStatuses.External)
+        if (verificationStatus == LightningManagerInvoicePaymentVerificationStatuses.Internal)
         {
-            return false;
+            return await IsInternalPaymentHashAsync(recordedMethod.CryptoCode, paymentHash, cancellationToken) is true;
         }
 
-        if (recordedMethod.IsInternalNode &&
-            !string.IsNullOrEmpty(recordedMethod.PaymentHash))
+        if (verificationStatus == LightningManagerInvoicePaymentVerificationStatuses.Unknown)
         {
-            return true;
+            return await IsInternalPaymentHashAsync(recordedMethod.CryptoCode, paymentHash, cancellationToken) is true;
         }
 
-        if (!recordedMethod.IsInternalNode &&
-            verificationStatus != LightningManagerInvoicePaymentVerificationStatuses.Unknown)
-        {
-            return false;
-        }
-
-        return await IsInternalPaymentHashAsync(recordedMethod.CryptoCode, paymentHash, cancellationToken) is true;
+        return false;
     }
 
     private static string ResolveVerificationStatus(LightningManagerInvoicePaymentMethod recordedMethod)
     {
-        if (recordedMethod.IsInternalNode &&
-            recordedMethod.VerificationStatus == LightningManagerInvoicePaymentVerificationStatuses.External)
-        {
-            return LightningManagerInvoicePaymentVerificationStatuses.Internal;
-        }
-
         return string.IsNullOrWhiteSpace(recordedMethod.VerificationStatus)
             ? LightningManagerInvoicePaymentVerificationStatuses.External
             : recordedMethod.VerificationStatus;

@@ -276,10 +276,13 @@ public class LightningLedgerRepository(ApplicationDbContextFactory dbContextFact
                 ON CONFLICT ("InvoiceId", "PaymentMethodId", "PaymentHash") DO UPDATE
                 SET "StoreId" = EXCLUDED."StoreId",
                     "CryptoCode" = EXCLUDED."CryptoCode",
-                    "IsInternalNode" = "LightningManagerInvoicePaymentMethods"."IsInternalNode" OR EXCLUDED."IsInternalNode",
+                    "IsInternalNode" = CASE
+                        WHEN "LightningManagerInvoicePaymentMethods"."VerificationStatus" = @internalStatus THEN true
+                        ELSE EXCLUDED."IsInternalNode"
+                    END,
                     "VerificationStatus" = CASE
                         WHEN "LightningManagerInvoicePaymentMethods"."VerificationStatus" = @internalStatus
-                             OR "LightningManagerInvoicePaymentMethods"."IsInternalNode" THEN @internalStatus
+                            THEN @internalStatus
                         ELSE EXCLUDED."VerificationStatus"
                     END,
                     "UpdatedAt" = EXCLUDED."UpdatedAt"

@@ -493,11 +493,19 @@ public class StoreLightningLedgerService(
             CryptoCode = cryptoCode,
             Type = LightningLedgerEntryTypes.CreditInvoicePayment,
             AmountMSat = amountMSat,
-            IdempotencyKey = $"invoice:{invoiceId}:payment:{paymentId}",
+            IdempotencyKey = InvoiceCreditIdempotencyKey(invoiceId, paymentId, paymentHash),
             InvoiceId = invoiceId,
             PaymentHash = paymentHash,
             Description = "Lightning invoice payment"
         }, cancellationToken);
+    }
+
+    private static string InvoiceCreditIdempotencyKey(string invoiceId, string paymentId, string? paymentHash)
+    {
+        var paymentIdentity = string.IsNullOrWhiteSpace(paymentHash)
+            ? $"id:{paymentId}"
+            : $"hash:{paymentHash.Trim().ToLowerInvariant()}";
+        return $"invoice:{invoiceId}:payment:{paymentIdentity}";
     }
 
     public async Task ReconcilePendingSendsAsync(CancellationToken cancellationToken = default)

@@ -167,6 +167,38 @@ public class LightningManagerLedgerInvoiceListenerTests
     }
 
     [Fact]
+    public async Task ReceivedPayment_WithExternalStatusAndLegacyInternalFlag_DoesNotCreditLedger()
+    {
+        const string paymentHash = "0000000000000000000000000000000000000000000000000000000000000001";
+        var repository = new RecordingLightningLedgerRepository();
+        repository.Mark(new LightningManagerInvoicePaymentMethod
+        {
+            InvoiceId = "invoice-1",
+            PaymentMethodId = PaymentTypes.LN.GetPaymentMethodId("BTC").ToString(),
+            PaymentHash = paymentHash,
+            StoreId = "store-1",
+            CryptoCode = "BTC",
+            IsInternalNode = true,
+            VerificationStatus = LightningManagerInvoicePaymentVerificationStatuses.External
+        });
+        var ledger = new RecordingStoreLightningLedgerService();
+        var listener = CreateListener(
+            repository,
+            ledger,
+            new FakeLightningClient
+            {
+                GetInvoiceByPaymentHashHandler = (paymentHash, _) => Task.FromResult(new LightningInvoice
+                {
+                    PaymentHash = paymentHash.ToString()
+                })
+            });
+
+        await listener.ProcessEventForTestingAsync(CreateReceivedPayment("invoice-1", "store-1", paymentHash));
+
+        Assert.Empty(ledger.Credits);
+    }
+
+    [Fact]
     public async Task ReceivedPayment_WithUnknownRecordedPaymentHashOwnedByInternalNode_CreditsLedger()
     {
         const string paymentHash = "0000000000000000000000000000000000000000000000000000000000000001";
@@ -427,8 +459,7 @@ public class LightningManagerLedgerInvoiceListenerTests
             CancellationToken cancellationToken = default)
         {
             if (_markers.TryGetValue((invoiceId, paymentMethodId, paymentHash), out var existing) &&
-                (existing.IsInternalNode ||
-                 existing.VerificationStatus == LightningManagerInvoicePaymentVerificationStatuses.Internal))
+                existing.VerificationStatus == LightningManagerInvoicePaymentVerificationStatuses.Internal)
             {
                 verificationStatus = LightningManagerInvoicePaymentVerificationStatuses.Internal;
             }

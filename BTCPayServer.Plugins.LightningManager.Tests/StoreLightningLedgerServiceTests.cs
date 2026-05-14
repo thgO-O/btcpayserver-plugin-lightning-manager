@@ -51,6 +51,22 @@ public class StoreLightningLedgerServiceTests
     }
 
     [Fact]
+    public async Task CreditInvoicePaymentAsync_WhenSameHashHasDifferentPaymentIds_CreditsOnce()
+    {
+        var repository = new InMemoryLightningLedgerRepository();
+        var service = CreateService(repository);
+
+        var first = await service.CreditInvoicePaymentAsync("store-1", "BTC", "invoice-1", "payment-1", "hash-1", 50_000);
+        var second = await service.CreditInvoicePaymentAsync("store-1", "BTC", "invoice-1", "payment-2", "hash-1", 50_000);
+
+        var snapshot = await repository.GetSnapshotAsync("store-1", "BTC");
+        Assert.True(first);
+        Assert.False(second);
+        Assert.Equal(50_000, snapshot.Balance.TotalMSat);
+        Assert.Single(snapshot.Entries);
+    }
+
+    [Fact]
     public async Task CreditInvoicePaymentAsync_WithNonBtcLightning_DoesNotCreditLedger()
     {
         var repository = new InMemoryLightningLedgerRepository();
