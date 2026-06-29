@@ -11,8 +11,6 @@ public class LightningManagerServiceTests
 {
     private const string ValidBolt11 =
         "lnbcrt20u1psd66dppp5m4ughz9keyptj80qcn35cx9w52p7gc8eyx4m6y5456jlhm04wfvsdqqcqzpgxqyz5vqsp5pdsxhsnrs69n940373fnec2zxw5yzlksnev40ejcq39lnju5lt3s9qyyssqpq760qvf46y3cch948wau8e5ym0zungnqfvdx5wruy6f0hru2pp9txtc9up2lfc439a2xuz6nvgjw40vsddhywjpc5qmm0q3dj4m3dcqxzjjeg";
-    private const string SharedInternalNodeReadOnlyMessage =
-        "Lightning actions are disabled for stores using the server's shared internal Lightning node.";
 
     private readonly LightningManagerService _service = new();
 
@@ -220,22 +218,6 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task PopulatePeersAsync_WithReadOnlySharedInternalNode_DoesNotListNodePeers()
-    {
-        var context = TestContextFactory.CreateConfigured(
-            LightningCapabilities.None,
-            new FakeLightningClient(),
-            isInternalNode: true,
-            isSharedBackend: true,
-            isReadOnly: true);
-        var model = new ViewModels.PeersViewModel();
-
-        await _service.PopulatePeersAsync(model, context);
-
-        Assert.Equal(SharedInternalNodeReadOnlyMessage, model.PeerListMessage);
-    }
-
-    [Fact]
     public void TryCreateOpenChannelPreview_WithInvalidAmount_ReturnsFriendlyError()
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
@@ -292,66 +274,8 @@ public class LightningManagerServiceTests
         var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Send);
 
         Assert.True(tabs.ShowSend);
-        Assert.False(tabs.ShowHistory);
         Assert.False(tabs.ShowPeers);
         Assert.False(tabs.ShowChannels);
-    }
-
-    [Fact]
-    public void CreateTabs_WithReadOnlySharedInternalNode_HidesMutatingTabs()
-    {
-        var context = TestContextFactory.CreateConfigured(
-            new LightningCapabilities
-            {
-                CanGetInfo = true,
-                CanGetBalance = true
-            },
-            isInternalNode: true,
-            isSharedBackend: true,
-            isReadOnly: true);
-
-        var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Overview);
-
-        Assert.False(tabs.ShowOverview);
-        Assert.True(tabs.ShowStoreBalance);
-        Assert.True(tabs.ShowHistory);
-        Assert.False(tabs.ShowSend);
-        Assert.False(tabs.ShowPeers);
-        Assert.False(tabs.ShowChannels);
-    }
-
-    [Fact]
-    public void CreateTabs_WithInternalNode_HidesGlobalNodeActions()
-    {
-        var context = TestContextFactory.CreateConfigured(
-            LightningCapabilities.Full,
-            isInternalNode: true,
-            isSharedBackend: true,
-            isReadOnly: false);
-
-        var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.StoreBalance);
-
-        Assert.False(tabs.ShowOverview);
-        Assert.True(tabs.ShowStoreBalance);
-        Assert.True(tabs.ShowHistory);
-        Assert.False(tabs.ShowSend);
-        Assert.False(tabs.ShowPeers);
-        Assert.False(tabs.ShowChannels);
-    }
-
-    [Fact]
-    public void TryCreateSendPreview_WithReadOnlySharedInternalNode_ReturnsFriendlyError()
-    {
-        var context = TestContextFactory.CreateConfigured(
-            LightningCapabilities.Full,
-            isInternalNode: true,
-            isSharedBackend: true,
-            isReadOnly: true);
-
-        var ok = _service.TryCreateSendPreview(context, "lnbc1test", null, out _, out var error);
-
-        Assert.False(ok);
-        Assert.Equal(SharedInternalNodeReadOnlyMessage, error);
     }
 
     [Fact]
@@ -411,25 +335,6 @@ public class LightningManagerServiceTests
         Assert.Equal(1, model.InactiveChannelsCount);
         Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "1");
         Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "1");
-    }
-
-    [Fact]
-    public async Task PopulateChannelsAsync_WithReadOnlySharedInternalNode_ShowsReadOnlyMessage()
-    {
-        var context = TestContextFactory.CreateConfigured(
-            new LightningCapabilities
-            {
-                CanGetInfo = true,
-                CanGetBalance = true
-            },
-            isInternalNode: true,
-            isSharedBackend: true,
-            isReadOnly: true);
-        var model = new ViewModels.ChannelsViewModel();
-
-        await _service.PopulateChannelsAsync(model, context);
-
-        Assert.Equal(SharedInternalNodeReadOnlyMessage, model.ChannelListMessage);
     }
 
     [Fact]

@@ -40,22 +40,18 @@ public class LightningManagerService : ILightningManagerService
 {
     private const decimal DefaultChannelOpenFeeRate = 1.0m;
     private const long MinimumLndChannelAmountSats = 20_000;
-    private const string SharedInternalNodeReadOnlyMessage = "Lightning actions are disabled for stores using the server's shared internal Lightning node.";
 
     public virtual LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage)
     {
-        var showNodeActions = !context.IsInternalNode && !context.IsReadOnly;
         return new LightningManagerTabsViewModel
         {
             StoreId = context.StoreId,
             CryptoCode = context.CryptoCode,
             ActivePage = activePage,
-            ShowOverview = !context.IsInternalNode,
-            ShowStoreBalance = context.IsInternalNode,
-            ShowHistory = context.IsInternalNode,
-            ShowSend = showNodeActions && context.Capabilities.CanPayBolt11,
-            ShowPeers = showNodeActions && context.Capabilities.CanConnectPeer,
-            ShowChannels = showNodeActions && (context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel)
+            ShowOverview = true,
+            ShowSend = context.Capabilities.CanPayBolt11,
+            ShowPeers = context.Capabilities.CanConnectPeer,
+            ShowChannels = context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel
         };
     }
 
@@ -164,12 +160,6 @@ public class LightningManagerService : ILightningManagerService
         if (!context.IsConfigured || context.Client is null || context.Network is null)
         {
             error = "Lightning is not available for this store.";
-            return false;
-        }
-
-        if (context.IsReadOnly)
-        {
-            error = SharedInternalNodeReadOnlyMessage;
             return false;
         }
 
@@ -350,11 +340,6 @@ public class LightningManagerService : ILightningManagerService
             return Failure("Lightning is not available for this store.");
         }
 
-        if (context.IsReadOnly)
-        {
-            return Failure(SharedInternalNodeReadOnlyMessage);
-        }
-
         if (!context.Capabilities.CanConnectPeer)
         {
             return Failure("Peer connections are not supported by this backend.");
@@ -396,12 +381,6 @@ public class LightningManagerService : ILightningManagerService
             return Task.CompletedTask;
         }
 
-        if (context.IsReadOnly)
-        {
-            model.PeerListMessage = SharedInternalNodeReadOnlyMessage;
-            return Task.CompletedTask;
-        }
-
         model.PeerListMessage = "Peer listing is not available for this backend.";
         return Task.CompletedTask;
     }
@@ -414,12 +393,6 @@ public class LightningManagerService : ILightningManagerService
         if (!context.IsConfigured || context.Client is null)
         {
             model.ChannelListMessage = "Lightning is not available for this store.";
-            return;
-        }
-
-        if (context.IsReadOnly)
-        {
-            model.ChannelListMessage = SharedInternalNodeReadOnlyMessage;
             return;
         }
 
@@ -548,12 +521,6 @@ public class LightningManagerService : ILightningManagerService
         if (!context.IsConfigured || context.Client is null)
         {
             error = "Lightning is not available for this store.";
-            return false;
-        }
-
-        if (context.IsReadOnly)
-        {
-            error = SharedInternalNodeReadOnlyMessage;
             return false;
         }
 

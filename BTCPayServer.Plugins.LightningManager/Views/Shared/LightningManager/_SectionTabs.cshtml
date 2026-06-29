@@ -13,30 +13,6 @@
             </a>
         </li>
     }
-    @if (Model.ShowStoreBalance)
-    {
-        <li class="nav-item">
-            <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.StoreBalance ? "active" : "")"
-               asp-controller="LightningManager"
-               asp-action="StoreBalance"
-               asp-route-storeId="@Model.StoreId"
-               asp-route-cryptoCode="@Model.CryptoCode">
-                Pay
-            </a>
-        </li>
-    }
-    @if (Model.ShowHistory)
-    {
-        <li class="nav-item">
-            <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.History ? "active" : "")"
-               asp-controller="LightningManager"
-               asp-action="History"
-               asp-route-storeId="@Model.StoreId"
-               asp-route-cryptoCode="@Model.CryptoCode">
-                History
-            </a>
-        </li>
-    }
     @if (Model.ShowSend)
     {
         <li class="nav-item">

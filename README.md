@@ -1,35 +1,22 @@
 # BTCPayServer.Plugins.LightningManager
 
 External BTCPay Server plugin that adds BTC Lightning management screens for
-store operators and server admins.
+store operators.
 
-Lightning Manager is BTC Lightning only. It does not try to manage Lightning
-balances or node operations for other currencies.
-
-The plugin supports two workflows:
-
-- store-scoped management for stores with their own BTC Lightning backend;
-- shared internal-node operation, where the server admin controls the node and
-  each store gets a separate accounting balance.
+Lightning Manager is BTC Lightning only and external-node only. It does not
+manage Lightning balances or node operations for other currencies, and it does
+not manage BTCPay's shared internal Lightning node.
 
 ## Features
 
 - `Overview`: BTC Lightning node information, node URIs, on-chain balance, and
   off-chain balance.
-- `Pay`: preview and pay fixed-amount BOLT11 invoices. For stores using the
-  shared internal Lightning node, this page also shows the store's accounting
-  balance.
-- `History`: store-scoped Pay history with filters and pagination for shared
-  internal-node stores.
+- `Pay`: preview and pay fixed-amount BOLT11 invoices.
 - `Peers`: connect to Lightning peers when the backend supports it.
 - `Channels`: list channels and open channels when the backend supports it.
-- `Server Lightning Manager`: server-admin view for the shared internal node,
-  including node operations, store access, and balance adjustments.
 
 The UI is capability-driven. Backends that only support payments do not show
-peer or channel actions. For the shared internal node, store pages only show
-store-scoped Pay and History data; node-wide balances, peers, and channels stay
-in server-level views.
+peer or channel actions.
 
 ## Requirements
 
@@ -59,50 +46,31 @@ Included:
 - Friendly handling for invalid invoices, route failures, insufficient balance,
   and unknown payment status.
 - Capability-based UI for full-node and pay-focused providers.
-- Store-level Pay and History pages for stores using the shared internal
-  Lightning node.
-- Plugin-owned ledger tables for store-scoped internal node balances.
-- Managed Pay payments with reserve, settle, and release entries.
-- Automatic invoice payment credits for internal-node stores.
-- Automatic credits for native `BTC-LN` and `BTC-LNURL` payments on
-  internal-node stores.
-- Store-scoped History page with search, event/status filters, and pagination.
-- Server-admin store access toggle for shared internal-node usage.
-- Guard that keeps native `BTC-LN` and `BTC-LNURL` checkout disabled while the
-  server admin has disabled store access.
-- Server-admin balance adjustment for store accounting balances.
 
 Not included in v0.1:
 
 - Closing channels.
 - Creating invoices or receiving funds from this UI.
 - Amountless BOLT11 invoices.
-- Custom LNURL checkout UI. The plugin credits BTCPay native `BTC-LNURL`
-  payments, but it does not add a separate LNURL checkout button.
+- Custom LNURL checkout UI.
 - BOLT12, keysend, or spontaneous payments.
-- Unlocking BTCPay's native internal-node payout flow for non-admin users.
-- Physical fund separation between stores on the Lightning node.
+- Shared internal-node balance management.
+- Plugin-owned custodial ledger or store accounting balances.
 
 ## Security Model
 
-- The Pay ledger is accounting separation, not cryptographic or
-  node-level fund separation.
 - The plugin reuses BTCPay store authorization.
 - Read-only pages require BTCPay's store Lightning permission.
 - Mutating actions, such as paying an invoice, connecting a peer, and opening a
   channel, require
   BTCPay's store settings modification permission.
-- Shared internal-node access is a server-admin permission. Disabling access
-  also excludes native `BTC-LN` and `BTC-LNURL` checkout for that store.
-- Re-enabling access does not force checkout back on; the store owner can enable
-  native Lightning settings again.
-- The server shared internal Lightning node hides node-wide balances, channels,
-  and global node actions from non-admin users.
-- Pay sends reserve funds before paying and release reservations on
-  known failures.
+- Payments are sent directly by the store's configured external Lightning
+  backend.
+- The plugin does not custody funds, credit invoices, or maintain an internal
+  store balance ledger.
 - Raw backend exception messages are not displayed in the UI.
 
-## External Node Workflow
+## External Backend Workflow
 
 For a store with its own external BTC Lightning backend:
 
@@ -115,25 +83,8 @@ For a store with its own external BTC Lightning backend:
 5. Full-node backends can use `Lightning > Channels` to list channels and open
    new channels.
 
-External-node payments are paid directly by that backend. They do not use the
-plugin ledger.
-
-## Internal Node Workflow
-
-For a shared BTCPay internal Lightning node:
-
-1. The server admin opens `Server Settings > Lightning Manager`.
-2. The admin enables `Access` for the stores allowed to use the node.
-3. The store owner can enable native Lightning checkout settings if desired.
-4. Incoming `BTC-LN` and `BTC-LNURL` payments credit that store's Pay balance.
-5. Store users pay through `Lightning > Pay`; the plugin reserves the balance
-   before paying and settles or releases the reservation afterward.
-6. Store users review activity in `Lightning > History`.
-7. The server admin manages node-wide payments, peers, channels, access, and
-   accounting adjustments from `Server Lightning Manager`.
-
-The ledger is the plugin's accounting source of truth for store balances. It
-does not segregate funds on the Lightning node.
+External-node payments are paid directly by that backend. The plugin never
+maintains a payment ledger.
 
 ## Installation
 
@@ -193,9 +144,8 @@ dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.Lightnin
 
 ## Test
 
-The test suite includes PostgreSQL-backed concurrency tests. It uses the
-standard BTCPay Server test stack by default at `127.0.0.1:39372`; set
-`TESTS_POSTGRES` to override the connection string.
+The test suite covers the external BTC Lightning management flow and capability
+handling.
 
 ```bash
 dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj -p:StaticWebAssetsEnabled=false

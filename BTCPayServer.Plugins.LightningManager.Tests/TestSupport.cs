@@ -1,17 +1,19 @@
 #nullable enable
 using BTCPayServer;
 using BTCPayServer.Data;
+using BTCPayServer.Payments;
+using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Lightning;
+using BTCPayServer.Services.Invoices;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
-using BTCPayServer.Security;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NBitcoin;
 using NBXplorer;
-using System.Security.Claims;
 using System.Runtime.CompilerServices;
 using System.Reflection;
 
@@ -32,6 +34,7 @@ internal static class TestNetworkFactory
         SetNetwork(networkInstance, NBitcoin.Network.RegTest);
         return new BTCPayNetwork
         {
+            CryptoCode = "BTC",
             NBXplorerNetwork = networkInstance
         };
     }
@@ -109,6 +112,45 @@ internal sealed class PhoenixdLikeLightningClient : FakeLightningClient;
 internal sealed class LndLikeLightningClient : FakeLightningClient;
 internal sealed class LndHubLikeLightningClient : FakeLightningClient;
 
+internal sealed class FakeHttpClientFactory : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name)
+    {
+        return new HttpClient();
+    }
+}
+
+internal sealed class FakeLightningPaymentMethodHandler : IPaymentMethodHandler
+{
+    public PaymentMethodId PaymentMethodId { get; } = PaymentTypes.LN.GetPaymentMethodId("BTC");
+    public JsonSerializer Serializer { get; } = JsonSerializer.CreateDefault();
+
+    public Task ConfigurePrompt(PaymentMethodContext context)
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task BeforeFetchingRates(PaymentMethodContext context)
+    {
+        return Task.CompletedTask;
+    }
+
+    public object ParsePaymentPromptDetails(JToken details)
+    {
+        throw new NotSupportedException();
+    }
+
+    public object ParsePaymentMethodConfig(JToken config)
+    {
+        return config.ToObject<LightningPaymentMethodConfig>(Serializer) ?? new LightningPaymentMethodConfig();
+    }
+
+    public object ParsePaymentDetails(JToken details)
+    {
+        throw new NotSupportedException();
+    }
+}
+
 internal sealed class FakeStoreLightningManagerContextFactory : IStoreLightningManagerContextFactory
 {
     public required StoreLightningManagerContext Context { get; init; }
@@ -127,12 +169,7 @@ internal static class TestContextFactory
     public static StoreLightningManagerContext CreateConfigured(
         LightningCapabilities capabilities,
         ILightningClient? client = null,
-        bool isInternalNode = false,
-        bool isSharedBackend = false,
-        bool isReadOnly = false,
-        string? sharedBackendNotice = null,
-        string? connectionString = null,
-        LightningCapabilities? backendCapabilities = null)
+        string? connectionString = null)
     {
         return new StoreLightningManagerContext
         {
@@ -142,13 +179,21 @@ internal static class TestContextFactory
             Network = TestNetworkFactory.GetBitcoinNetwork(),
             Client = client ?? new FakeLightningClient(),
             ConnectionString = connectionString,
-            IsInternalNode = isInternalNode,
-            IsSharedBackend = isSharedBackend,
-            IsReadOnly = isReadOnly,
             Capabilities = capabilities,
-            BackendCapabilities = backendCapabilities ?? capabilities,
-            DisplayName = "Test Node",
-            SharedBackendNotice = sharedBackendNotice
+            DisplayName = "Test Node"
+        };
+    }
+
+    public static StoreLightningManagerContext CreateUnavailable(string message)
+    {
+        return new StoreLightningManagerContext
+        {
+            Store = new StoreData { Id = "store-1", StoreName = "Test Store" },
+            StoreId = "store-1",
+            CryptoCode = "BTC",
+            Network = TestNetworkFactory.GetBitcoinNetwork(),
+            Capabilities = LightningCapabilities.None,
+            ConfigurationError = message
         };
     }
 }
@@ -156,24 +201,18 @@ internal static class TestContextFactory
 internal static class TestControllerFactory
 {
     public static Controllers.LightningManagerController CreateController(
-        StoreLightningManagerContext context,
-        params string[] grantedPolicies)
+        StoreLightningManagerContext context)
     {
-        return CreateController(context, new LightningManagerService(), grantedPolicies);
+        return CreateController(context, new LightningManagerService());
     }
 
     public static Controllers.LightningManagerController CreateController(
         StoreLightningManagerContext context,
-        ILightningManagerService lightningManagerService,
-        params string[] grantedPolicies)
+        ILightningManagerService lightningManagerService)
     {
         var controller = new Controllers.LightningManagerController(
             new FakeStoreLightningManagerContextFactory { Context = context },
-            lightningManagerService,
-            new NoopStoreLightningLedgerService(),
-            new FakeAuthorizationService(grantedPolicies.Length == 0
-                ? [BTCPayServer.Client.Policies.CanModifyStoreSettings, BTCPayServer.Client.Policies.CanModifyServerSettings]
-                : grantedPolicies));
+            lightningManagerService);
 
         var httpContext = new DefaultHttpContext();
         httpContext.SetStoreData(context.Store);
@@ -203,88 +242,5 @@ internal sealed class InMemoryTempDataProvider : ITempDataProvider
         {
             _values[value.Key] = value.Value;
         }
-    }
-}
-
-internal sealed class NoopStoreLightningLedgerService : IStoreLightningLedgerService
-{
-    public Task PopulateStoreBalanceAsync(
-        StoreBalanceViewModel model,
-        StoreLightningManagerContext context,
-        bool canModifyStoreSettings,
-        bool canModifyServerSettings,
-        CancellationToken cancellationToken = default)
-    {
-        model.IsInternalNode = context.IsInternalNode;
-        model.IsServerAdmin = canModifyServerSettings;
-        model.AccountEnabled = context.IsInternalNode && context.IsConfigured;
-        return Task.CompletedTask;
-    }
-
-    public Task PopulateStoreHistoryAsync(
-        StoreHistoryViewModel model,
-        StoreLightningManagerContext context,
-        bool canModifyStoreSettings,
-        bool canModifyServerSettings,
-        CancellationToken cancellationToken = default)
-    {
-        model.IsInternalNode = context.IsInternalNode;
-        model.IsServerAdmin = canModifyServerSettings;
-        model.AccountEnabled = context.IsInternalNode && context.IsConfigured;
-        model.CanViewHistory = context.IsInternalNode && context.IsConfigured;
-        return Task.CompletedTask;
-    }
-
-    public Task<ActionResultViewModel> AddServerAdminAdjustmentAsync(string storeId, string cryptoCode, string? amountSats, string? memo, string? operationId, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new ActionResultViewModel { IsSuccess = true, Message = "ok" });
-    }
-
-    public Task<ManagedSendPreviewResult> CreateManagedSendPreviewAsync(StoreLightningManagerContext context, string? bolt11, string? maxFeeSats, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(ManagedSendPreviewResult.Failure("not implemented"));
-    }
-
-    public Task<SendExecutionResult> SendFromLedgerAsync(StoreLightningManagerContext context, string bolt11, string? maxFeeSats, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new SendExecutionResult
-        {
-            Result = new ActionResultViewModel { IsSuccess = false, Message = "not implemented" }
-        });
-    }
-
-    public Task<bool> CreditInvoicePaymentAsync(string storeId, string cryptoCode, string invoiceId, string paymentId, string? paymentHash, long amountMSat, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(false);
-    }
-
-    public Task ReconcilePendingSendsAsync(CancellationToken cancellationToken = default)
-    {
-        return Task.CompletedTask;
-    }
-}
-
-internal sealed class FakeAuthorizationService(IReadOnlyCollection<string> grantedPolicies) : IAuthorizationService
-{
-    public Task<AuthorizationResult> AuthorizeAsync(
-        ClaimsPrincipal user,
-        object? resource,
-        IEnumerable<IAuthorizationRequirement> requirements)
-    {
-        var granted = requirements
-            .OfType<PolicyRequirement>()
-            .All(requirement => grantedPolicies.Contains(requirement.Policy));
-
-        return Task.FromResult(granted ? AuthorizationResult.Success() : AuthorizationResult.Failed());
-    }
-
-    public Task<AuthorizationResult> AuthorizeAsync(
-        ClaimsPrincipal user,
-        object? resource,
-        string policyName)
-    {
-        return Task.FromResult(grantedPolicies.Contains(policyName)
-            ? AuthorizationResult.Success()
-            : AuthorizationResult.Failed());
     }
 }

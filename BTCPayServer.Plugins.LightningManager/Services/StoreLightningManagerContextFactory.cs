@@ -8,7 +8,6 @@ using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
-using Microsoft.Extensions.Options;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
 
@@ -21,14 +20,9 @@ public class StoreLightningManagerContext
     public LightningPaymentMethodConfig? PaymentMethodConfig { get; init; }
     public ILightningClient? Client { get; init; }
     public string? ConnectionString { get; init; }
-    public bool IsInternalNode { get; init; }
-    public bool IsSharedBackend { get; init; }
-    public bool IsReadOnly { get; init; }
     public required LightningCapabilities Capabilities { get; init; }
-    public LightningCapabilities BackendCapabilities { get; init; } = LightningCapabilities.None;
     public string? DisplayName { get; init; }
     public string? NodeHost { get; init; }
-    public string? SharedBackendNotice { get; init; }
     public string? ConfigurationError { get; init; }
     public bool IsConfigured => Client is not null && string.IsNullOrEmpty(ConfigurationError);
 }
@@ -47,20 +41,17 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly LightningClientFactoryService _lightningClientFactory;
     private readonly ILightningCapabilityService _lightningCapabilityService;
-    private readonly IOptions<LightningNetworkOptions> _lightningNetworkOptions;
 
     public StoreLightningManagerContextFactory(
         BTCPayNetworkProvider networkProvider,
         PaymentMethodHandlerDictionary handlers,
         LightningClientFactoryService lightningClientFactory,
-        ILightningCapabilityService lightningCapabilityService,
-        IOptions<LightningNetworkOptions> lightningNetworkOptions)
+        ILightningCapabilityService lightningCapabilityService)
     {
         _networkProvider = networkProvider;
         _handlers = handlers;
         _lightningClientFactory = lightningClientFactory;
         _lightningCapabilityService = lightningCapabilityService;
-        _lightningNetworkOptions = lightningNetworkOptions;
     }
 
     public virtual Task<StoreLightningManagerContext> CreateAsync(
@@ -105,9 +96,7 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
                     PaymentMethodConfig = config,
                     Client = client,
                     ConnectionString = connectionString,
-                    IsInternalNode = false,
                     Capabilities = capabilities,
-                    BackendCapabilities = capabilities,
                     DisplayName = client.GetDisplayName(connectionString),
                     NodeHost = client.GetServerUri(connectionString)?.Host
                 });
@@ -123,28 +112,12 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning configuration is invalid.", network, config));
         }
 
-        if (!_lightningNetworkOptions.Value.InternalLightningByCryptoCode.TryGetValue(cryptoCode.ToUpperInvariant(), out var internalClient))
-        {
-            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "The internal Lightning node is not available.", network, config, isInternalNode: true));
-        }
-
-        var backendCapabilities = _lightningCapabilityService.GetCapabilities(internalClient, null, true);
-
-        return Task.FromResult(new StoreLightningManagerContext
-        {
-            Store = store,
-            StoreId = store.Id,
-            CryptoCode = cryptoCode,
-            Network = network,
-            PaymentMethodConfig = config,
-            Client = internalClient,
-            IsInternalNode = true,
-            IsSharedBackend = true,
-            IsReadOnly = true,
-            Capabilities = LightningCapabilities.None,
-            BackendCapabilities = backendCapabilities,
-            DisplayName = "Internal node"
-        });
+        return Task.FromResult(CreateUnavailableContext(
+            store,
+            cryptoCode,
+            "Lightning Manager supports external BTC Lightning backends only.",
+            network,
+            config));
     }
 
     private StoreLightningManagerContext CreateUnavailableContext(
@@ -153,8 +126,7 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
         string configurationError,
         BTCPayNetwork? network = null,
         LightningPaymentMethodConfig? config = null,
-        string? connectionString = null,
-        bool isInternalNode = false)
+        string? connectionString = null)
     {
         return new StoreLightningManagerContext
         {
@@ -164,9 +136,7 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             Network = network,
             PaymentMethodConfig = config,
             ConnectionString = connectionString,
-            IsInternalNode = isInternalNode,
             Capabilities = LightningCapabilities.None,
-            BackendCapabilities = LightningCapabilities.None,
             ConfigurationError = configurationError
         };
     }
