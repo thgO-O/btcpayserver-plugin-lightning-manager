@@ -30,6 +30,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../submodules/btcpayserver/BTCPayServer/BTCPayServer.csproj" />
-    <PackageReference Include="BTCPayServer.Lightning.All" Version="1.6.15" />
+    <PackageReference Include="BTCPayServer.Lightning.All" Version="1.7.3" />
   </ItemGroup>
 </Project>
