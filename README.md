@@ -1,101 +1,108 @@
-# BTCPayServer.Plugins.LightningManager
+# Lightning Manager for BTCPay Server
 
-External BTCPay Server plugin that adds BTC Lightning management screens for
-store operators.
+Lightning Manager adds extra BTC Lightning screens inside BTCPay Server for
+stores that already use their own Lightning node or wallet.
 
-Lightning Manager is BTC Lightning only and external-node only. It does not
-manage Lightning balances or node operations for other currencies, and it does
-not manage BTCPay's shared internal Lightning node.
+Use it to check your Lightning setup, pay fixed-amount Lightning invoices, and,
+when your node or wallet supports it, connect peers or open channels.
 
-## Features
+## Who This Is For
 
-- `Overview`: BTC Lightning node information, node URIs, on-chain balance, and
-  off-chain balance.
-- `Pay`: preview and pay fixed-amount BOLT11 invoices.
-- `Peers`: connect to Lightning peers when the backend supports it.
-- `Channels`: list channels and open channels when the backend supports it.
+This plugin is for BTCPay store operators who already have BTC Lightning
+configured with their own external Lightning node or wallet.
 
-The UI is capability-driven. Backends that only support payments do not show
-peer or channel actions.
+It is useful if you want to manage common Lightning actions from BTCPay instead
+of switching to another node or wallet interface.
+
+## Important Limits
+
+- BTC Lightning only.
+- External Lightning nodes or wallets only.
+- It does not create a Lightning wallet for you.
+- It does not use or manage BTCPay's shared internal Lightning node.
+- It does not support Lightning for Litecoin or any other currency.
+- It does not receive payments, create invoices, or change checkout behavior.
+- It does not custody funds, credit invoices, or keep a store balance ledger.
 
 ## Requirements
 
-- BTCPay Server `2.3.7` or newer.
-- .NET `10.0` SDK for local development.
-- The BTCPay Server submodule initialized at `submodules/btcpayserver` when
-  building from this repository.
+- BTCPay Server `2.4.0` or newer.
+- A BTCPay store with BTC Lightning already configured.
+- A connected Lightning node or wallet with funds if you want to pay invoices.
+- BTCPay permissions for the store:
+  - Lightning node access to view the pages.
+  - Store settings modification to pay invoices, connect peers, or open
+    channels.
 
-## Provider Support
+## What You Can Do
 
-| Provider | Connection type | Overview | Pay | Peers | Channels | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| LND | `lnd-rest`, `lnd-grpc` | Yes | Yes | Connect | List/open | Full-node workflow. Tested locally with Polar/regtest. |
-| Core Lightning | `clightning` | Yes | Yes | Connect | List/open | Full-node workflow. Tested locally with Polar/regtest. |
-| Eclair | `eclair` | Yes | Yes | Connect | List/open | Full-node workflow. Tested locally with Polar/regtest. Peer listing may be unavailable depending on the backend client. |
-| Phoenixd | `phoenixd` | Yes | Yes | No | No | Payment-focused workflow. Phoenixd is not regtest-friendly; validate with a real network wallet. |
-| Blink | `blink` | Limited | Yes | No | No | Payment-focused workflow. The Blink wallet network must match the BTCPay network. |
-| LndHub | `lndhub` | Yes | Yes | No | No | Payment-focused workflow. It is intentionally not treated as a full LND node. |
-| LNbank | `lnbank` | Yes | Yes | No | No | Payment-focused workflow. Smoke-test before advertising as production-ready. |
+- `Overview`: view node information, node address, and available balances.
+- `Pay`: preview and pay fixed-amount Lightning invoices with a maximum fee
+  limit.
+- `Peers`: connect to Lightning peers when your node supports it.
+- `Channels`: list channels and open channels when your node supports it.
 
-## v0.1 Scope
+The plugin only shows actions your Lightning setup can support. For example, a
+payment-focused wallet will show payment actions but not peer or channel
+management.
 
-Included:
+## Supported Lightning Setups
 
-- Store-scoped navigation under the existing BTCPay Lightning menu.
-- BOLT11 Pay flow with invoice preview and maximum fee limit.
-- Friendly handling for invalid invoices, route failures, insufficient balance,
-  and unknown payment status.
-- Capability-based UI for full-node and pay-focused providers.
+| Setup | What works |
+| --- | --- |
+| LND | Overview, Pay, Peers, Channels |
+| Core Lightning | Overview, Pay, Peers, Channels |
+| Eclair | Overview, Pay, Peers, Channels |
+| Phoenixd | Overview and Pay |
+| Blink | Pay, with limited overview information |
+| LndHub | Overview and Pay |
 
-Not included in v0.1:
+Peer and channel actions are only available for full Lightning nodes.
+Payment-only wallets do not expose those screens.
 
-- Closing channels.
-- Creating invoices or receiving funds from this UI.
-- Amountless BOLT11 invoices.
-- Custom LNURL checkout UI.
+## How To Use
+
+1. Install the plugin and restart BTCPay Server.
+2. Open a store that already has BTC Lightning configured.
+3. Open the BTCPay Lightning menu.
+4. Open `Overview` to confirm the detected node or wallet and available
+   actions.
+5. Use `Pay` to preview a Lightning invoice before sending the payment.
+6. Use `Peers` or `Channels` only if those tabs are shown for your setup.
+
+If your store uses BTCPay's shared internal Lightning node, Lightning Manager
+will not appear for that store.
+
+## Safety Notes
+
+- Payments are sent directly by your connected Lightning node or wallet.
+- The plugin does not hold funds.
+- The plugin does not maintain a separate accounting balance.
+- If a payment result is unknown, check your Lightning node or wallet before
+  retrying.
+- Raw backend errors are not shown in the UI.
+- Before relying on a new backend, test with a small payment first.
+
+## What Is Not Included
+
+- Creating invoices or receiving Lightning payments.
+- Lightning invoices without a preset amount.
 - BOLT12, keysend, or spontaneous payments.
+- LNURL checkout features.
+- Closing channels.
 - Shared internal-node balance management.
-- Plugin-owned custodial ledger or store accounting balances.
-
-## Security Model
-
-- The plugin reuses BTCPay store authorization.
-- Read-only pages require BTCPay's store Lightning permission.
-- Mutating actions, such as paying an invoice, connecting a peer, and opening a
-  channel, require
-  BTCPay's store settings modification permission.
-- Payments are sent directly by the store's configured external Lightning
-  backend.
-- The plugin does not custody funds, credit invoices, or maintain an internal
-  store balance ledger.
-- Raw backend exception messages are not displayed in the UI.
-
-## External Backend Workflow
-
-For a store with its own external BTC Lightning backend:
-
-1. The store configures a BTC Lightning connection string in BTCPay.
-2. The store opens `Lightning > Overview` to confirm node information and
-   detected capabilities.
-3. The store opens `Lightning > Pay` to preview and pay fixed-amount BOLT11
-   invoices with a maximum fee limit.
-4. Full-node backends can use `Lightning > Peers` to connect peers.
-5. Full-node backends can use `Lightning > Channels` to list channels and open
-   new channels.
-
-External-node payments are paid directly by that backend. The plugin never
-maintains a payment ledger.
+- Plugin-owned custodial balances or customer accounts.
 
 ## Installation
 
-Use the packaged plugin artifact:
+Install the packaged `.btcpay` plugin through the BTCPay Server plugin UI, then
+restart BTCPay Server.
+
+For local builds, the package is expected at:
 
 ```text
 artifacts/plugin-packages/BTCPayServer.Plugins.LightningManager/0.1.0.0/BTCPayServer.Plugins.LightningManager.btcpay
 ```
-
-Install it through the BTCPay Server plugin UI or place it in the plugin
-directory used by your deployment, then restart BTCPay Server.
 
 After restart, the logs should include:
 
@@ -103,37 +110,48 @@ After restart, the logs should include:
 Running plugin BTCPayServer.Plugins.LightningManager - 0.1.0.0
 ```
 
-## Mainnet Smoke Test
+## Release Checklist
 
-Before a public release, run a small-value smoke test on the final packaged
-artifact:
+Before a public release, test the final `.btcpay` package on a BTCPay Server
+instance:
 
-1. Install the `.btcpay` package on a BTCPay Server instance.
+1. Install the package through the plugin UI.
 2. Restart BTCPay Server and confirm the plugin loads.
-3. Open a store with Lightning configured.
-4. Open the Lightning Manager page and confirm the provider capabilities match
-   the table above.
-5. Pay a small BOLT11 invoice with the provider under test.
+3. Open a store with BTC Lightning configured.
+4. Confirm the shown actions match the node or wallet you are testing.
+5. Pay a small fixed-amount Lightning invoice.
 6. Confirm the destination wallet received the payment.
-7. Confirm the plugin only shows success when the payment result is settled.
-8. Test an invalid BOLT11 invoice and confirm the UI shows a friendly error.
+7. Confirm the plugin only shows success when the payment is settled.
+8. Test an invalid Lightning invoice and confirm the UI shows a friendly error.
 
 Recommended release sign-off:
 
 - LND, Core Lightning, and Eclair: regtest smoke with Polar.
-- Phoenixd, Blink, LndHub, and LNbank: small-value real-network smoke focused
-  on `Pay`.
+- Phoenixd, Blink, and LndHub: small-value real-network smoke focused on `Pay`.
 
-## Build
+## Development
 
-Initialize the BTCPay Server submodule first:
+Local development requires:
+
+- .NET `10.0` SDK.
+- The BTCPay Server submodule initialized at `submodules/btcpayserver`.
+
+Initialize the submodule:
 
 ```bash
 git submodule update --init --recursive
 ```
 
+Build:
+
 ```bash
 dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj
+```
+
+Test:
+
+```bash
+dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
 ```
 
 Release build:
@@ -142,19 +160,7 @@ Release build:
 dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj -c Release
 ```
 
-## Test
-
-The test suite covers the external BTC Lightning management flow and capability
-handling.
-
-```bash
-dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj -p:StaticWebAssetsEnabled=false
-```
-
-## Package
-
-Build the plugin in Release mode first, then run the BTCPay plugin packer from
-the sibling BTCPay Server repository:
+Package:
 
 ```bash
 dotnet submodules/btcpayserver/BTCPayServer.PluginPacker/bin/Release/net10.0/BTCPayServer.PluginPacker.dll \
@@ -170,4 +176,4 @@ The package directory contains:
 - `SHA256SUMS`
 - `SHA256SUMS.asc`
 
-The Release package should not contain `.pdb` files.
+The release package should not contain `.pdb` files.
