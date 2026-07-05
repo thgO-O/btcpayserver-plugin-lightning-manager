@@ -240,13 +240,13 @@ public class LightningManagerService : ILightningManagerService
         try
         {
             var payResponse = await context.Client!.Pay(
-                bolt11,
+                preview!.Bolt11,
                 new PayInvoiceParams
                 {
-                    MaxFeeFlat = Money.Satoshis(preview!.MaxFeeSats)
+                    MaxFeeFlat = Money.Satoshis(preview.MaxFeeSats)
                 },
                 cancellationToken);
-            var details = await TryLoadPaymentDetailsAsync(context.Client, bolt11, context.Network!.NBitcoinNetwork, payResponse, cancellationToken);
+            var details = await TryLoadPaymentDetailsAsync(context.Client, preview.Bolt11, context.Network!.NBitcoinNetwork, payResponse, cancellationToken);
             if (payResponse.Result != PayResult.Ok)
             {
                 var knownPayment = await TryLoadPaymentAsync(context.Client, preview!.PaymentHash, CancellationToken.None);
@@ -774,9 +774,9 @@ public class LightningManagerService : ILightningManagerService
         return new ActionResultViewModel { IsSuccess = true, Message = message };
     }
 
-    private static ActionResultViewModel Failure(string message, string? detail = null)
+    private static ActionResultViewModel Failure(string message)
     {
-        return new ActionResultViewModel { IsSuccess = false, Message = message, Detail = detail };
+        return new ActionResultViewModel { IsSuccess = false, Message = message };
     }
 
     private static bool IsLndClient(ILightningClient client)

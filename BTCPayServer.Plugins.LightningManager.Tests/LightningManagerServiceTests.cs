@@ -69,7 +69,6 @@ public class LightningManagerServiceTests
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Lightning payment failed.", result.Result.Message);
-        Assert.Null(result.Result.Detail);
     }
 
     [Fact]
@@ -92,6 +91,27 @@ public class LightningManagerServiceTests
         Assert.True(result.Result.IsSuccess);
         Assert.NotNull(capturedParams);
         Assert.Equal(21, capturedParams!.MaxFeeFlat!.Satoshi);
+    }
+
+    [Fact]
+    public async Task SendAsync_UsesNormalizedPreviewInvoice()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        string? capturedBolt11 = null;
+        var client = new FakeLightningClient
+        {
+            PayBolt11WithParamsHandler = (bolt11, _, _) =>
+            {
+                capturedBolt11 = bolt11;
+                return Task.FromResult(new PayResponse(PayResult.Ok));
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await service.SendAsync(context, " lnbcrt1test ", null);
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal("lnbcrt1test", capturedBolt11);
     }
 
     [Fact]
@@ -338,7 +358,7 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task PopulateChannelsAsync_WithClosableChannel_SetsManageState()
+    public async Task PopulateChannelsAsync_WithChannel_MapsBalances()
     {
         var client = new FakeLightningClient
         {
@@ -447,7 +467,7 @@ public class LightningManagerServiceTests
                 : maxFeeSats;
             preview = new SendPreviewViewModel
             {
-                Bolt11 = bolt11 ?? string.Empty,
+                Bolt11 = (bolt11 ?? string.Empty).Trim(),
                 AmountDisplay = "1 sat",
                 MaxFeeSats = string.IsNullOrWhiteSpace(maxFeeSats)
                     ? LightningManagerDefaults.SendMaxFeeSats

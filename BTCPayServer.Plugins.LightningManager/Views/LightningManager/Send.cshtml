@@ -103,15 +103,11 @@
 }
 
 @if (Model.Result is not null)
-{
-    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
-        <div>@Model.Result.Message</div>
-        @if (!string.IsNullOrWhiteSpace(Model.Result.Detail))
-        {
-            <div class="small text-muted mt-1">@Model.Result.Detail</div>
-        }
-    </div>
-}
+    {
+        <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
+            <div>@Model.Result.Message</div>
+        </div>
+    }
 
 @foreach (var notice in Model.Notices)
 {

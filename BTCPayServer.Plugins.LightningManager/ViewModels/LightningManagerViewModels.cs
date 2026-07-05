@@ -27,7 +27,6 @@ public class ActionResultViewModel
 {
     public bool IsSuccess { get; init; }
     public string Message { get; init; } = string.Empty;
-    public string? Detail { get; init; }
 }
 
 public class ValueRowViewModel
