@@ -53,18 +53,13 @@ public class LightningCapabilityServiceTests
     }
 
     [Fact]
-    public void LnbankCapabilities_ArePayFocused()
+    public void UnknownConnectionType_ReturnsNoCapabilities()
     {
         var capabilities = _service.GetCapabilities(
             new FakeLightningClient(),
-            "type=lnbank;server=https://example.com/");
+            "type=deprecated;server=https://example.com/");
 
-        Assert.True(capabilities.CanGetInfo);
-        Assert.True(capabilities.CanGetBalance);
-        Assert.True(capabilities.CanPayBolt11);
-        Assert.False(capabilities.CanConnectPeer);
-        Assert.False(capabilities.CanOpenChannel);
-        Assert.False(capabilities.CanListChannels);
+        Assert.Same(LightningCapabilities.None, capabilities);
     }
 
     [Fact]

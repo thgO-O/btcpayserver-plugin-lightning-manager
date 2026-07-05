@@ -13,7 +13,6 @@ public sealed class LightningCapabilities
         CanListChannels = true
     };
     public static LightningCapabilities InfoBalancePay { get; } = PayOnly();
-    public static LightningCapabilities Generic { get; } = PayOnly();
 
     public bool CanGetInfo { get; init; }
     public bool CanGetBalance { get; init; }
@@ -21,9 +20,6 @@ public sealed class LightningCapabilities
     public bool CanConnectPeer { get; init; }
     public bool CanOpenChannel { get; init; }
     public bool CanListChannels { get; init; }
-
-    public bool HasPeerManagement => CanConnectPeer;
-    public bool HasChannelManagement => CanOpenChannel || CanListChannels;
 
     public static LightningCapabilities PayOnly(bool canGetInfo = true, bool canGetBalance = true)
     {

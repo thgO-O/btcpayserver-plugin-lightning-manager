@@ -14,7 +14,6 @@ public class LightningCapabilityService : ILightningCapabilityService
     private const string LndRest = "lnd-rest";
     private const string LndGrpc = "lnd-grpc";
     private const string Eclair = "eclair";
-    private const string Lnbank = "lnbank";
     private const string Charge = "charge";
     private const string LndHub = "lndhub";
 
@@ -32,7 +31,6 @@ public class LightningCapabilityService : ILightningCapabilityService
         "breez",
         "micro",
         "nwc",
-        Lnbank,
         Charge,
         LndHub
     };
@@ -47,7 +45,7 @@ public class LightningCapabilityService : ILightningCapabilityService
         var type = TryGetConnectionType(connectionString) ?? InferConnectionType(client);
         if (string.IsNullOrEmpty(type))
         {
-            return LightningCapabilities.Generic;
+            return LightningCapabilities.None;
         }
 
         if (FullNodeTypes.Contains(type))
@@ -67,7 +65,7 @@ public class LightningCapabilityService : ILightningCapabilityService
             return LightningCapabilities.InfoBalancePay;
         }
 
-        return LightningCapabilities.Generic;
+        return LightningCapabilities.None;
     }
 
     private static bool HasBlinkUsdCurrency(string? connectionString)
@@ -158,11 +156,6 @@ public class LightningCapabilityService : ILightningCapabilityService
         if (typeName.Contains("Eclair", StringComparison.OrdinalIgnoreCase))
         {
             return Eclair;
-        }
-
-        if (typeName.Contains("LNbank", StringComparison.OrdinalIgnoreCase))
-        {
-            return Lnbank;
         }
 
         return null;
