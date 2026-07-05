@@ -17,7 +17,6 @@ public class StoreLightningManagerContext
     public required string StoreId { get; init; }
     public required string CryptoCode { get; init; }
     public BTCPayNetwork? Network { get; init; }
-    public LightningPaymentMethodConfig? PaymentMethodConfig { get; init; }
     public ILightningClient? Client { get; init; }
     public string? ConnectionString { get; init; }
     public required LightningCapabilities Capabilities { get; init; }
@@ -78,7 +77,7 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
         var config = store.GetPaymentMethodConfig<LightningPaymentMethodConfig>(paymentMethodId, _handlers);
         if (config is null)
         {
-            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning is not configured for this store.", network, config));
+            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning is not configured for this store.", network));
         }
 
         if (config.GetExternalLightningUrl() is { } connectionString)
@@ -86,14 +85,13 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             try
             {
                 var client = _lightningClientFactory.Create(connectionString, network);
-                var capabilities = _lightningCapabilityService.GetCapabilities(client, connectionString, false);
+                var capabilities = _lightningCapabilityService.GetCapabilities(client, connectionString);
                 return Task.FromResult(new StoreLightningManagerContext
                 {
                     Store = store,
                     StoreId = store.Id,
                     CryptoCode = cryptoCode,
                     Network = network,
-                    PaymentMethodConfig = config,
                     Client = client,
                     ConnectionString = connectionString,
                     Capabilities = capabilities,
@@ -103,21 +101,20 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             }
             catch (Exception)
             {
-                return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning backend unavailable.", network, config, connectionString));
+                return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning backend unavailable.", network, connectionString));
             }
         }
 
         if (!config.IsInternalNode)
         {
-            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning configuration is invalid.", network, config));
+            return Task.FromResult(CreateUnavailableContext(store, cryptoCode, "Lightning configuration is invalid.", network));
         }
 
         return Task.FromResult(CreateUnavailableContext(
             store,
             cryptoCode,
             "Lightning Manager supports external BTC Lightning backends only.",
-            network,
-            config));
+            network));
     }
 
     private StoreLightningManagerContext CreateUnavailableContext(
@@ -125,7 +122,6 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
         string cryptoCode,
         string configurationError,
         BTCPayNetwork? network = null,
-        LightningPaymentMethodConfig? config = null,
         string? connectionString = null)
     {
         return new StoreLightningManagerContext
@@ -134,7 +130,6 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             StoreId = store.Id,
             CryptoCode = cryptoCode,
             Network = network,
-            PaymentMethodConfig = config,
             ConnectionString = connectionString,
             Capabilities = LightningCapabilities.None,
             ConfigurationError = configurationError

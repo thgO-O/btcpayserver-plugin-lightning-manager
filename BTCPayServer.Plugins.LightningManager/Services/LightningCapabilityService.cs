@@ -5,7 +5,7 @@ namespace BTCPayServer.Plugins.LightningManager.Services;
 
 public interface ILightningCapabilityService
 {
-    LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString, bool isInternalNode);
+    LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString);
 }
 
 public class LightningCapabilityService : ILightningCapabilityService
@@ -37,16 +37,11 @@ public class LightningCapabilityService : ILightningCapabilityService
         LndHub
     };
 
-    public virtual LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString, bool isInternalNode)
+    public virtual LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString)
     {
         if (client is null)
         {
             return LightningCapabilities.None;
-        }
-
-        if (isInternalNode)
-        {
-            return LightningCapabilities.Full;
         }
 
         var type = TryGetConnectionType(connectionString) ?? InferConnectionType(client);

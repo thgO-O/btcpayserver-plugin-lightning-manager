@@ -12,8 +12,7 @@ public class LightningCapabilityServiceTests
     {
         var capabilities = _service.GetCapabilities(
             new PhoenixdLikeLightningClient(),
-            "type=phoenixd;server=https://example.com;password=test",
-            false);
+            "type=phoenixd;server=https://example.com;password=test");
 
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
@@ -28,8 +27,7 @@ public class LightningCapabilityServiceTests
     {
         var capabilities = _service.GetCapabilities(
             new BlinkLikeLightningClient(),
-            "type=blink;server=https://api.blink.sv/graphql;api-key=test;currency=USD",
-            false);
+            "type=blink;server=https://api.blink.sv/graphql;api-key=test;currency=USD");
 
         Assert.False(capabilities.CanGetInfo);
         Assert.False(capabilities.CanGetBalance);
@@ -44,8 +42,7 @@ public class LightningCapabilityServiceTests
     {
         var capabilities = _service.GetCapabilities(
             new FakeLightningClient(),
-            "type=clightning;server=tcp://127.0.0.1:9735",
-            false);
+            "type=clightning;server=tcp://127.0.0.1:9735");
 
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
@@ -60,8 +57,7 @@ public class LightningCapabilityServiceTests
     {
         var capabilities = _service.GetCapabilities(
             new FakeLightningClient(),
-            "type=lnbank;server=https://example.com/",
-            false);
+            "type=lnbank;server=https://example.com/");
 
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
@@ -76,8 +72,7 @@ public class LightningCapabilityServiceTests
     {
         var capabilities = _service.GetCapabilities(
             new LndHubLikeLightningClient(),
-            null,
-            false);
+            null);
 
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);

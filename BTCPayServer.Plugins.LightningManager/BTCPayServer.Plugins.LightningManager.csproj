@@ -11,7 +11,7 @@
 
   <PropertyGroup>
     <Product>Lightning Manager</Product>
-    <Description>BTC Lightning management UI for store operators and server admins.</Description>
+    <Description>BTC Lightning management UI for stores using external Lightning backends.</Description>
     <Version>0.1.0</Version>
   </PropertyGroup>
 
