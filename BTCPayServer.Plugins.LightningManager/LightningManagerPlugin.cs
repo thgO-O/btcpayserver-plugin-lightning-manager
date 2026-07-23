@@ -19,6 +19,9 @@ public class LightningManagerPlugin : BaseBTCPayServerPlugin
         var plugins = (PluginServiceCollection)services;
 
         plugins.AddSingleton<ILightningCapabilityService, LightningCapabilityService>();
+        plugins.AddSingleton<LightningManagerResultStore>();
+        plugins.AddSingleton<LightningManagerChannelConfirmationStore>();
+        plugins.AddSingleton<LightningManagerOperationGuard>();
         plugins.AddScoped<IStoreLightningManagerContextFactory, StoreLightningManagerContextFactory>();
         plugins.AddSingleton<ILightningManagerService, LightningManagerService>();
         plugins.AddUIExtension("lightning-nav", "LightningManager/LightningManagerNav");

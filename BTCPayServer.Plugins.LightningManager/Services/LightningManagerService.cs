@@ -1,7 +1,10 @@
 #nullable enable
 using System.Globalization;
+using System.Diagnostics;
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NBitcoin;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
@@ -16,8 +19,8 @@ public interface ILightningManagerService
 {
     LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage);
     Task PopulateOverviewAsync(OverviewViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
-    bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, string? maxFeeSats, out SendPreviewViewModel? preview, out string? error);
-    Task<SendExecutionResult> SendAsync(StoreLightningManagerContext context, string bolt11, string? maxFeeSats, CancellationToken cancellationToken = default);
+    bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, string? amountSats, string? maxFeeSats, out SendPreviewViewModel? preview, out string? error);
+    Task<SendExecutionResult> SendAsync(StoreLightningManagerContext context, string bolt11, string? amountSats, string? maxFeeSats, CancellationToken cancellationToken = default);
     Task<ActionResultViewModel> ConnectPeerAsync(StoreLightningManagerContext context, string? nodeUri, CancellationToken cancellationToken = default);
     Task PopulatePeersAsync(PeersViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
     Task PopulateChannelsAsync(ChannelsViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
@@ -40,6 +43,20 @@ public class LightningManagerService : ILightningManagerService
 {
     private const decimal DefaultChannelOpenFeeRate = 1.0m;
     private const long MinimumLndChannelAmountSats = 20_000;
+    private const long MaximumChannelOpenFeeRate = int.MaxValue;
+    private const string UnknownPaymentStatusMessage =
+        "Payment status is unknown. Check the Lightning node before retrying.";
+    private static readonly TimeSpan PaymentLookupTimeout = TimeSpan.FromSeconds(5);
+    private readonly ILogger<LightningManagerService> _logger;
+    private readonly LightningManagerOperationGuard _operationGuard;
+
+    public LightningManagerService(
+        ILogger<LightningManagerService>? logger = null,
+        LightningManagerOperationGuard? operationGuard = null)
+    {
+        _logger = logger ?? NullLogger<LightningManagerService>.Instance;
+        _operationGuard = operationGuard ?? new LightningManagerOperationGuard();
+    }
 
     public virtual LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage)
     {
@@ -67,6 +84,7 @@ public class LightningManagerService : ILightningManagerService
 
         if (context.Capabilities.CanGetInfo)
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 var info = await context.Client.GetInfo(cancellationToken);
@@ -82,33 +100,48 @@ public class LightningManagerService : ILightningManagerService
                 {
                     model.NodeUris.Add(nodeInfo.ToString());
                 }
+                LogOperation(context, "get-info", stopwatch, "success", null);
             }
             catch (NotSupportedException)
             {
                 model.Notices.Add("Node information is not available for this backend.");
+                LogOperation(context, "get-info", stopwatch, "unsupported", nameof(NotSupportedException));
             }
-            catch (Exception)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
             {
                 model.Notices.Add("Could not load node information.");
+                LogOperation(context, "get-info", stopwatch, "failed", exception.GetType().Name);
             }
         }
 
         if (context.Capabilities.CanListChannels)
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 var channels = await context.Client.ListChannels(cancellationToken);
                 model.ActiveChannelsCount = channels.LongCount(channel => channel.IsActive);
                 model.InactiveChannelsCount = channels.LongCount(channel => !channel.IsActive);
+                LogOperation(context, "list-channels-summary", stopwatch, "success", null);
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
             {
                 // Keep GetInfo channel counts when ListChannels is unavailable for a backend.
+                LogOperation(context, "list-channels-summary", stopwatch, "failed", exception.GetType().Name);
             }
         }
 
         if (context.Capabilities.CanGetBalance)
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 var balance = await context.Client.GetBalance(cancellationToken);
@@ -126,14 +159,21 @@ public class LightningManagerService : ILightningManagerService
                     AddLightMoneyRow(model.OffchainBalanceRows, "Remote", balance.OffchainBalance.Remote);
                     AddLightMoneyRow(model.OffchainBalanceRows, "Closing", balance.OffchainBalance.Closing);
                 }
+                LogOperation(context, "get-balance", stopwatch, "success", null);
             }
             catch (NotSupportedException)
             {
                 model.Notices.Add("Balance information is not available for this backend.");
+                LogOperation(context, "get-balance", stopwatch, "unsupported", nameof(NotSupportedException));
             }
-            catch (Exception)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
             {
                 model.Notices.Add("Could not load balances.");
+                LogOperation(context, "get-balance", stopwatch, "failed", exception.GetType().Name);
             }
         }
 
@@ -150,6 +190,7 @@ public class LightningManagerService : ILightningManagerService
     public virtual bool TryCreateSendPreview(
         StoreLightningManagerContext context,
         string? bolt11,
+        string? amountSats,
         string? maxFeeSats,
         out SendPreviewViewModel? preview,
         out string? error)
@@ -175,22 +216,46 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
-        if (!TryParseMaxFeeSats(maxFeeSats, out var maxFee))
-        {
-            error = "Maximum fee must be a non-negative whole number of sats.";
-            return false;
-        }
-
         if (!BOLT11PaymentRequest.TryParse(bolt11.Trim(), out var paymentRequest, context.Network.NBitcoinNetwork) || paymentRequest is null)
         {
             error = "The BOLT11 invoice is invalid.";
             return false;
         }
 
-        if (paymentRequest.MinimumAmount is null || paymentRequest.MinimumAmount == LightMoney.Zero)
+        var isAmountless = paymentRequest.MinimumAmount is null || paymentRequest.MinimumAmount == LightMoney.Zero;
+        if (isAmountless && LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Blink))
         {
-            error = "Amountless invoices are not supported by this interface.";
+            error = "Amountless invoices are not supported by Blink.";
             return false;
+        }
+
+        LightMoney paymentAmount;
+        long? userAmountSats = null;
+        if (isAmountless)
+        {
+            if (!TryParsePaymentAmount(amountSats, out paymentAmount, out var parsedAmountSats))
+            {
+                error = "Amount must be a positive whole number of sats for an amountless invoice.";
+                return false;
+            }
+
+            userAmountSats = parsedAmountSats;
+        }
+        else
+        {
+            paymentAmount = paymentRequest.MinimumAmount!;
+        }
+
+        long? maxFee = null;
+        if (context.Capabilities.CanSetMaxFee)
+        {
+            if (!TryParseMaxFeeSats(maxFeeSats, out var parsedMaxFee))
+            {
+                error = "Maximum fee must be a positive whole number of sats.";
+                return false;
+            }
+
+            maxFee = parsedMaxFee;
         }
 
         if (paymentRequest.ExpiryDate <= DateTimeOffset.UtcNow)
@@ -208,9 +273,12 @@ public class LightningManagerService : ILightningManagerService
         preview = new SendPreviewViewModel
         {
             Bolt11 = bolt11.Trim(),
-            AmountDisplay = FormatLightMoney(paymentRequest.MinimumAmount),
+            PaymentAmount = paymentAmount,
+            UserAmountSats = userAmountSats,
+            IsAmountless = isAmountless,
+            AmountDisplay = FormatLightMoney(paymentAmount),
             MaxFeeSats = maxFee,
-            MaxFeeDisplay = FormatMoney(Money.Satoshis(maxFee)),
+            MaxFeeDisplay = maxFee is long fee ? FormatMoney(Money.Satoshis(fee)) : null,
             Description = paymentRequest.ShortDescription ?? "No description",
             PaymentHash = paymentRequest.PaymentHash.ToString(),
             Payee = paymentRequest.GetPayeePubKey().ToString(),
@@ -222,42 +290,80 @@ public class LightningManagerService : ILightningManagerService
     public virtual async Task<SendExecutionResult> SendAsync(
         StoreLightningManagerContext context,
         string bolt11,
+        string? amountSats,
         string? maxFeeSats,
         CancellationToken cancellationToken = default)
     {
-        if (!TryCreateSendPreview(context, bolt11, maxFeeSats, out var preview, out var validationError))
+        var stopwatch = Stopwatch.StartNew();
+        if (!TryCreateSendPreview(context, bolt11, amountSats, maxFeeSats, out var preview, out var validationError))
         {
-            return new SendExecutionResult
+            return CompleteSend(context, stopwatch, "invalid", new SendExecutionResult
             {
                 Result = new ActionResultViewModel
                 {
                     IsSuccess = false,
                     Message = validationError ?? "The invoice is invalid."
                 }
-            };
+            });
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_operationGuard.TryBeginPayment(
+                context.StoreId,
+                context.CryptoCode,
+                preview!.PaymentHash,
+                out var operationLease))
+        {
+            return CompleteSend(context, stopwatch, "duplicate", new SendExecutionResult
+            {
+                Result = Failure("Payment is already in progress.")
+            });
+        }
+
+        using var lease = operationLease;
         try
         {
+            var payParams = new PayInvoiceParams();
+            if (preview.IsAmountless)
+            {
+                payParams.Amount = preview.PaymentAmount;
+            }
+
+            if (preview.MaxFeeSats is long maxFee)
+            {
+                payParams.MaxFeeFlat = Money.Satoshis(maxFee);
+            }
+
             var payResponse = await context.Client!.Pay(
-                preview!.Bolt11,
-                new PayInvoiceParams
-                {
-                    MaxFeeFlat = Money.Satoshis(preview.MaxFeeSats)
-                },
+                preview.Bolt11,
+                payParams,
                 cancellationToken);
-            var details = await TryLoadPaymentDetailsAsync(context.Client, preview.Bolt11, context.Network!.NBitcoinNetwork, payResponse, cancellationToken);
+            using var paymentLookupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            paymentLookupTimeout.CancelAfter(PaymentLookupTimeout);
+            var knownPayment = await TryLoadPaymentAsync(
+                context.Client,
+                preview.PaymentHash,
+                paymentLookupTimeout.Token);
+            if (payResponse.Result != PayResult.Ok && cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+
+            var details = CreatePaymentDetails(preview.PaymentHash, knownPayment, payResponse);
             if (payResponse.Result != PayResult.Ok)
             {
-                var knownPayment = await TryLoadPaymentAsync(context.Client, preview!.PaymentHash, CancellationToken.None);
-                var knownResult = ResolveKnownPaymentResult(preview.PaymentHash, knownPayment);
+                var knownResult = ResolveKnownPaymentResult(context, preview.PaymentHash, knownPayment);
                 if (knownResult is not null)
                 {
-                    return knownResult;
+                    return CompleteSend(
+                        context,
+                        stopwatch,
+                        knownResult.Result.IsSuccess ? "success" : GetPaymentOutcome(knownResult.Payment),
+                        knownResult);
                 }
             }
 
-            return payResponse.Result switch
+            var result = payResponse.Result switch
             {
                 PayResult.Ok => new SendExecutionResult
                 {
@@ -273,7 +379,7 @@ public class LightningManagerService : ILightningManagerService
                     Result = new ActionResultViewModel
                     {
                         IsSuccess = false,
-                        Message = "Payment status is unknown. Check the Lightning node before retrying."
+                        Message = UnknownPaymentStatusMessage
                     },
                     Payment = details
                 },
@@ -287,46 +393,51 @@ public class LightningManagerService : ILightningManagerService
                 },
                 PayResult.Error => new SendExecutionResult
                 {
-                    Result = new ActionResultViewModel
-                    {
-                        IsSuccess = false,
-                        Message = LightningPaymentErrorMessages.NormalizePayError(payResponse.ErrorDetail)
-                    }
+                    Result = Failure(UnknownPaymentStatusMessage),
+                    Payment = details
                 },
                 _ => new SendExecutionResult
                 {
-                    Result = new ActionResultViewModel
-                    {
-                        IsSuccess = false,
-                        Message = "The payment failed."
-                    }
+                    Result = Failure(UnknownPaymentStatusMessage),
+                    Payment = details
                 }
             };
+            return CompleteSend(
+                context,
+                stopwatch,
+                result.Result.IsSuccess ? "success" : GetPaymentOutcome(result.Payment),
+                result);
         }
         catch (NotSupportedException)
         {
-            return new SendExecutionResult
+            return CompleteSend(context, stopwatch, "unsupported", new SendExecutionResult
             {
                 Result = new ActionResultViewModel
                 {
                     IsSuccess = false,
                     Message = "This backend does not support sending payments."
                 }
-            };
+            });
         }
-        catch (Exception)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            var payment = await TryLoadPaymentAsync(context.Client!, preview!.PaymentHash, CancellationToken.None);
-            return ResolveKnownPaymentResult(preview.PaymentHash, payment) ??
-                   new SendExecutionResult
-                   {
-                       Result = new ActionResultViewModel
-                       {
-                           IsSuccess = false,
-                           Message = "Payment status is unknown. Check the Lightning node before retrying."
-                       },
-                       Payment = CreatePaymentDetails(preview.PaymentHash, payment)
-                   };
+            var result = await ReconcileAmbiguousPaymentAsync(context, preview.PaymentHash);
+            return CompleteSend(
+                context,
+                stopwatch,
+                result.Result.IsSuccess ? "success" : GetPaymentOutcome(result.Payment),
+                result,
+                nameof(OperationCanceledException));
+        }
+        catch (Exception exception)
+        {
+            var result = await ReconcileAmbiguousPaymentAsync(context, preview.PaymentHash);
+            return CompleteSend(
+                context,
+                stopwatch,
+                result.Result.IsSuccess ? "success" : GetPaymentOutcome(result.Payment),
+                result,
+                exception.GetType().Name);
         }
     }
 
@@ -350,23 +461,52 @@ public class LightningManagerService : ILightningManagerService
             return Failure("The node URI is invalid. Use pubkey@host[:port].");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var result = await context.Client.ConnectTo(nodeInfo, cancellationToken);
-            return result switch
+            var actionResult = result switch
             {
                 ConnectionResult.Ok => Success("Connected to peer successfully."),
                 ConnectionResult.CouldNotConnect => Failure("Could not connect to the remote peer."),
                 _ => Failure("Could not connect to the remote peer.")
             };
+            return CompleteAction(
+                context,
+                "connect-peer",
+                stopwatch,
+                actionResult.IsSuccess ? "success" : "failed",
+                actionResult);
         }
         catch (NotSupportedException)
         {
-            return Failure("Peer connections are not supported by this backend.");
+            return CompleteAction(
+                context,
+                "connect-peer",
+                stopwatch,
+                "unsupported",
+                Failure("Peer connections are not supported by this backend."));
         }
-        catch (Exception)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Failure("Peer connection failed.");
+            return CompleteAction(
+                context,
+                "connect-peer",
+                stopwatch,
+                "unknown",
+                Failure("Peer connection status is unknown. Check the Lightning node before retrying."),
+                nameof(OperationCanceledException));
+        }
+        catch (Exception exception)
+        {
+            return CompleteAction(
+                context,
+                "connect-peer",
+                stopwatch,
+                "failed",
+                Failure("Peer connection failed."),
+                exception.GetType().Name);
         }
     }
 
@@ -402,6 +542,7 @@ public class LightningManagerService : ILightningManagerService
             return;
         }
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             var channels = await context.Client.ListChannels(cancellationToken);
@@ -414,8 +555,8 @@ public class LightningManagerService : ILightningManagerService
                 var remoteBalance = capacity - localBalance;
                 model.Channels.Add(new LightningChannelItemViewModel
                 {
-                    RemoteNode = channel.RemoteNode.ToString(),
-                    ChannelPoint = channel.ChannelPoint.ToString(),
+                    RemoteNode = channel.RemoteNode?.ToString() ?? "Unknown",
+                    ChannelPoint = channel.ChannelPoint?.ToString() ?? "Pending",
                     CapacitySats = capacity.ToUnit(LightMoneyUnit.Satoshi),
                     LocalBalanceSats = localBalance.ToUnit(LightMoneyUnit.Satoshi),
                     RemoteBalanceSats = remoteBalance.ToUnit(LightMoneyUnit.Satoshi),
@@ -431,14 +572,21 @@ public class LightningManagerService : ILightningManagerService
             {
                 model.ChannelListMessage = "No channels found.";
             }
+            LogOperation(context, "list-channels", stopwatch, "success", null);
         }
         catch (NotSupportedException)
         {
             model.ChannelListMessage = "Channel listing is not supported by this backend.";
+            LogOperation(context, "list-channels", stopwatch, "unsupported", nameof(NotSupportedException));
         }
-        catch (Exception)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
         {
             model.ChannelListMessage = "Could not load channels.";
+            LogOperation(context, "list-channels", stopwatch, "failed", exception.GetType().Name);
         }
     }
 
@@ -479,31 +627,71 @@ public class LightningManagerService : ILightningManagerService
             return Failure(error ?? "Invalid channel request.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        var stopwatch = Stopwatch.StartNew();
+        if (!_operationGuard.TryBeginChannel(
+                context.StoreId,
+                context.CryptoCode,
+                request!.NodeInfo.NodeId.ToString(),
+                out var operationLease))
+        {
+            return CompleteAction(
+                context,
+                "open-channel",
+                stopwatch,
+                "duplicate",
+                Failure("Channel opening is already in progress for this peer."));
+        }
+
+        using var lease = operationLease;
         try
         {
-            var response = await context.Client!.OpenChannel(request!, cancellationToken);
-            return response.Result switch
+            var response = await context.Client!.OpenChannel(request, cancellationToken);
+            var actionResult = response.Result switch
             {
                 OpenChannelResult.Ok => Success("Channel opening request submitted."),
                 OpenChannelResult.AlreadyExists => Failure("A channel with that peer already exists."),
                 OpenChannelResult.CannotAffordFunding => Failure("Insufficient balance to fund the channel."),
-                OpenChannelResult.NeedMoreConf => Failure("More on-chain confirmations are required before opening a channel."),
+                OpenChannelResult.NeedMoreConf => Failure(
+                    "Channel opening may already be pending. Check the Lightning node before retrying."),
                 OpenChannelResult.PeerNotConnected => Failure("The peer is not connected."),
-                _ => Failure("Could not open the channel.")
+                _ => Failure("Channel opening status is unknown. Check the Lightning node before retrying.")
             };
+            var outcome = response.Result == OpenChannelResult.Ok
+                ? "success"
+                : response.Result is OpenChannelResult.NeedMoreConf
+                    ? "unknown"
+                    : "failed";
+            return CompleteAction(context, "open-channel", stopwatch, outcome, actionResult);
         }
         catch (NotSupportedException)
         {
-            return Failure("Channel opening is not supported by this backend.");
+            return CompleteAction(
+                context,
+                "open-channel",
+                stopwatch,
+                "unsupported",
+                Failure("Channel opening is not supported by this backend."));
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (IsBenignEclairOpenChannelFollowUpError(context, ex))
-            {
-                return Success("Channel opening request submitted.");
-            }
-
-            return Failure("Channel opening failed.");
+            return CompleteAction(
+                context,
+                "open-channel",
+                stopwatch,
+                "unknown",
+                Failure("Channel opening status is unknown. Check the Lightning node before retrying."),
+                nameof(OperationCanceledException));
+        }
+        catch (Exception exception)
+        {
+            return CompleteAction(
+                context,
+                "open-channel",
+                stopwatch,
+                "unknown",
+                Failure("Channel opening status is unknown. Check the Lightning node before retrying."),
+                exception.GetType().Name);
         }
     }
 
@@ -542,7 +730,7 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
-        if (IsLndClient(context.Client) && channelAmount.Satoshi < MinimumLndChannelAmountSats)
+        if (IsLndBackend(context) && channelAmount.Satoshi < MinimumLndChannelAmountSats)
         {
             error = $"Channel amount must be at least {MinimumLndChannelAmountSats} sats for LND backends.";
             return false;
@@ -550,7 +738,7 @@ public class LightningManagerService : ILightningManagerService
 
         if (!TryParseFeeRate(feeRateSatsPerByte, out var feeRate))
         {
-            error = "Fee rate must be a positive number of sat/vB.";
+            error = $"Fee rate must be a whole number between 1 and {MaximumChannelOpenFeeRate} sat/vB.";
             return false;
         }
 
@@ -576,7 +764,7 @@ public class LightningManagerService : ILightningManagerService
                 NumberStyles.None,
                 CultureInfo.InvariantCulture,
                 out sats) ||
-            sats < 0)
+            sats <= 0)
         {
             return false;
         }
@@ -588,6 +776,35 @@ public class LightningManagerService : ILightningManagerService
         }
         catch
         {
+            sats = 0;
+            return false;
+        }
+    }
+
+    private static bool TryParsePaymentAmount(
+        string? amountSats,
+        out LightMoney amount,
+        out long sats)
+    {
+        amount = LightMoney.Zero;
+        if (!long.TryParse(
+                amountSats?.Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out sats) ||
+            sats <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            amount = LightMoney.Satoshis(sats);
+            return true;
+        }
+        catch
+        {
+            amount = LightMoney.Zero;
             sats = 0;
             return false;
         }
@@ -626,16 +843,16 @@ public class LightningManagerService : ILightningManagerService
             return true;
         }
 
-        if (decimal.TryParse(
+        if (long.TryParse(
                 feeRateSatsPerByte.Trim(),
-                NumberStyles.AllowDecimalPoint,
+                NumberStyles.None,
                 CultureInfo.InvariantCulture,
                 out var satPerByte) &&
-            satPerByte > 0)
+            satPerByte is > 0 and <= MaximumChannelOpenFeeRate)
         {
             try
             {
-                feeRate = new FeeRate(satPerByte);
+                feeRate = new FeeRate((decimal)satPerByte);
                 return true;
             }
             catch
@@ -647,49 +864,6 @@ public class LightningManagerService : ILightningManagerService
         return false;
     }
 
-    private static async Task<SendResultDetailsViewModel?> TryLoadPaymentDetailsAsync(
-        ILightningClient client,
-        string bolt11,
-        Network network,
-        PayResponse response,
-        CancellationToken cancellationToken)
-    {
-        var totalAmount = response.Details?.TotalAmount;
-        var feeAmount = response.Details?.FeeAmount;
-        var paymentHash = response.Details?.PaymentHash?.ToString();
-        var preimage = response.Details?.Preimage?.ToString();
-        var status = response.Result == PayResult.Ok ? LightningPaymentStatus.Complete : LightningPaymentStatus.Unknown;
-
-        if (BOLT11PaymentRequest.TryParse(bolt11, out var paymentRequest, network) &&
-            paymentRequest?.PaymentHash is not null)
-        {
-            try
-            {
-                var payment = await client.GetPayment(paymentRequest.PaymentHash.ToString()!, cancellationToken);
-                if (payment is not null)
-                {
-                    totalAmount = payment.AmountSent ?? totalAmount;
-                    feeAmount = payment.Fee ?? feeAmount;
-                    paymentHash = payment.PaymentHash ?? paymentHash;
-                    preimage = payment.Preimage ?? preimage;
-                    status = payment.Status;
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        return new SendResultDetailsViewModel
-        {
-            Status = status,
-            TotalAmountDisplay = totalAmount is null ? null : FormatLightMoney(totalAmount),
-            FeeAmountDisplay = feeAmount is null ? null : FormatLightMoney(feeAmount),
-            PaymentHash = paymentHash,
-            Preimage = preimage
-        };
-    }
-
     private static async Task<LightningPayment?> TryLoadPaymentAsync(
         ILightningClient client,
         string paymentHash,
@@ -697,7 +871,7 @@ public class LightningManagerService : ILightningManagerService
     {
         try
         {
-            return await client.GetPayment(paymentHash, cancellationToken);
+            return await client.GetPayment(paymentHash, cancellationToken).WaitAsync(cancellationToken);
         }
         catch
         {
@@ -705,20 +879,62 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    private static SendResultDetailsViewModel CreatePaymentDetails(string paymentHash, LightningPayment? payment)
+    private static async Task<SendExecutionResult> ReconcileAmbiguousPaymentAsync(
+        StoreLightningManagerContext context,
+        string paymentHash)
     {
+        using var reconciliationTimeout = new CancellationTokenSource(PaymentLookupTimeout);
+        var payment = await TryLoadPaymentAsync(
+            context.Client!,
+            paymentHash,
+            reconciliationTimeout.Token);
+        return ResolveKnownPaymentResult(context, paymentHash, payment) ??
+               new SendExecutionResult
+               {
+                   Result = Failure(UnknownPaymentStatusMessage),
+                   Payment = CreatePaymentDetails(paymentHash, payment)
+               };
+    }
+
+    private static SendResultDetailsViewModel CreatePaymentDetails(
+        string paymentHash,
+        LightningPayment? payment,
+        PayResponse? response = null,
+        LightningPaymentStatus? statusOverride = null)
+    {
+        var responseDetails = response?.Details;
+        var totalAmount = payment?.AmountSent ?? responseDetails?.TotalAmount;
+        var feeAmount = payment?.Fee ?? responseDetails?.FeeAmount;
         return new SendResultDetailsViewModel
         {
-            Status = payment?.Status ?? LightningPaymentStatus.Unknown,
-            TotalAmountDisplay = payment?.AmountSent is null ? null : FormatLightMoney(payment.AmountSent),
-            FeeAmountDisplay = payment?.Fee is null ? null : FormatLightMoney(payment.Fee),
-            PaymentHash = payment?.PaymentHash ?? paymentHash,
-            Preimage = payment?.Preimage
+            Status = statusOverride ?? (response?.Result == PayResult.Ok
+                ? LightningPaymentStatus.Complete
+                : payment?.Status ?? LightningPaymentStatus.Unknown),
+            TotalAmountDisplay = totalAmount is null ? null : FormatLightMoney(totalAmount),
+            FeeAmountDisplay = feeAmount is null ? null : FormatLightMoney(feeAmount),
+            PaymentHash = payment?.PaymentHash ?? responseDetails?.PaymentHash?.ToString() ?? paymentHash,
+            Preimage = payment?.Preimage ?? responseDetails?.Preimage?.ToString()
         };
     }
 
-    private static SendExecutionResult? ResolveKnownPaymentResult(string paymentHash, LightningPayment? payment)
+    private static SendExecutionResult? ResolveKnownPaymentResult(
+        StoreLightningManagerContext context,
+        string paymentHash,
+        LightningPayment? payment)
     {
+        if (payment?.Status == LightningPaymentStatus.Failed &&
+            LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Eclair))
+        {
+            return new SendExecutionResult
+            {
+                Result = Failure(UnknownPaymentStatusMessage),
+                Payment = CreatePaymentDetails(
+                    paymentHash,
+                    payment,
+                    statusOverride: LightningPaymentStatus.Unknown)
+            };
+        }
+
         return payment?.Status switch
         {
             LightningPaymentStatus.Complete => new SendExecutionResult
@@ -735,7 +951,7 @@ public class LightningManagerService : ILightningManagerService
                 Result = new ActionResultViewModel
                 {
                     IsSuccess = false,
-                    Message = "Payment status is unknown. Check the Lightning node before retrying."
+                    Message = UnknownPaymentStatusMessage
                 },
                 Payment = CreatePaymentDetails(paymentHash, payment)
             },
@@ -752,23 +968,6 @@ public class LightningManagerService : ILightningManagerService
         };
     }
 
-    private static bool IsBenignEclairOpenChannelFollowUpError(StoreLightningManagerContext context, Exception exception)
-    {
-        if (string.IsNullOrWhiteSpace(exception.Message))
-        {
-            return false;
-        }
-
-        var isEclairBackend =
-            (context.ConnectionString?.Contains("type=eclair", StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (context.Client?.GetType().Name.Contains("Eclair", StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (context.Client?.GetType().Namespace?.Contains(".Eclair", StringComparison.OrdinalIgnoreCase) ?? false);
-
-        return isEclairBackend &&
-               exception.Message.Contains("form field 'channelId' was malformed", StringComparison.OrdinalIgnoreCase) &&
-               exception.Message.Contains("invalid hexadecimal", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static ActionResultViewModel Success(string message)
     {
         return new ActionResultViewModel { IsSuccess = true, Message = message };
@@ -779,12 +978,78 @@ public class LightningManagerService : ILightningManagerService
         return new ActionResultViewModel { IsSuccess = false, Message = message };
     }
 
-    private static bool IsLndClient(ILightningClient client)
+    private SendExecutionResult CompleteSend(
+        StoreLightningManagerContext context,
+        Stopwatch stopwatch,
+        string outcome,
+        SendExecutionResult result,
+        string? exceptionType = null)
     {
-        var typeName = client.GetType().Name;
-        var typeNamespace = client.GetType().Namespace;
-        return typeName.Contains("Lnd", StringComparison.OrdinalIgnoreCase) ||
-               (typeNamespace?.Contains(".LND", StringComparison.OrdinalIgnoreCase) ?? false);
+        LogOperation(context, "pay", stopwatch, outcome, exceptionType);
+        return result;
+    }
+
+    private ActionResultViewModel CompleteAction(
+        StoreLightningManagerContext context,
+        string operation,
+        Stopwatch stopwatch,
+        string outcome,
+        ActionResultViewModel result,
+        string? exceptionType = null)
+    {
+        LogOperation(context, operation, stopwatch, outcome, exceptionType);
+        return result;
+    }
+
+    private void LogOperation(
+        StoreLightningManagerContext context,
+        string operation,
+        Stopwatch stopwatch,
+        string outcome,
+        string? exceptionType)
+    {
+        stopwatch.Stop();
+        var backend = LightningBackendTypes.TryGet(context.ConnectionString) ?? "unknown";
+        if (outcome == "success")
+        {
+            _logger.LogInformation(
+                "Lightning manager operation {Operation} for store {StoreId} and crypto {CryptoCode} using backend {Backend} completed in {DurationMs} ms with result {Result}",
+                operation,
+                context.StoreId,
+                context.CryptoCode,
+                backend,
+                stopwatch.ElapsedMilliseconds,
+                outcome);
+            return;
+        }
+
+        _logger.LogWarning(
+            "Lightning manager operation {Operation} for store {StoreId} and crypto {CryptoCode} using backend {Backend} completed in {DurationMs} ms with result {Result} and exception type {ExceptionType}",
+            operation,
+            context.StoreId,
+            context.CryptoCode,
+            backend,
+            stopwatch.ElapsedMilliseconds,
+            outcome,
+            exceptionType ?? "none");
+    }
+
+    private static string GetPaymentOutcome(SendResultDetailsViewModel? payment)
+    {
+        return payment?.Status switch
+        {
+            LightningPaymentStatus.Failed => "failed",
+            LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown => "unknown",
+            _ => "failed"
+        };
+    }
+
+    private static bool IsLndBackend(StoreLightningManagerContext context)
+    {
+        return LightningBackendTypes.IsAny(
+            context.ConnectionString,
+            LightningBackendTypes.LndRest,
+            LightningBackendTypes.LndGrpc);
     }
 
     private static void AddSummaryRow(List<ValueRowViewModel> rows, string label, string? value)

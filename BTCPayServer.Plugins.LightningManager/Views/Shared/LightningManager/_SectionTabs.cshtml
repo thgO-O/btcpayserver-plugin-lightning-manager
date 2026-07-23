@@ -5,6 +5,7 @@
     {
         <li class="nav-item">
             <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Overview ? "active" : "")"
+               aria-current="@(Model.ActivePage == LightningManagerNavPages.Overview ? "page" : null)"
                asp-controller="LightningManager"
                asp-action="Overview"
                asp-route-storeId="@Model.StoreId"
@@ -17,6 +18,7 @@
     {
         <li class="nav-item">
             <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Send ? "active" : "")"
+               aria-current="@(Model.ActivePage == LightningManagerNavPages.Send ? "page" : null)"
                asp-controller="LightningManager"
                asp-action="Send"
                asp-route-storeId="@Model.StoreId"
@@ -29,6 +31,7 @@
     {
         <li class="nav-item">
             <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Peers ? "active" : "")"
+               aria-current="@(Model.ActivePage == LightningManagerNavPages.Peers ? "page" : null)"
                asp-controller="LightningManager"
                asp-action="Peers"
                asp-route-storeId="@Model.StoreId"
@@ -41,6 +44,7 @@
     {
         <li class="nav-item">
             <a class="nav-link @(Model.ActivePage == LightningManagerNavPages.Channels ? "active" : "")"
+               aria-current="@(Model.ActivePage == LightningManagerNavPages.Channels ? "page" : null)"
                asp-controller="LightningManager"
                asp-action="Channels"
                asp-route-storeId="@Model.StoreId"

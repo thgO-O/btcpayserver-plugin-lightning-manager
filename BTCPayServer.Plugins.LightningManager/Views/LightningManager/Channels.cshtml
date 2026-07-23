@@ -1,5 +1,21 @@
 @model ChannelsViewModel
 
+@section PageFootContent
+{
+    <script>
+        const openChannelForm = document.getElementById('open-channel-form')
+        openChannelForm?.addEventListener('submit', event => {
+            if (openChannelForm.dataset.submitting) {
+                event.preventDefault()
+                return
+            }
+
+            openChannelForm.dataset.submitting = 'true'
+            openChannelForm.querySelector('button[type="submit"]')?.setAttribute('disabled', 'disabled')
+        })
+    </script>
+}
+
 <partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
 
 <div class="sticky-header">
@@ -25,59 +41,66 @@
     <div class="alert alert-info">@notice</div>
 }
 
-<div class="card">
-    <div class="card-body">
-        <h3 class="h5">Open Channel</h3>
-        <form asp-controller="LightningManager"
-              asp-action="PreviewChannel"
-              asp-route-storeId="@Model.StoreId"
-              asp-route-cryptoCode="@Model.CryptoCode"
-              method="post">
-            <div class="mb-3">
-                <label class="form-label" for="channelNodeUri">Node URI</label>
-                <input class="form-control" id="channelNodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" />
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="channelAmountSats">Channel amount (sats)</label>
-                <input class="form-control" id="channelAmountSats" name="channelAmountSats" value="@Model.ChannelAmountSats" />
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="feeRateSatsPerByte">Fee rate (sat/vB)</label>
-                <input class="form-control" id="feeRateSatsPerByte" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" />
-                <div class="form-text">Leave blank to use the default 1 sat/vB.</div>
-            </div>
-            <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanOpenChannel)">Preview channel open</button>
-        </form>
-    </div>
-</div>
-
-@if (Model.Preview is not null)
+@if (Model.Capabilities.CanOpenChannel)
 {
-    <div class="card mt-4">
+    <div class="card">
         <div class="card-body">
-            <h3 class="h5">Confirm Channel Open</h3>
-            <dl>
-                <dt>Peer</dt>
-                <dd><code>@Model.Preview.NodeUri</code></dd>
-                <dt>Amount</dt>
-                <dd>@Model.Preview.ChannelAmountDisplay</dd>
-                <dt>Fee rate</dt>
-                <dd>@Model.Preview.FeeRateDisplay</dd>
-            </dl>
+            <h3 class="h5">Open Channel</h3>
             <form asp-controller="LightningManager"
-                  asp-action="OpenChannel"
+                  asp-action="PreviewChannel"
                   asp-route-storeId="@Model.StoreId"
                   asp-route-cryptoCode="@Model.CryptoCode"
                   method="post">
-                <input type="hidden" name="nodeUri" value="@Model.NodeUri" />
-                <input type="hidden" name="channelAmountSats" value="@Model.ChannelAmountSats" />
-                <input type="hidden" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" />
-                <button type="submit" class="btn btn-primary">Open channel</button>
+                <div class="mb-3">
+                    <label class="form-label" for="channelNodeUri">Node URI</label>
+                    <input class="form-control" id="channelNodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="channelAmountSats">Channel amount (sats)</label>
+                    <input class="form-control" id="channelAmountSats" name="channelAmountSats" value="@Model.ChannelAmountSats" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="feeRateSatsPerByte">Fee rate (sat/vB)</label>
+                    <input class="form-control" id="feeRateSatsPerByte" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" inputmode="numeric" min="1" max="@int.MaxValue" step="1" />
+                    <div class="form-text">Leave blank to use the default 1 sat/vB.</div>
+                </div>
+                <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured)">Preview channel open</button>
             </form>
         </div>
     </div>
+
+    @if (Model.Preview is not null)
+    {
+        <div class="card mt-4">
+            <div class="card-body">
+                <h3 class="h5">Confirm Channel Open</h3>
+                <dl>
+                    <dt>Peer</dt>
+                    <dd><code>@Model.Preview.NodeUri</code></dd>
+                    <dt>Amount</dt>
+                    <dd>@Model.Preview.ChannelAmountDisplay</dd>
+                    <dt>Fee rate</dt>
+                    <dd>@Model.Preview.FeeRateDisplay</dd>
+                </dl>
+                <form asp-controller="LightningManager"
+                      asp-action="OpenChannel"
+                      asp-route-storeId="@Model.StoreId"
+                      asp-route-cryptoCode="@Model.CryptoCode"
+                      method="post"
+                      id="open-channel-form">
+                    <input type="hidden" name="nodeUri" value="@Model.NodeUri" />
+                    <input type="hidden" name="channelAmountSats" value="@Model.ChannelAmountSats" />
+                    <input type="hidden" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" />
+                    <input type="hidden" name="confirmationToken" value="@Model.OpenChannelConfirmationToken" />
+                    <button type="submit" class="btn btn-primary">Open channel</button>
+                </form>
+            </div>
+        </div>
+    }
 }
 
+@if (Model.Capabilities.CanListChannels)
+{
 <div class="card mt-4">
     <div class="card-body">
         <h3 class="h5">Existing Channels</h3>
@@ -122,7 +145,12 @@
                             <span>Local @localPercentage.ToString("0.#")%</span>
                             <span>Remote @remotePercentage.ToString("0.#")%</span>
                         </div>
-                        <div class="progress" role="progressbar" aria-label="Channel balance split">
+                        <div class="progress"
+                             role="progressbar"
+                             aria-label="Local channel balance percentage"
+                             aria-valuenow="@localPercentage.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                             aria-valuemin="0"
+                             aria-valuemax="100">
                             <div class="progress-bar bg-success" style="width: @localPercentage.ToString(System.Globalization.CultureInfo.InvariantCulture)%"></div>
                             <div class="progress-bar bg-info" style="width: @remotePercentage.ToString(System.Globalization.CultureInfo.InvariantCulture)%"></div>
                         </div>
@@ -147,3 +175,4 @@
         }
     </div>
 </div>
+}

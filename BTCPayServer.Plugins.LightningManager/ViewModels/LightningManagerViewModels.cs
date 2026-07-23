@@ -68,9 +68,13 @@ public class OverviewViewModel : LightningManagerPageViewModel
 public class SendPreviewViewModel
 {
     public string Bolt11 { get; init; } = string.Empty;
+    public LightMoney PaymentAmount { get; init; } = LightMoney.Zero;
+    public long? UserAmountSats { get; init; }
+    public bool IsAmountless { get; init; }
     public string AmountDisplay { get; init; } = string.Empty;
-    public long MaxFeeSats { get; init; }
-    public string MaxFeeDisplay { get; init; } = string.Empty;
+    public long? MaxFeeSats { get; init; }
+    public string? MaxFeeDisplay { get; init; }
+    public bool UsesBackendFeePolicy => MaxFeeSats is null;
     public string Description { get; init; } = string.Empty;
     public string PaymentHash { get; init; } = string.Empty;
     public string Payee { get; init; } = string.Empty;
@@ -89,6 +93,7 @@ public class SendResultDetailsViewModel
 public class SendViewModel : LightningManagerPageViewModel
 {
     public string? Bolt11 { get; set; }
+    public string? AmountSats { get; set; }
     public string? MaxFeeSats { get; set; }
     public string DefaultMaxFeeSats { get; set; } = LightningManagerDefaults.SendMaxFeeSats.ToString();
     public SendPreviewViewModel? Preview { get; set; }
@@ -127,6 +132,7 @@ public class ChannelsViewModel : LightningManagerPageViewModel
     public string? NodeUri { get; set; }
     public string? ChannelAmountSats { get; set; }
     public string? FeeRateSatsPerByte { get; set; }
+    public string? OpenChannelConfirmationToken { get; set; }
     public OpenChannelPreviewViewModel? Preview { get; set; }
     public List<LightningChannelItemViewModel> Channels { get; } = [];
     public string? ChannelListMessage { get; set; }

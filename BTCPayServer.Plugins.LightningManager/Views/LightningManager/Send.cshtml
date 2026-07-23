@@ -91,6 +91,22 @@
     </a>
 }
 
+@section PageFootContent
+{
+    <script>
+        const executePaymentForm = document.getElementById('execute-payment-form')
+        executePaymentForm?.addEventListener('submit', event => {
+            if (executePaymentForm.dataset.submitting) {
+                event.preventDefault()
+                return
+            }
+
+            executePaymentForm.dataset.submitting = 'true'
+            executePaymentForm.querySelector('button[type="submit"]')?.setAttribute('disabled', 'disabled')
+        })
+    </script>
+}
+
 <header class="text-center">
     <h1>@ViewData["Title"]</h1>
 </header>
@@ -179,10 +195,13 @@ else if (Model.Preview is not null)
                     <div class="lw-send-detail-label">Description</div>
                     <div class="lw-send-detail-value">@Model.Preview.Description</div>
                 </div>
-                <div class="lw-send-detail">
-                    <div class="lw-send-detail-label">Maximum fee</div>
-                    <div class="lw-send-detail-value">@Model.Preview.MaxFeeDisplay</div>
-                </div>
+                @if (!Model.Preview.UsesBackendFeePolicy)
+                {
+                    <div class="lw-send-detail">
+                        <div class="lw-send-detail-label">Maximum fee</div>
+                        <div class="lw-send-detail-value">@Model.Preview.MaxFeeDisplay</div>
+                    </div>
+                }
                 <div class="lw-send-detail">
                     <div class="lw-send-detail-label">Payee</div>
                     <div class="lw-send-detail-value"><code>@Model.Preview.Payee</code></div>
@@ -202,9 +221,20 @@ else if (Model.Preview is not null)
               asp-route-storeId="@Model.StoreId"
               asp-route-cryptoCode="@Model.CryptoCode"
               method="post"
-              class="mt-4">
+              class="mt-4"
+              id="execute-payment-form">
             <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
-            <input type="hidden" name="maxFeeSats" value="@Model.Preview.MaxFeeSats" />
+            <input type="hidden" name="amountSats" value="@Model.Preview.UserAmountSats" />
+            @if (!Model.Preview.UsesBackendFeePolicy)
+            {
+                <input type="hidden" name="maxFeeSats" value="@Model.Preview.MaxFeeSats" />
+            }
+            else
+            {
+                <div class="alert alert-info">
+                    The routing fee is controlled by this Lightning backend.
+                </div>
+            }
             <div class="d-grid gap-3">
                 <button type="submit" class="btn btn-primary">Pay invoice</button>
                 <a asp-controller="LightningManager"
@@ -233,9 +263,23 @@ else
                 <div class="form-text">Paste the full invoice exactly as received.</div>
             </div>
             <div class="form-group mt-3 mb-0">
-                <label class="form-label" for="maxFeeSats">Maximum fee sats</label>
-                <input class="form-control" id="maxFeeSats" name="maxFeeSats" value="@(Model.MaxFeeSats ?? Model.DefaultMaxFeeSats)" inputmode="numeric" />
+                <label class="form-label" for="amountSats">Amount for amountless invoice (sats)</label>
+                <input class="form-control" id="amountSats" name="amountSats" value="@Model.AmountSats" type="number" inputmode="numeric" min="1" step="1" />
+                <div class="form-text">Leave blank when the invoice already specifies an amount.</div>
             </div>
+            @if (Model.Capabilities.CanSetMaxFee)
+            {
+                <div class="form-group mt-3 mb-0">
+                    <label class="form-label" for="maxFeeSats">Maximum fee sats</label>
+                    <input class="form-control" id="maxFeeSats" name="maxFeeSats" value="@(Model.MaxFeeSats ?? Model.DefaultMaxFeeSats)" type="number" inputmode="numeric" min="1" step="1" />
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info mt-3 mb-0">
+                    The routing fee is controlled by this Lightning backend.
+                </div>
+            }
             <div class="mt-4">
                 <button type="submit" class="btn btn-primary w-100" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanPayBolt11)">Preview payment</button>
             </div>

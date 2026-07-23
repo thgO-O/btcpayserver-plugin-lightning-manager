@@ -1,4 +1,5 @@
 #nullable enable
+using System.Security.Claims;
 using BTCPayServer;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
@@ -10,12 +11,11 @@ using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.Extensions.Caching.Memory;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NBitcoin;
 using NBXplorer;
-using System.Runtime.CompilerServices;
-using System.Reflection;
 
 namespace BTCPayServer.Plugins.LightningManager.Tests;
 
@@ -30,33 +30,11 @@ internal static class TestNetworkFactory
 
     private static BTCPayNetwork CreateNetwork()
     {
-        var networkInstance = (NBXplorerNetwork)RuntimeHelpers.GetUninitializedObject(typeof(NBXplorerNetwork));
-        SetNetwork(networkInstance, NBitcoin.Network.RegTest);
         return new BTCPayNetwork
         {
             CryptoCode = "BTC",
-            NBXplorerNetwork = networkInstance
+            NBXplorerNetwork = new NBXplorerNetworkProvider(ChainName.Regtest).GetBTC()
         };
-    }
-
-    private static void SetNetwork(NBXplorerNetwork networkInstance, NBitcoin.Network nbitcoinNetwork)
-    {
-        var property = typeof(NBXplorerNetwork).GetProperty("NBitcoinNetwork", BindingFlags.Public | BindingFlags.Instance);
-        if (property?.SetMethod is not null)
-        {
-            property.SetValue(networkInstance, nbitcoinNetwork);
-            return;
-        }
-
-        var field = typeof(NBXplorerNetwork).GetField("<NBitcoinNetwork>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic) ??
-                    typeof(NBXplorerNetwork).GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
-                        .FirstOrDefault(f => f.FieldType == typeof(NBitcoin.Network));
-        if (field is null)
-        {
-            throw new InvalidOperationException("Could not initialize NBXplorerNetwork for tests.");
-        }
-
-        field.SetValue(networkInstance, nbitcoinNetwork);
     }
 }
 
@@ -106,11 +84,6 @@ internal class FakeLightningClient : ILightningClient
     public Task<LightningChannel[]> ListChannels(CancellationToken cancellation = default) =>
         ListChannelsHandler is null ? throw new NotSupportedException() : ListChannelsHandler(cancellation);
 }
-
-internal sealed class BlinkLikeLightningClient : FakeLightningClient;
-internal sealed class PhoenixdLikeLightningClient : FakeLightningClient;
-internal sealed class LndLikeLightningClient : FakeLightningClient;
-internal sealed class LndHubLikeLightningClient : FakeLightningClient;
 
 internal sealed class FakeHttpClientFactory : IHttpClientFactory
 {
@@ -210,11 +183,30 @@ internal static class TestControllerFactory
         StoreLightningManagerContext context,
         ILightningManagerService lightningManagerService)
     {
+        return CreateController(
+            context,
+            lightningManagerService,
+            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())));
+    }
+
+    public static Controllers.LightningManagerController CreateController(
+        StoreLightningManagerContext context,
+        ILightningManagerService lightningManagerService,
+        LightningManagerResultStore resultStore,
+        LightningManagerChannelConfirmationStore? channelConfirmationStore = null)
+    {
         var controller = new Controllers.LightningManagerController(
             new FakeStoreLightningManagerContextFactory { Context = context },
-            lightningManagerService);
+            lightningManagerService,
+            resultStore,
+            channelConfirmationStore ?? new LightningManagerChannelConfirmationStore(
+                new MemoryCache(new MemoryCacheOptions())));
 
         var httpContext = new DefaultHttpContext();
+        httpContext.User = new ClaimsPrincipal(
+            new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, "user-1")],
+                "Test"));
         httpContext.SetStoreData(context.Store);
         controller.ControllerContext = new ControllerContext
         {
