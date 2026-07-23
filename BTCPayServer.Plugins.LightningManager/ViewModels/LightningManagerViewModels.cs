@@ -97,6 +97,7 @@ public class SendViewModel : LightningManagerPageViewModel
     public string? MaxFeeSats { get; set; }
     public string DefaultMaxFeeSats { get; set; } = LightningManagerDefaults.SendMaxFeeSats.ToString();
     public SendPreviewViewModel? Preview { get; set; }
+    public string? PaymentConfirmationToken { get; set; }
     public SendResultDetailsViewModel? Payment { get; set; }
 }
 

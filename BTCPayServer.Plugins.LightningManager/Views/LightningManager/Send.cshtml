@@ -225,6 +225,7 @@ else if (Model.Preview is not null)
               id="execute-payment-form">
             <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
             <input type="hidden" name="amountSats" value="@Model.Preview.UserAmountSats" />
+            <input type="hidden" name="confirmationToken" value="@Model.PaymentConfirmationToken" />
             @if (!Model.Preview.UsesBackendFeePolicy)
             {
                 <input type="hidden" name="maxFeeSats" value="@Model.Preview.MaxFeeSats" />

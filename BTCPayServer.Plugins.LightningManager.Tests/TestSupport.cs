@@ -193,13 +193,16 @@ internal static class TestControllerFactory
         StoreLightningManagerContext context,
         ILightningManagerService lightningManagerService,
         LightningManagerResultStore resultStore,
-        LightningManagerChannelConfirmationStore? channelConfirmationStore = null)
+        LightningManagerChannelConfirmationStore? channelConfirmationStore = null,
+        LightningManagerPaymentConfirmationStore? paymentConfirmationStore = null)
     {
         var controller = new Controllers.LightningManagerController(
             new FakeStoreLightningManagerContextFactory { Context = context },
             lightningManagerService,
             resultStore,
             channelConfirmationStore ?? new LightningManagerChannelConfirmationStore(
+                new MemoryCache(new MemoryCacheOptions())),
+            paymentConfirmationStore ?? new LightningManagerPaymentConfirmationStore(
                 new MemoryCache(new MemoryCacheOptions())));
 
         var httpContext = new DefaultHttpContext();

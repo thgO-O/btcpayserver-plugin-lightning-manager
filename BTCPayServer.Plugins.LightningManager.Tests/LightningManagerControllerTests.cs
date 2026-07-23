@@ -98,19 +98,266 @@ public class LightningManagerControllerTests
         Assert.NotNull(model.Result);
         Assert.False(model.Result!.IsSuccess);
         Assert.Equal("The BOLT11 invoice is invalid.", model.Result.Message);
+        Assert.Null(model.PaymentConfirmationToken);
+    }
+
+    [Fact]
+    public async Task PreviewSend_WithValidInvoice_CreatesIndependentConfirmationTokens()
+    {
+        var service = new CountingSendLightningManagerService
+        {
+            IsAmountlessPreview = true
+        };
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.Full),
+            service);
+
+        var firstToken = await PreviewPaymentAsync(controller, " lnbcrt1test ", "123", "7");
+        var secondToken = await PreviewPaymentAsync(controller, "lnbcrt1test", "123", "7");
+
+        Assert.NotEqual(firstToken, secondToken);
+
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            "123",
+            "7",
+            CancellationToken.None,
+            firstToken);
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            "123",
+            "7",
+            CancellationToken.None,
+            secondToken);
+
+        Assert.Equal(2, service.SendCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteSend_WithoutConfirmation_DoesNotCallService()
+    {
+        var service = new CountingSendLightningManagerService();
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
+            service);
+
+        var executeResult = await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(0, service.SendCalls);
+        var model = await LoadPaymentResultAsync(controller, executeResult);
+        Assert.False(model.Result!.IsSuccess);
+        Assert.Equal(
+            "This payment confirmation is invalid, expired, or already used. If it may already have been submitted, check the Lightning node before previewing again.",
+            model.Result.Message);
+    }
+
+    [Fact]
+    public async Task ExecuteSend_WithInvalidOrExpiredConfirmation_DoesNotCallService()
+    {
+        var service = new CountingSendLightningManagerService();
+        var paymentConfirmationStore = new LightningManagerPaymentConfirmationStore(
+            new MemoryCache(new MemoryCacheOptions()),
+            TimeSpan.FromMilliseconds(20));
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
+            service,
+            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())),
+            paymentConfirmationStore: paymentConfirmationStore);
+
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            "invalid");
+
+        var expiredToken = await PreviewPaymentAsync(controller);
+        await Task.Delay(100);
+        var expiredResult = await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            expiredToken);
+
+        Assert.Equal(0, service.SendCalls);
+        var model = await LoadPaymentResultAsync(controller, expiredResult);
+        Assert.False(model.Result!.IsSuccess);
+        Assert.Contains("invalid, expired, or already used", model.Result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteSend_WithTamperedPayload_PreservesTokenForOriginalPayload()
+    {
+        var service = new CountingSendLightningManagerService
+        {
+            IsAmountlessPreview = true
+        };
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.Full),
+            service);
+        var confirmationToken = await PreviewPaymentAsync(
+            controller,
+            " lnbcrt1test ",
+            "123",
+            "7");
+
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1other",
+            "123",
+            "7",
+            CancellationToken.None,
+            confirmationToken);
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            "124",
+            "7",
+            CancellationToken.None,
+            confirmationToken);
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            "123",
+            "8",
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(0, service.SendCalls);
+
+        await controller.ExecuteSend(
+            "BTC",
+            "LNBCRT1TEST",
+            "000123",
+            "007",
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(1, service.SendCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteSend_WithFixedAmountInvoice_IgnoresPreviewOverrides()
+    {
+        var service = new CountingSendLightningManagerService();
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
+            service);
+        var confirmationToken = await PreviewPaymentAsync(
+            controller,
+            amountSats: "999999",
+            maxFeeSats: "-10");
+
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(1, service.SendCalls);
+        Assert.Null(service.LastAmountSats);
+        Assert.Null(service.LastMaxFeeSats);
+    }
+
+    [Fact]
+    public async Task ExecuteSend_ConsumesConfirmationAndRejectsSequentialReplay()
+    {
+        var service = new CountingSendLightningManagerService();
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
+            service);
+        var confirmationToken = await PreviewPaymentAsync(controller);
+
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            confirmationToken);
+        var replayResult = await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(1, service.SendCalls);
+        var replayModel = await LoadPaymentResultAsync(controller, replayResult);
+        Assert.False(replayModel.Result!.IsSuccess);
+        Assert.Contains("already used", replayModel.Result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteSend_DoesNotRestoreConfirmationAfterCancellation()
+    {
+        var service = new CountingSendLightningManagerService
+        {
+            ThrowOnSend = true
+        };
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
+            service);
+        var confirmationToken = await PreviewPaymentAsync(controller);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => controller.ExecuteSend(
+                "BTC",
+                "lnbcrt1test",
+                null,
+                null,
+                CancellationToken.None,
+                confirmationToken));
+
+        service.ThrowOnSend = false;
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(1, service.SendCalls);
     }
 
     [Fact]
     public async Task ExecuteSend_RedirectsAndNextSendPageShowsPaymentDetails()
     {
+        var service = new CountingSendLightningManagerService();
+        var paymentConfirmationStore = new LightningManagerPaymentConfirmationStore(
+            new MemoryCache(new MemoryCacheOptions()));
         var controller = TestControllerFactory.CreateController(
             TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
-            new SuccessfulSendLightningManagerService());
+            service,
+            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())),
+            paymentConfirmationStore: paymentConfirmationStore);
+        var confirmationToken = await PreviewPaymentAsync(controller);
 
-        var executeResult = await controller.ExecuteSend("BTC", "lnbcrt1test", null, null, CancellationToken.None);
+        var executeResult = await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            confirmationToken);
 
         var redirect = Assert.IsType<RedirectToActionResult>(executeResult);
         Assert.Equal("Send", redirect.ActionName);
+        Assert.Equal(1, service.SendCalls);
         var resultId = Assert.IsType<string>(redirect.RouteValues!["resultId"]);
         var sendResult = await controller.Send("BTC", CancellationToken.None, resultId);
         var view = Assert.IsType<ViewResult>(sendResult);
@@ -132,11 +379,22 @@ public class LightningManagerControllerTests
     [Fact]
     public async Task ExecuteSend_WhenRedirectIsLost_RecoversResultOnNextSendVisit()
     {
+        var paymentConfirmationStore = new LightningManagerPaymentConfirmationStore(
+            new MemoryCache(new MemoryCacheOptions()));
         var controller = TestControllerFactory.CreateController(
             TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly()),
-            new SuccessfulSendLightningManagerService());
+            new CountingSendLightningManagerService(),
+            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())),
+            paymentConfirmationStore: paymentConfirmationStore);
+        var confirmationToken = await PreviewPaymentAsync(controller);
 
-        await controller.ExecuteSend("BTC", "lnbcrt1test", null, null, CancellationToken.None);
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            null,
+            CancellationToken.None,
+            confirmationToken);
 
         var recoveredResult = await controller.Send("BTC", CancellationToken.None);
         var recoveredView = Assert.IsType<ViewResult>(recoveredResult);
@@ -441,8 +699,79 @@ public class LightningManagerControllerTests
         };
     }
 
-    private sealed class SuccessfulSendLightningManagerService : LightningManagerService
+    private static async Task<string> PreviewPaymentAsync(
+        Controllers.LightningManagerController controller,
+        string bolt11 = "lnbcrt1test",
+        string? amountSats = null,
+        string? maxFeeSats = null)
     {
+        var previewResult = await controller.PreviewSend(
+            "BTC",
+            bolt11,
+            amountSats,
+            maxFeeSats,
+            CancellationToken.None);
+        var view = Assert.IsType<ViewResult>(previewResult);
+        var model = Assert.IsType<SendViewModel>(view.Model);
+        Assert.NotNull(model.Preview);
+        return Assert.IsType<string>(model.PaymentConfirmationToken);
+    }
+
+    private static async Task<SendViewModel> LoadPaymentResultAsync(
+        Controllers.LightningManagerController controller,
+        IActionResult executeResult)
+    {
+        var redirect = Assert.IsType<RedirectToActionResult>(executeResult);
+        var resultId = Assert.IsType<string>(redirect.RouteValues!["resultId"]);
+        var resultPage = await controller.Send("BTC", CancellationToken.None, resultId);
+        return Assert.IsType<SendViewModel>(Assert.IsType<ViewResult>(resultPage).Model);
+    }
+
+    private sealed class CountingSendLightningManagerService : LightningManagerService
+    {
+        public int SendCalls { get; private set; }
+        public bool ThrowOnSend { get; set; }
+        public bool IsAmountlessPreview { get; set; }
+        public string? LastAmountSats { get; private set; }
+        public string? LastMaxFeeSats { get; private set; }
+
+        public override bool TryCreateSendPreview(
+            StoreLightningManagerContext context,
+            string? bolt11,
+            string? amountSats,
+            string? maxFeeSats,
+            out SendPreviewViewModel? preview,
+            out string? error)
+        {
+            if (string.IsNullOrWhiteSpace(bolt11))
+            {
+                preview = null;
+                error = "A BOLT11 invoice is required.";
+                return false;
+            }
+
+            long? parsedAmount =
+                IsAmountlessPreview && long.TryParse(amountSats, out var amount) ? amount : null;
+            long? parsedMaxFee =
+                context.Capabilities.CanSetMaxFee && long.TryParse(maxFeeSats, out var maxFee) ? maxFee : null;
+            preview = new SendPreviewViewModel
+            {
+                Bolt11 = bolt11.Trim(),
+                PaymentAmount = LightMoney.Satoshis(parsedAmount ?? 2),
+                UserAmountSats = parsedAmount,
+                IsAmountless = parsedAmount is not null,
+                AmountDisplay = $"{parsedAmount ?? 2} sats",
+                MaxFeeSats = parsedMaxFee,
+                MaxFeeDisplay = parsedMaxFee is null ? null : $"{parsedMaxFee} sats",
+                Description = "Test invoice",
+                PaymentHash = "test-hash",
+                Payee = "test-payee",
+                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5)
+            };
+            error = null;
+            return true;
+        }
+
         public override Task<SendExecutionResult> SendAsync(
             StoreLightningManagerContext context,
             string bolt11,
@@ -450,6 +779,14 @@ public class LightningManagerControllerTests
             string? maxFeeSats,
             CancellationToken cancellationToken = default)
         {
+            SendCalls++;
+            LastAmountSats = amountSats;
+            LastMaxFeeSats = maxFeeSats;
+            if (ThrowOnSend)
+            {
+                throw new OperationCanceledException();
+            }
+
             return Task.FromResult(new SendExecutionResult
             {
                 Result = new ActionResultViewModel { IsSuccess = true, Message = "Payment sent successfully." },

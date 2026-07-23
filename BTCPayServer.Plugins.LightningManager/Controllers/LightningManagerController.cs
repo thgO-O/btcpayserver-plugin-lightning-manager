@@ -20,17 +20,20 @@ public class LightningManagerController : Controller
     private readonly ILightningManagerService _lightningManagerService;
     private readonly LightningManagerResultStore _resultStore;
     private readonly LightningManagerChannelConfirmationStore _channelConfirmationStore;
+    private readonly LightningManagerPaymentConfirmationStore _paymentConfirmationStore;
 
     public LightningManagerController(
         IStoreLightningManagerContextFactory contextFactory,
         ILightningManagerService lightningManagerService,
         LightningManagerResultStore resultStore,
-        LightningManagerChannelConfirmationStore channelConfirmationStore)
+        LightningManagerChannelConfirmationStore channelConfirmationStore,
+        LightningManagerPaymentConfirmationStore paymentConfirmationStore)
     {
         _contextFactory = contextFactory;
         _lightningManagerService = lightningManagerService;
         _resultStore = resultStore;
         _channelConfirmationStore = channelConfirmationStore;
+        _paymentConfirmationStore = paymentConfirmationStore;
     }
 
     [HttpGet("")]
@@ -92,6 +95,13 @@ public class LightningManagerController : Controller
         if (_lightningManagerService.TryCreateSendPreview(context, bolt11, amountSats, maxFeeSats, out var preview, out var error))
         {
             model.Preview = preview;
+            model.PaymentConfirmationToken = _paymentConfirmationStore.Create(
+                User.GetId(),
+                context.StoreId,
+                context.CryptoCode,
+                preview!.Bolt11,
+                preview.UserAmountSats,
+                preview.MaxFeeSats);
         }
         else
         {
@@ -111,11 +121,41 @@ public class LightningManagerController : Controller
         [FromForm] string bolt11,
         [FromForm] string? amountSats,
         [FromForm] string? maxFeeSats,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromForm] string? confirmationToken = null)
     {
         var context = await GetContextAsync(cryptoCode, cancellationToken);
-        var result = await _lightningManagerService.SendAsync(context, bolt11, amountSats, maxFeeSats, cancellationToken);
-        var resultId = _resultStore.StorePayment(User.GetId(), context.StoreId, context.CryptoCode, result);
+        var userId = User.GetId();
+        SendExecutionResult result;
+        if (!_paymentConfirmationStore.TryConsume(
+                confirmationToken,
+                userId,
+                context.StoreId,
+                context.CryptoCode,
+                bolt11,
+                amountSats,
+                maxFeeSats))
+        {
+            result = new SendExecutionResult
+            {
+                Result = new ActionResultViewModel
+                {
+                    IsSuccess = false,
+                    Message = "This payment confirmation is invalid, expired, or already used. If it may already have been submitted, check the Lightning node before previewing again."
+                }
+            };
+        }
+        else
+        {
+            result = await _lightningManagerService.SendAsync(
+                context,
+                bolt11,
+                amountSats,
+                maxFeeSats,
+                cancellationToken);
+        }
+
+        var resultId = _resultStore.StorePayment(userId, context.StoreId, context.CryptoCode, result);
         return RedirectToAction(nameof(Send), new { storeId = context.StoreId, cryptoCode = context.CryptoCode, resultId });
     }
 

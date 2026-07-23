@@ -21,6 +21,7 @@ public class LightningManagerPlugin : BaseBTCPayServerPlugin
         plugins.AddSingleton<ILightningCapabilityService, LightningCapabilityService>();
         plugins.AddSingleton<LightningManagerResultStore>();
         plugins.AddSingleton<LightningManagerChannelConfirmationStore>();
+        plugins.AddSingleton<LightningManagerPaymentConfirmationStore>();
         plugins.AddSingleton<LightningManagerOperationGuard>();
         plugins.AddScoped<IStoreLightningManagerContextFactory, StoreLightningManagerContextFactory>();
         plugins.AddSingleton<ILightningManagerService, LightningManagerService>();
