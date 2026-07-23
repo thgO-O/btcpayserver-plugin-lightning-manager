@@ -5,44 +5,22 @@ namespace BTCPayServer.Plugins.LightningManager.Services;
 
 public interface ILightningCapabilityService
 {
-    LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString);
+    LightningCapabilities GetCapabilities(string? connectionString);
 }
 
 public class LightningCapabilityService : ILightningCapabilityService
 {
-    private const string CLightning = "clightning";
-    private const string LndRest = "lnd-rest";
-    private const string LndGrpc = "lnd-grpc";
-    private const string Eclair = "eclair";
-    private const string Charge = "charge";
-    private const string LndHub = "lndhub";
-
     private static readonly HashSet<string> FullNodeTypes = new(StringComparer.OrdinalIgnoreCase)
     {
-        CLightning,
-        LndRest,
-        LndGrpc,
-        Eclair
+        LightningBackendTypes.CLightning,
+        LightningBackendTypes.LndRest,
+        LightningBackendTypes.LndGrpc,
+        LightningBackendTypes.Eclair
     };
 
-    private static readonly HashSet<string> PayFocusedTypes = new(StringComparer.OrdinalIgnoreCase)
+    public virtual LightningCapabilities GetCapabilities(string? connectionString)
     {
-        "phoenixd",
-        "breez",
-        "micro",
-        "nwc",
-        Charge,
-        LndHub
-    };
-
-    public virtual LightningCapabilities GetCapabilities(ILightningClient? client, string? connectionString)
-    {
-        if (client is null)
-        {
-            return LightningCapabilities.None;
-        }
-
-        var type = TryGetConnectionType(connectionString) ?? InferConnectionType(client);
+        var type = LightningBackendTypes.TryGet(connectionString);
         if (string.IsNullOrEmpty(type))
         {
             return LightningCapabilities.None;
@@ -53,54 +31,54 @@ public class LightningCapabilityService : ILightningCapabilityService
             return LightningCapabilities.Full;
         }
 
-        if (type.Equals("blink", StringComparison.OrdinalIgnoreCase))
+        if (type.Equals(LightningBackendTypes.Phoenixd, StringComparison.OrdinalIgnoreCase))
         {
-            return HasBlinkUsdCurrency(connectionString)
-                ? LightningCapabilities.PayOnly(canGetInfo: false, canGetBalance: false)
-                : LightningCapabilities.PayOnly(canGetInfo: false);
+            return LightningCapabilities.Phoenixd;
         }
 
-        if (PayFocusedTypes.Contains(type))
+        if (type.Equals(LightningBackendTypes.Blink, StringComparison.OrdinalIgnoreCase))
         {
-            return LightningCapabilities.InfoBalancePay;
+            var currency = LightningBackendTypes.TryGetValue(connectionString, "currency");
+            if (currency is null || currency.Equals("USD", StringComparison.OrdinalIgnoreCase))
+            {
+                return LightningCapabilities.BlinkPayOnly;
+            }
+
+            if (currency.Equals("BTC", StringComparison.OrdinalIgnoreCase))
+            {
+                return LightningCapabilities.BlinkBitcoin;
+            }
         }
 
         return LightningCapabilities.None;
     }
+}
 
-    private static bool HasBlinkUsdCurrency(string? connectionString)
-    {
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return false;
-        }
+internal static class LightningBackendTypes
+{
+    public const string CLightning = "clightning";
+    public const string LndRest = "lnd-rest";
+    public const string LndGrpc = "lnd-grpc";
+    public const string Eclair = "eclair";
+    public const string Phoenixd = "phoenixd";
+    public const string Blink = "blink";
 
-        try
-        {
-            var values = LightningConnectionStringHelper.ExtractValues(connectionString, out _);
-            return values.TryGetValue("currency", out var currency) &&
-                   currency.Equals("USD", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string? TryGetConnectionType(string? connectionString)
+    public static string? TryGet(string? connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             return null;
         }
 
-        if (connectionString.StartsWith("nostr+walletconnect:", StringComparison.OrdinalIgnoreCase))
-        {
-            return "nwc";
-        }
-
         try
         {
+            var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Any(part => part.IndexOf('=') <= 0) ||
+                !parts.Any(part => part[..part.IndexOf('=')].Trim().Equals("type", StringComparison.OrdinalIgnoreCase)))
+            {
+                return null;
+            }
+
             LightningConnectionStringHelper.ExtractValues(connectionString, out var type);
             return type;
         }
@@ -110,54 +88,33 @@ public class LightningCapabilityService : ILightningCapabilityService
         }
     }
 
-    private static string? InferConnectionType(ILightningClient client)
+    public static string? TryGetValue(string? connectionString, string key)
     {
-        var typeName = client.GetType().Name;
-        if (typeName.Contains("Phoenixd", StringComparison.OrdinalIgnoreCase))
+        if (TryGet(connectionString) is null)
         {
-            return "phoenixd";
+            return null;
         }
 
-        if (typeName.Contains("Blink", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            return "blink";
+            var values = LightningConnectionStringHelper.ExtractValues(connectionString!, out _);
+            return values.TryGetValue(key, out var value) ? value : null;
         }
-
-        if (typeName.Contains("Breez", StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            return "breez";
+            return null;
         }
+    }
 
-        if (typeName.Contains("Micro", StringComparison.OrdinalIgnoreCase))
-        {
-            return "micro";
-        }
+    public static bool Is(string? connectionString, string type)
+    {
+        return string.Equals(TryGet(connectionString), type, StringComparison.OrdinalIgnoreCase);
+    }
 
-        if (typeName.Contains("NostrWalletConnect", StringComparison.OrdinalIgnoreCase))
-        {
-            return "nwc";
-        }
-
-        if (typeName.Contains("CLightning", StringComparison.OrdinalIgnoreCase))
-        {
-            return CLightning;
-        }
-
-        if (typeName.Contains("LndHub", StringComparison.OrdinalIgnoreCase))
-        {
-            return LndHub;
-        }
-
-        if (typeName.Contains("Lnd", StringComparison.OrdinalIgnoreCase))
-        {
-            return LndRest;
-        }
-
-        if (typeName.Contains("Eclair", StringComparison.OrdinalIgnoreCase))
-        {
-            return Eclair;
-        }
-
-        return null;
+    public static bool IsAny(string? connectionString, params string[] types)
+    {
+        var actual = TryGet(connectionString);
+        return !string.IsNullOrEmpty(actual) &&
+               types.Any(type => string.Equals(actual, type, StringComparison.OrdinalIgnoreCase));
     }
 }

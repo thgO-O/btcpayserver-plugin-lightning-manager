@@ -82,10 +82,20 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
 
         if (config.GetExternalLightningUrl() is { } connectionString)
         {
+            var capabilities = _lightningCapabilityService.GetCapabilities(connectionString);
+            if (!capabilities.HasAny)
+            {
+                return Task.FromResult(CreateUnavailableContext(
+                    store,
+                    cryptoCode,
+                    "Lightning backend is not supported by Lightning Manager.",
+                    network,
+                    connectionString));
+            }
+
             try
             {
                 var client = _lightningClientFactory.Create(connectionString, network);
-                var capabilities = _lightningCapabilityService.GetCapabilities(client, connectionString);
                 return Task.FromResult(new StoreLightningManagerContext
                 {
                     Store = store,

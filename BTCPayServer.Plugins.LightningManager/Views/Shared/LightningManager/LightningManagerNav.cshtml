@@ -15,7 +15,8 @@
     }
 
     var managerContext = await ContextFactory.CreateAsync(store, cryptoCode);
-    if (string.IsNullOrWhiteSpace(managerContext.ConnectionString))
+    if (string.IsNullOrWhiteSpace(managerContext.ConnectionString) ||
+        !managerContext.Capabilities.HasAny)
     {
         return;
     }
