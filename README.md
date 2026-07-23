@@ -1,179 +1,149 @@
 # Lightning Manager for BTCPay Server
 
-Lightning Manager adds extra BTC Lightning screens inside BTCPay Server for
-stores that already use their own Lightning node or wallet.
+Lightning Manager adds BTC Lightning tools to BTCPay Server stores that use
+their own external Lightning node or wallet.
 
-Use it to check your Lightning setup, pay fixed-amount Lightning invoices, and,
-when your node or wallet supports it, connect peers or open channels.
+From inside BTCPay Server, store operators can inspect the configured backend,
+pay supported BOLT11 invoices, connect peers, and list or open channels when
+the backend supports those actions.
 
-## Who This Is For
-
-This plugin is for BTCPay store operators who already have BTC Lightning
-configured with their own external Lightning node or wallet.
-
-It is useful if you want to manage common Lightning actions from BTCPay instead
-of switching to another node or wallet interface.
-
-## Important Limits
-
-- BTC Lightning only.
-- External Lightning nodes or wallets only.
-- It does not create a Lightning wallet for you.
-- It does not use or manage BTCPay's shared internal Lightning node.
-- It does not support Lightning for Litecoin or any other currency.
-- It does not receive payments, create invoices, or change checkout behavior.
-- It does not custody funds, credit invoices, or keep a store balance ledger.
-
-## Requirements
-
-- BTCPay Server `2.4.0` or newer.
-- A BTCPay store with BTC Lightning already configured.
-- A connected Lightning node or wallet with funds if you want to pay invoices.
-- BTCPay permissions for the store:
-  - Lightning node access to view the pages.
-  - Store settings modification to pay invoices, connect peers, or open
-    channels.
+> Lightning Manager works with external BTC Lightning connections only. It
+> does not manage BTCPay's shared internal Lightning node.
 
 ## What You Can Do
 
-- `Overview`: view node information, node address, and available balances.
-- `Pay`: preview and pay fixed-amount Lightning invoices with a maximum fee
-  limit.
-- `Peers`: connect to Lightning peers when your node supports it.
-- `Channels`: list channels and open channels when your node supports it.
+- `Overview`: view node or wallet information, its address, and available
+  balances.
+- `Pay`: preview and pay fixed-amount BOLT11 invoices. Supported backends also
+  accept a positive whole-sat amount for amountless invoices.
+- `Peers`: connect to Lightning peers.
+- `Channels`: list existing channels and open new channels.
 
-The plugin only shows actions your Lightning setup can support. For example, a
-payment-focused wallet will show payment actions but not peer or channel
-management.
+The actions shown come from a capability preset selected from the external
+connection string's `type=` value and, for Blink, its `currency=` value. The
+credentials configured in BTCPay Server still determine whether the backend
+authorizes each request.
 
-## Supported Lightning Setups
+## Requirements
 
-| Setup | What works |
-| --- | --- |
-| LND | Overview, Pay, Peers, Channels |
-| Core Lightning | Overview, Pay, Peers, Channels |
-| Eclair | Overview, Pay, Peers, Channels |
-| Phoenixd | Overview and Pay |
-| Blink | Pay, with limited overview information |
-| LndHub | Overview and Pay |
-
-Peer and channel actions are only available for full Lightning nodes.
-Payment-only wallets do not expose those screens.
-
-## How To Use
-
-1. Install the plugin and restart BTCPay Server.
-2. Open a store that already has BTC Lightning configured.
-3. Open the BTCPay Lightning menu.
-4. Open `Overview` to confirm the detected node or wallet and available
-   actions.
-5. Use `Pay` to preview a Lightning invoice before sending the payment.
-6. Use `Peers` or `Channels` only if those tabs are shown for your setup.
-
-If your store uses BTCPay's shared internal Lightning node, Lightning Manager
-will not appear for that store.
-
-## Safety Notes
-
-- Payments are sent directly by your connected Lightning node or wallet.
-- The plugin does not hold funds.
-- The plugin does not maintain a separate accounting balance.
-- If a payment result is unknown, check your Lightning node or wallet before
-  retrying.
-- Raw backend errors are not shown in the UI.
-- Before relying on a new backend, test with a small payment first.
-
-## What Is Not Included
-
-- Creating invoices or receiving Lightning payments.
-- Lightning invoices without a preset amount.
-- BOLT12, keysend, or spontaneous payments.
-- LNURL checkout features.
-- Closing channels.
-- Shared internal-node balance management.
-- Plugin-owned custodial balances or customer accounts.
+- BTCPay Server `2.4.1` or newer.
+- A BTCPay store with an external BTC Lightning node or wallet already
+  configured.
+- The `Use the lightning nodes associated with your stores` permission.
+- Lightning or on-chain funds for the actions you intend to perform.
+- For LND management, an admin macaroon or a custom macaroon authorized for the
+  required operations. The checkout-oriented `invoice.macaroon` is not enough
+  for balances, outgoing payments, peers, or channels.
 
 ## Installation
 
-Install the packaged `.btcpay` plugin through the BTCPay Server plugin UI, then
-restart BTCPay Server.
+1. Sign in to BTCPay Server as an administrator.
+2. Open `Manage Plugins`, expand `Upload Plugin`, and upload the packaged
+   `.btcpay` file from a source you trust.
+3. Restart BTCPay Server to load the plugin.
 
-For local builds, the package is expected at:
+## Quick Start
 
-```text
-artifacts/plugin-packages/BTCPayServer.Plugins.LightningManager/0.1.0.0/BTCPayServer.Plugins.LightningManager.btcpay
-```
+1. Open a store that already has external BTC Lightning configured.
+2. Open the store's Lightning menu and select `Overview`.
+3. Confirm that Lightning Manager detected the expected node or wallet and
+   review the available actions.
+4. Use `Pay` to preview an invoice before sending it.
+5. Use `Peers` or `Channels` only when those tabs are available for your
+   backend.
 
-After restart, the logs should include:
+## Supported Lightning Setups
 
-```text
-Running plugin BTCPayServer.Plugins.LightningManager - 0.1.0.0
-```
+| Setup | Info | Balance | Pay | Amountless BOLT11 | Maximum fee | Connect peer | Open channel | List channels |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| LND REST / BTCPay `lnd-grpc` value | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Core Lightning (CLN) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Eclair | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Phoenixd | Yes | Yes | Yes | Yes | No | No | No | No |
+| Blink with `currency=BTC` | No | Yes | Yes | No | No | No | No | No |
+| Blink USD or legacy connection without `currency=` | No | No | Yes | No | No | No | No | No |
 
-## Release Checklist
+LND connections use the REST client provided by BTCPay Server. The historical
+`type=lnd-grpc` connection-string value is an alias for that REST client; it
+does not select a separate gRPC transport.
 
-Before a public release, test the final `.btcpay` package on a BTCPay Server
-instance:
+The table describes the actions exposed by each connection-string preset; it
+is not a runtime feature probe.
 
-1. Install the package through the plugin UI.
-2. Restart BTCPay Server and confirm the plugin loads.
-3. Open a store with BTC Lightning configured.
-4. Confirm the shown actions match the node or wallet you are testing.
-5. Pay a small fixed-amount Lightning invoice.
-6. Confirm the destination wallet received the payment.
-7. Confirm the plugin only shows success when the payment is settled.
-8. Test an invalid Lightning invoice and confirm the UI shows a friendly error.
+Peer and channel actions are available only for LND, CLN, and Eclair. Phoenixd
+and Blink control routing fees through their own backend policy, so Lightning
+Manager cannot set a per-payment maximum fee for them.
 
-Recommended release sign-off:
+For fixed-amount invoices, the signed invoice amount is authoritative and any
+submitted amount override is ignored. For amountless invoices on supported
+backends, enter a positive whole number of satoshis before previewing the
+payment. Blink currently supports fixed-amount invoices only because its
+upstream adapter does not pass an operator-entered amount to the wallet.
 
-- LND, Core Lightning, and Eclair: regtest smoke with Polar.
-- Phoenixd, Blink, and LndHub: small-value real-network smoke focused on `Pay`.
+## Safety
+
+- Payments and channel operations are sent directly to the configured
+  Lightning node or wallet.
+- Lightning Manager does not hold funds or maintain a separate balance ledger.
+- A payment or channel action is shown for confirmation before submission.
+- If the result of a submitted action is unknown, check the Lightning node or
+  wallet before retrying.
+- Completed payment and channel results are cached in memory for up to five
+  minutes. This is not durable recovery; the Lightning node remains the source
+  of truth.
+- Test a new backend with a small payment before relying on it.
+
+## Scope and Limits
+
+Lightning Manager:
+
+- supports BTC Lightning only;
+- requires an explicit, supported `type=` in the external Lightning connection
+  string;
+- does not create a wallet, receive payments, create invoices, or change
+  checkout behavior;
+- does not support BOLT12, keysend, spontaneous payments, or LNURL checkout
+  features;
+- does not close channels, disconnect peers, rebalance, perform swaps, or
+  change channel policies; and
+- does not add a plugin-specific HTTP API, database, migrations, persisted
+  settings, or custodial accounts.
+
+## Troubleshooting
+
+### Lightning Manager does not appear
+
+Confirm that the store uses a supported external BTC Lightning connection and
+that your user has the Lightning node access permission. The plugin is
+intentionally hidden for BTCPay's shared internal node, non-BTC Lightning
+configurations, unknown backends, and connection strings without a recognized
+`type=`.
+
+### A tab or action is missing
+
+This normally means the capability preset for the connection-string `type=`
+and, for Blink, `currency=` does not include that action. Compare the setup
+with the table above. For LND, also verify that the configured macaroon
+authorizes the requested operation.
+
+### An action was interrupted or its result is unclear
+
+Reopen the same page and check the Lightning node or wallet before retrying.
+The operation may have reached the backend even if the browser never received
+the final response.
+
+### Blink has limited overview information
+
+Blink with `currency=BTC` exposes Balance and Pay but not node Info. Blink USD
+and legacy Blink connections without an explicit `currency=` are exposed as
+payment-only.
 
 ## Development
 
-Local development requires:
+Build, test, package-validation, and backend sign-off instructions are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md). The manual backend checklist is in
+[`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md).
 
-- .NET `10.0` SDK.
-- The BTCPay Server submodule initialized at `submodules/btcpayserver`.
+## License
 
-Initialize the submodule:
-
-```bash
-git submodule update --init --recursive
-```
-
-Build:
-
-```bash
-dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj
-```
-
-Test:
-
-```bash
-dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
-```
-
-Release build:
-
-```bash
-dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj -c Release
-```
-
-Package:
-
-```bash
-dotnet submodules/btcpayserver/BTCPayServer.PluginPacker/bin/Release/net10.0/BTCPayServer.PluginPacker.dll \
-  BTCPayServer.Plugins.LightningManager/bin/Release/net10.0 \
-  BTCPayServer.Plugins.LightningManager \
-  artifacts/plugin-packages
-```
-
-The package directory contains:
-
-- `BTCPayServer.Plugins.LightningManager.btcpay`
-- `BTCPayServer.Plugins.LightningManager.btcpay.json`
-- `SHA256SUMS`
-- `SHA256SUMS.asc`
-
-The release package should not contain `.pdb` files.
+Lightning Manager is released under the [MIT License](LICENSE).
