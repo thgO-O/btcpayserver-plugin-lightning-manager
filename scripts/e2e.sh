@@ -4,11 +4,10 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 tests_project="$repo_root/BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj"
 
-export LIGHTNING_MANAGER_E2E=1
 export LIGHTNING_MANAGER_E2E_CLN="${LIGHTNING_MANAGER_E2E_CLN:-type=clightning;server=tcp://127.0.0.1:30992/}"
-export LIGHTNING_MANAGER_E2E_LND="${LIGHTNING_MANAGER_E2E_LND:-type=lnd-rest;server=http://lnd:lnd@127.0.0.1:35531/;allowinsecure=true}"
+export LIGHTNING_MANAGER_E2E_LND="${LIGHTNING_MANAGER_E2E_LND:-type=lnd-rest;server=http://lnd:lnd@127.0.0.1:35532/;allowinsecure=true}"
 cln_probe="${LIGHTNING_MANAGER_E2E_CLN_PROBE:-127.0.0.1:30992}"
-lnd_probe_url="${LIGHTNING_MANAGER_E2E_LND_PROBE_URL:-http://127.0.0.1:35531/v1/getinfo}"
+lnd_probe_url="${LIGHTNING_MANAGER_E2E_LND_PROBE_URL:-http://127.0.0.1:35532/v1/getinfo}"
 lnd_probe_user="${LIGHTNING_MANAGER_E2E_LND_PROBE_USER:-lnd:lnd}"
 cln_probe_host="${cln_probe%:*}"
 cln_probe_port="${cln_probe##*:}"

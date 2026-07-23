@@ -8,15 +8,20 @@ namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningManagerE2ETests
 {
-    private const string EnabledEnvironmentVariable = "LIGHTNING_MANAGER_E2E";
     private const long PaymentAmountSats = 500;
+    private const string DefaultClnConnection =
+        "type=clightning;server=tcp://127.0.0.1:30992/";
+    private const string DefaultLndConnection =
+        "type=lnd-rest;server=http://lnd:lnd@127.0.0.1:35532/;allowinsecure=true";
 
-    [LightningManagerE2EFact]
+    [Fact]
     [Trait("Category", "LightningManagerE2E")]
     public async Task ClnAndLndManagementAndPaymentsWorkThroughProductionService()
     {
-        var clnConnection = RequiredEnvironment("LIGHTNING_MANAGER_E2E_CLN");
-        var lndConnection = RequiredEnvironment("LIGHTNING_MANAGER_E2E_LND");
+        var clnConnection =
+            Environment.GetEnvironmentVariable("LIGHTNING_MANAGER_E2E_CLN") ?? DefaultClnConnection;
+        var lndConnection =
+            Environment.GetEnvironmentVariable("LIGHTNING_MANAGER_E2E_LND") ?? DefaultLndConnection;
         var factory = new LightningClientFactory(Network.RegTest);
         var cln = factory.Create(clnConnection);
         var lnd = factory.Create(lndConnection);
@@ -143,12 +148,6 @@ public class LightningManagerE2ETests
         return settled ?? throw new InvalidOperationException("The destination invoice could not be loaded.");
     }
 
-    private static string RequiredEnvironment(string name)
-    {
-        return Environment.GetEnvironmentVariable(name) ??
-               throw new InvalidOperationException($"{name} must be set when {EnabledEnvironmentVariable}=1.");
-    }
-
     private static NodeInfo RequiredNodeInfo(string environmentVariable, LightningNodeInformation info)
     {
         var configured = Environment.GetEnvironmentVariable(environmentVariable);
@@ -165,19 +164,5 @@ public class LightningManagerE2ETests
         return info.NodeInfoList.FirstOrDefault() ??
                throw new InvalidOperationException(
                    $"The node did not advertise a peer URI. Set {environmentVariable} explicitly.");
-    }
-
-    private sealed class LightningManagerE2EFactAttribute : FactAttribute
-    {
-        public LightningManagerE2EFactAttribute()
-        {
-            if (!string.Equals(
-                    Environment.GetEnvironmentVariable(EnabledEnvironmentVariable),
-                    "1",
-                    StringComparison.Ordinal))
-            {
-                Skip = $"Set {EnabledEnvironmentVariable}=1 and run scripts/e2e.sh to execute this test.";
-            }
-        }
     }
 }

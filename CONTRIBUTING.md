@@ -17,6 +17,25 @@ Initialize the submodule:
 git submodule update --init --recursive
 ```
 
+Start the BTCPay Server regtest fixture:
+
+```bash
+cd submodules/btcpayserver/BTCPayServer.Tests
+docker compose up -d dev
+```
+
+After the CLN and LND containers are running and synchronized, initialize the
+test channels:
+
+```bash
+./docker-lightning-channel-setup.sh
+cd ../../..
+```
+
+The channel setup is idempotent. If an initial attempt runs before the nodes
+finish synchronizing, wait and rerun it. `./scripts/e2e.sh` is the definitive
+fixture check.
+
 ## Build and Test
 
 Build the plugin:
@@ -31,6 +50,15 @@ Run the test suite:
 dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
 ```
 
+The full suite includes the CLN/LND end-to-end test and therefore requires the
+BTCPay Server regtest stack and Lightning channels described below. For a
+focused unit-test iteration, exclude the `LightningManagerE2E` category:
+
+```bash
+dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj \
+  --filter 'Category!=LightningManagerE2E'
+```
+
 ## Automated Package Gate
 
 Run the automated package gate with a new or empty output directory:
@@ -42,17 +70,18 @@ Run the automated package gate with a new or empty output directory:
 The script performs:
 
 - a Release build with warnings treated as errors;
-- the standard test suite, with opt-in E2E checks skipped;
+- the full test suite, including the CLN/LND end-to-end check;
 - a transitive NuGet vulnerability check;
 - a PluginPacker build and package creation;
 - checksum verification; and
 - package-content and manifest validation.
 
-CI calls the same script and does not publish or upload the resulting package.
-This gate does not run the package-startup smoke, E2E tests, or manual backend
-sign-off described below. It is pinned to the BTCPay Server `2.4.1` baseline,
-whose Lightning adapter includes the corrected CLN fee-rate serialization and
-pending-channel mapping.
+CI starts and initializes the BTCPay Server regtest fixture before calling the
+same script. It does not publish or upload the resulting package. This gate
+does not run the package-startup smoke or manual backend sign-off described
+below. It is pinned to the BTCPay Server `2.4.1` baseline, whose Lightning
+adapter includes the corrected CLN fee-rate serialization and pending-channel
+mapping.
 
 ## Package Startup Smoke
 
@@ -79,9 +108,9 @@ The stack must already have an active CLN/LND channel with at least 500 sats of
 outbound liquidity in each direction. The script does not create, fund, or mine
 a channel; missing channels or liquidity are reported as fixture failures.
 
-The normal unit suite skips this test when the E2E environment is not enabled.
-The script verifies the local CLN and LND endpoints before running only the
-`LightningManagerE2E` category. The test:
+The end-to-end test is part of the full test suite and fails when its fixture is
+unavailable or invalid. The script verifies the local CLN and LND endpoints
+before running only the `LightningManagerE2E` category. The test:
 
 - reconnects the two existing peers idempotently;
 - maps their existing channels through the production service;

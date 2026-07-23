@@ -24,5 +24,30 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Start BTCPay Server regtest fixture
+        working-directory: submodules/btcpayserver/BTCPayServer.Tests
+        run: docker compose up -d dev
+
+      - name: Initialize Lightning channels
+        working-directory: submodules/btcpayserver/BTCPayServer.Tests
+        run: |
+          for attempt in $(seq 1 90); do
+            if docker compose exec -T bitcoind bitcoin-cli -datadir=/data getblockchaininfo >/dev/null 2>&1 &&
+               docker compose exec -T customer_lightningd lightning-cli --rpc-file=/root/.lightning/lightning-rpc getinfo >/dev/null 2>&1 &&
+               docker compose exec -T merchant_lightningd lightning-cli --rpc-file=/root/.lightning/lightning-rpc getinfo >/dev/null 2>&1 &&
+               test "$(docker compose exec -T customer_lnd lncli --no-macaroons --rpcserver localhost:10008 getinfo 2>/dev/null |
+                 jq -r '.synced_to_chain')" = true &&
+               test "$(docker compose exec -T merchant_lnd lncli --no-macaroons --rpcserver localhost:10008 getinfo 2>/dev/null |
+                 jq -r '.synced_to_chain')" = true; then
+              break
+            fi
+            if [ "$attempt" -eq 90 ]; then
+              docker compose ps
+              exit 1
+            fi
+            sleep 2
+          done
+          script -q -e -c './docker-lightning-channel-setup.sh' /dev/null
+
       - name: Build, test, audit, and package
         run: ./scripts/release-check.sh "$RUNNER_TEMP/lightning-manager-packages"
