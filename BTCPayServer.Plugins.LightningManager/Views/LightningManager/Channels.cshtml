@@ -121,6 +121,11 @@
                         ? Math.Clamp(Math.Round((decimal)channel.LocalBalanceSats / channel.CapacitySats * 100m, 1), 0m, 100m)
                         : 0m;
                     var remotePercentage = Math.Max(0m, 100m - localPercentage);
+                    var statusBadgeClass = channel.IsPending
+                        ? "bg-warning text-dark"
+                        : channel.IsActive
+                            ? "bg-success"
+                            : "bg-secondary";
 
                     <div class="border rounded p-3">
                         <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
@@ -129,8 +134,8 @@
                                 <div class="font-monospace small text-break">@channel.RemoteNode</div>
                             </div>
                             <div class="d-flex flex-wrap gap-2 align-items-start">
-                                <span class="badge @(channel.IsActive ? "bg-success" : "bg-secondary")">
-                                    @(channel.IsActive ? "Active" : "Inactive")
+                                <span class="badge @statusBadgeClass">
+                                    @channel.Status
                                 </span>
                                 <span class="badge @(channel.IsPublic ? "bg-primary" : "bg-dark")">
                                     @(channel.IsPublic ? "Public" : "Private")

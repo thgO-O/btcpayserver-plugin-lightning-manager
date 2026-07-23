@@ -124,8 +124,14 @@ public class LightningManagerService : ILightningManagerService
             try
             {
                 var channels = await context.Client.ListChannels(cancellationToken);
-                model.ActiveChannelsCount = channels.LongCount(channel => channel.IsActive);
-                model.InactiveChannelsCount = channels.LongCount(channel => !channel.IsActive);
+                var listedPendingChannels = channels.LongCount(channel => channel.ChannelPoint is null);
+                model.PendingChannelsCount = Math.Max(
+                    model.PendingChannelsCount ?? 0,
+                    listedPendingChannels);
+                model.ActiveChannelsCount = channels.LongCount(channel =>
+                    channel.ChannelPoint is not null && channel.IsActive);
+                model.InactiveChannelsCount = channels.LongCount(channel =>
+                    channel.ChannelPoint is not null && !channel.IsActive);
                 LogOperation(context, "list-channels-summary", stopwatch, "success", null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -553,6 +559,7 @@ public class LightningManagerService : ILightningManagerService
                 var capacity = new LightMoney(Math.Max(0, channel.Capacity.MilliSatoshi));
                 var localBalance = new LightMoney(Math.Clamp(channel.LocalBalance.MilliSatoshi, 0, capacity.MilliSatoshi));
                 var remoteBalance = capacity - localBalance;
+                var isPending = channel.ChannelPoint is null;
                 model.Channels.Add(new LightningChannelItemViewModel
                 {
                     RemoteNode = channel.RemoteNode?.ToString() ?? "Unknown",
@@ -563,6 +570,7 @@ public class LightningManagerService : ILightningManagerService
                     CapacityDisplay = FormatLightMoney(capacity),
                     LocalBalanceDisplay = FormatLightMoney(localBalance),
                     RemoteBalanceDisplay = FormatLightMoney(remoteBalance),
+                    IsPending = isPending,
                     IsActive = channel.IsActive,
                     IsPublic = channel.IsPublic
                 });

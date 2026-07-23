@@ -123,8 +123,10 @@ public class LightningChannelItemViewModel
     public string CapacityDisplay { get; init; } = string.Empty;
     public string LocalBalanceDisplay { get; init; } = string.Empty;
     public string RemoteBalanceDisplay { get; init; } = string.Empty;
+    public bool IsPending { get; init; }
     public bool IsActive { get; init; }
     public bool IsPublic { get; init; }
+    public string Status => IsPending ? "Pending" : IsActive ? "Active" : "Inactive";
 }
 
 public class ChannelsViewModel : LightningManagerPageViewModel

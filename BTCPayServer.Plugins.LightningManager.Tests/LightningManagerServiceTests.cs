@@ -795,8 +795,21 @@ public class LightningManagerServiceTests
         {
             ListChannelsHandler = _ => Task.FromResult(new[]
             {
-                new LightningChannel { IsActive = true },
-                new LightningChannel { IsActive = false }
+                new LightningChannel
+                {
+                    IsActive = true,
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                },
+                new LightningChannel
+                {
+                    IsActive = false,
+                    ChannelPoint = new OutPoint(uint256.One, 1)
+                },
+                new LightningChannel
+                {
+                    IsActive = true,
+                    ChannelPoint = null
+                }
             })
         };
         var context = TestContextFactory.CreateConfigured(
@@ -808,8 +821,80 @@ public class LightningManagerServiceTests
 
         Assert.Equal(1, model.ActiveChannelsCount);
         Assert.Equal(1, model.InactiveChannelsCount);
+        Assert.Equal(1, model.PendingChannelsCount);
         Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "1");
         Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "1");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "1");
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WhenChannelListingFails_PreservesGetInfoChannelCounts()
+    {
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
+            {
+                ActiveChannelsCount = 2,
+                InactiveChannelsCount = 3,
+                PendingChannelsCount = 4
+            }),
+            ListChannelsHandler = _ => throw new InvalidOperationException("list unavailable")
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities
+            {
+                CanGetInfo = true,
+                CanListChannels = true
+            },
+            client);
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(2, model.ActiveChannelsCount);
+        Assert.Equal(3, model.InactiveChannelsCount);
+        Assert.Equal(4, model.PendingChannelsCount);
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WhenChannelListingOmitsPending_PreservesGetInfoPendingCount()
+    {
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
+            {
+                ActiveChannelsCount = 5,
+                InactiveChannelsCount = 6,
+                PendingChannelsCount = 2
+            }),
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel
+                {
+                    IsActive = true,
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                },
+                new LightningChannel
+                {
+                    IsActive = false,
+                    ChannelPoint = new OutPoint(uint256.One, 1)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities
+            {
+                CanGetInfo = true,
+                CanListChannels = true
+            },
+            client);
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(1, model.ActiveChannelsCount);
+        Assert.Equal(1, model.InactiveChannelsCount);
+        Assert.Equal(2, model.PendingChannelsCount);
     }
 
     [Fact]
@@ -885,6 +970,8 @@ public class LightningManagerServiceTests
         Assert.Equal("20,000 sats", channel.CapacityDisplay);
         Assert.Equal("12,000 sats", channel.LocalBalanceDisplay);
         Assert.Equal("8,000 sats", channel.RemoteBalanceDisplay);
+        Assert.False(channel.IsPending);
+        Assert.Equal("Active", channel.Status);
     }
 
     [Fact]
@@ -928,7 +1015,7 @@ public class LightningManagerServiceTests
                 new LightningChannel
                 {
                     RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
-                    IsActive = false,
+                    IsActive = true,
                     Capacity = LightMoney.Satoshis(20_000),
                     LocalBalance = LightMoney.Satoshis(20_000),
                     ChannelPoint = null
@@ -942,7 +1029,36 @@ public class LightningManagerServiceTests
 
         var channel = Assert.Single(model.Channels);
         Assert.Equal("Pending", channel.ChannelPoint);
+        Assert.True(channel.IsPending);
+        Assert.Equal("Pending", channel.Status);
         Assert.Null(model.ChannelListMessage);
+    }
+
+    [Fact]
+    public async Task PopulateChannelsAsync_WithInactiveChannelAndOutpoint_MarksInactiveNotPending()
+    {
+        var client = new FakeLightningClient
+        {
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel
+                {
+                    RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
+                    IsActive = false,
+                    Capacity = LightMoney.Satoshis(20_000),
+                    LocalBalance = LightMoney.Satoshis(10_000),
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var model = new ViewModels.ChannelsViewModel();
+
+        await _service.PopulateChannelsAsync(model, context);
+
+        var channel = Assert.Single(model.Channels);
+        Assert.False(channel.IsPending);
+        Assert.Equal("Inactive", channel.Status);
     }
 
     [Fact]
