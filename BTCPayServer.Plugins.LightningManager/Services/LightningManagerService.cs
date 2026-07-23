@@ -229,9 +229,9 @@ public class LightningManagerService : ILightningManagerService
         }
 
         var isAmountless = paymentRequest.MinimumAmount is null || paymentRequest.MinimumAmount == LightMoney.Zero;
-        if (isAmountless && LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Blink))
+        if (isAmountless && !context.Capabilities.CanPayAmountless)
         {
-            error = "Amountless invoices are not supported by Blink.";
+            error = "Amountless invoices are not supported by this backend.";
             return false;
         }
 

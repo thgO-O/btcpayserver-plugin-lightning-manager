@@ -212,7 +212,31 @@ public class LightningManagerServiceTests
         var result = await _service.SendAsync(context, AmountlessBolt11, "123", null);
 
         Assert.False(result.Result.IsSuccess);
-        Assert.Equal("Amountless invoices are not supported by Blink.", result.Result.Message);
+        Assert.Equal("Amountless invoices are not supported by this backend.", result.Result.Message);
+        Assert.False(payCalled);
+    }
+
+    [Fact]
+    public async Task SendAsync_WithoutAmountlessCapability_DoesNotDispatchPayment()
+    {
+        var payCalled = false;
+        var client = new FakeLightningClient
+        {
+            PayBolt11WithParamsHandler = (_, _, _) =>
+            {
+                payCalled = true;
+                return Task.FromResult(new PayResponse(PayResult.Ok));
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.PayOnly(),
+            client,
+            "type=phoenixd;server=https://example.com");
+
+        var result = await _service.SendAsync(context, AmountlessBolt11, "123", null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Amountless invoices are not supported by this backend.", result.Result.Message);
         Assert.False(payCalled);
     }
 

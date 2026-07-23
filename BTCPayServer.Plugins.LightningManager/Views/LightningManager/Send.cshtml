@@ -262,11 +262,14 @@ else
                 <textarea class="form-control font-monospace" id="bolt11" name="bolt11" rows="6" placeholder="lnbc...">@Model.Bolt11</textarea>
                 <div class="form-text">Paste the full invoice exactly as received.</div>
             </div>
-            <div class="form-group mt-3 mb-0">
-                <label class="form-label" for="amountSats">Amount for amountless invoice (sats)</label>
-                <input class="form-control" id="amountSats" name="amountSats" value="@Model.AmountSats" type="number" inputmode="numeric" min="1" step="1" />
-                <div class="form-text">Leave blank when the invoice already specifies an amount.</div>
-            </div>
+            @if (Model.Capabilities.CanPayAmountless)
+            {
+                <div class="form-group mt-3 mb-0">
+                    <label class="form-label" for="amountSats">Amount for amountless invoice (sats)</label>
+                    <input class="form-control" id="amountSats" name="amountSats" value="@Model.AmountSats" type="number" inputmode="numeric" min="1" step="1" />
+                    <div class="form-text">Leave blank when the invoice already specifies an amount.</div>
+                </div>
+            }
             @if (Model.Capabilities.CanSetMaxFee)
             {
                 <div class="form-group mt-3 mb-0">

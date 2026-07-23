@@ -21,6 +21,7 @@ public class LightningCapabilityServiceTests
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
         Assert.True(capabilities.CanPayBolt11);
+        Assert.True(capabilities.CanPayAmountless);
         Assert.True(capabilities.CanSetMaxFee);
         Assert.True(capabilities.CanConnectPeer);
         Assert.True(capabilities.CanOpenChannel);
@@ -37,6 +38,7 @@ public class LightningCapabilityServiceTests
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
         Assert.True(capabilities.CanPayBolt11);
+        Assert.True(capabilities.CanPayAmountless);
         Assert.False(capabilities.CanSetMaxFee);
         Assert.False(capabilities.CanConnectPeer);
         Assert.False(capabilities.CanOpenChannel);
@@ -53,6 +55,7 @@ public class LightningCapabilityServiceTests
         Assert.False(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
         Assert.True(capabilities.CanPayBolt11);
+        Assert.False(capabilities.CanPayAmountless);
         Assert.False(capabilities.CanSetMaxFee);
         Assert.False(capabilities.CanConnectPeer);
         Assert.False(capabilities.CanOpenChannel);
@@ -70,6 +73,7 @@ public class LightningCapabilityServiceTests
         Assert.False(capabilities.CanGetInfo);
         Assert.False(capabilities.CanGetBalance);
         Assert.True(capabilities.CanPayBolt11);
+        Assert.False(capabilities.CanPayAmountless);
         Assert.False(capabilities.CanSetMaxFee);
         Assert.False(capabilities.CanConnectPeer);
         Assert.False(capabilities.CanOpenChannel);
@@ -94,6 +98,24 @@ public class LightningCapabilityServiceTests
 
         Assert.Same(LightningCapabilities.None, capabilities);
         Assert.False(capabilities.HasAny);
+    }
+
+    [Fact]
+    public void PayOnly_DeniesAmountlessByDefault()
+    {
+        Assert.False(LightningCapabilities.PayOnly().CanPayAmountless);
+        Assert.False(LightningCapabilities.None.CanPayAmountless);
+    }
+
+    [Fact]
+    public void AmountlessCapability_IsSubordinateToBolt11Payments()
+    {
+        var capabilities = new LightningCapabilities
+        {
+            CanPayAmountless = true
+        };
+
+        Assert.False(capabilities.CanPayAmountless);
     }
 
     [Theory]
