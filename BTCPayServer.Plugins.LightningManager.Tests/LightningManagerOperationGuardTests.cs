@@ -6,7 +6,7 @@ namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningManagerOperationGuardTests
 {
-    private const string StoreId = "store-a";
+    private const string BackendFingerprint = "backend-a";
     private const string CryptoCode = "BTC";
     private const string PaymentHash = "AABBCC";
     private const string RemoteNodeId = "02AABBCC";
@@ -16,14 +16,14 @@ public class LightningManagerOperationGuardTests
     {
         var guard = new LightningManagerOperationGuard();
 
-        Assert.True(guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out var first));
+        Assert.True(guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out var first));
         Assert.NotNull(first);
-        Assert.False(guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out var blocked));
+        Assert.False(guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out var blocked));
         Assert.Null(blocked);
 
         first!.Dispose();
 
-        Assert.True(guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out var second));
+        Assert.True(guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out var second));
         second!.Dispose();
     }
 
@@ -32,11 +32,11 @@ public class LightningManagerOperationGuardTests
     {
         var guard = new LightningManagerOperationGuard();
 
-        Assert.True(guard.TryBeginPayment(StoreId, " btc ", " aabbcc ", out var payment));
-        Assert.False(guard.TryBeginPayment(StoreId, "BTC", "AABBCC", out _));
+        Assert.True(guard.TryBeginPayment(BackendFingerprint, " btc ", " aabbcc ", out var payment));
+        Assert.False(guard.TryBeginPayment(BackendFingerprint, "BTC", "AABBCC", out _));
 
-        Assert.True(guard.TryBeginChannel(StoreId, " btc ", " 02aabbcc ", out var channel));
-        Assert.False(guard.TryBeginChannel(StoreId, "BTC", "02AABBCC", out _));
+        Assert.True(guard.TryBeginChannel(BackendFingerprint, " btc ", " 02aabbcc ", out var channel));
+        Assert.False(guard.TryBeginChannel(BackendFingerprint, "BTC", "02AABBCC", out _));
 
         payment!.Dispose();
         channel!.Dispose();
@@ -48,11 +48,11 @@ public class LightningManagerOperationGuardTests
         var guard = new LightningManagerOperationGuard();
         var leases = new List<IDisposable>();
 
-        AssertAcquired(guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out var payment), payment, leases);
-        AssertAcquired(guard.TryBeginPayment("store-b", CryptoCode, PaymentHash, out var otherStore), otherStore, leases);
-        AssertAcquired(guard.TryBeginPayment(StoreId, "LTC", PaymentHash, out var otherCrypto), otherCrypto, leases);
-        AssertAcquired(guard.TryBeginPayment(StoreId, CryptoCode, "DDEEFF", out var otherHash), otherHash, leases);
-        AssertAcquired(guard.TryBeginChannel(StoreId, CryptoCode, PaymentHash, out var channel), channel, leases);
+        AssertAcquired(guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out var payment), payment, leases);
+        AssertAcquired(guard.TryBeginPayment("backend-b", CryptoCode, PaymentHash, out var otherBackend), otherBackend, leases);
+        AssertAcquired(guard.TryBeginPayment(BackendFingerprint, "LTC", PaymentHash, out var otherCrypto), otherCrypto, leases);
+        AssertAcquired(guard.TryBeginPayment(BackendFingerprint, CryptoCode, "DDEEFF", out var otherHash), otherHash, leases);
+        AssertAcquired(guard.TryBeginChannel(BackendFingerprint, CryptoCode, PaymentHash, out var channel), channel, leases);
 
         foreach (var lease in leases)
         {
@@ -68,17 +68,17 @@ public class LightningManagerOperationGuardTests
 
         await Task.WhenAll(Enumerable.Range(0, 32).Select(_ => Task.Run(() =>
         {
-            if (guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out var lease))
+            if (guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out var lease))
             {
                 leases.Add(lease!);
             }
         })));
 
         var acquired = Assert.Single(leases);
-        Assert.False(guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out _));
+        Assert.False(guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out _));
 
         acquired.Dispose();
-        Assert.True(guard.TryBeginPayment(StoreId, CryptoCode, PaymentHash, out var afterRelease));
+        Assert.True(guard.TryBeginPayment(BackendFingerprint, CryptoCode, PaymentHash, out var afterRelease));
         afterRelease!.Dispose();
     }
 
@@ -87,13 +87,13 @@ public class LightningManagerOperationGuardTests
     {
         var guard = new LightningManagerOperationGuard();
 
-        Assert.True(guard.TryBeginChannel(StoreId, CryptoCode, RemoteNodeId, out var first));
+        Assert.True(guard.TryBeginChannel(BackendFingerprint, CryptoCode, RemoteNodeId, out var first));
         first!.Dispose();
-        Assert.True(guard.TryBeginChannel(StoreId, CryptoCode, RemoteNodeId, out var second));
+        Assert.True(guard.TryBeginChannel(BackendFingerprint, CryptoCode, RemoteNodeId, out var second));
 
         first.Dispose();
 
-        Assert.False(guard.TryBeginChannel(StoreId, CryptoCode, RemoteNodeId, out _));
+        Assert.False(guard.TryBeginChannel(BackendFingerprint, CryptoCode, RemoteNodeId, out _));
         second!.Dispose();
     }
 

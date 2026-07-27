@@ -13,6 +13,8 @@ namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningManagerControllerTests
 {
+    private const string ResultBackendFingerprint = "backend-a";
+
     [Fact]
     public async Task SendPage_UsesCapabilityDrivenTabs()
     {
@@ -247,6 +249,59 @@ public class LightningManagerControllerTests
     }
 
     [Fact]
+    public async Task ExecuteSend_WithChangedCredentials_PreservesTokenForOriginalConfiguration()
+    {
+        var originalContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            connectionString: "type=lnd-rest;server=https://node-a.example/;macaroon=AABB");
+        var changedContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            connectionString: "type=lnd-grpc;server=https://node-a.example;macaroon=CCDD");
+        Assert.NotEqual(
+            originalContext.BackendFingerprint,
+            changedContext.BackendFingerprint);
+        Assert.Equal(
+            originalContext.BackendIdentityFingerprint,
+            changedContext.BackendIdentityFingerprint);
+        var contextFactory = new FakeStoreLightningManagerContextFactory
+        {
+            Context = originalContext
+        };
+        var service = new CountingSendLightningManagerService();
+        var controller = TestControllerFactory.CreateController(
+            originalContext,
+            service,
+            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())),
+            contextFactory: contextFactory);
+        var confirmationToken = await PreviewPaymentAsync(
+            controller,
+            maxFeeSats: "7");
+
+        contextFactory.Context = changedContext;
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            "7",
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(0, service.SendCalls);
+
+        contextFactory.Context = originalContext;
+        await controller.ExecuteSend(
+            "BTC",
+            "lnbcrt1test",
+            null,
+            "7",
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(1, service.SendCalls);
+        Assert.Equal("7", service.LastMaxFeeSats);
+    }
+
+    [Fact]
     public async Task ExecuteSend_WithFixedAmountInvoice_IgnoresPreviewOverrides()
     {
         var service = new CountingSendLightningManagerService();
@@ -427,26 +482,155 @@ public class LightningManagerControllerTests
     }
 
     [Fact]
+    public async Task Results_FromPreviousBackendConfiguration_AreNotShownOrConsumed()
+    {
+        var originalContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            connectionString: "type=lnd-rest;server=https://node.example/;macaroon=AABB");
+        var changedContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            connectionString: "type=lnd-grpc;server=https://node.example;macaroon=CCDD");
+        Assert.NotEqual(
+            originalContext.BackendFingerprint,
+            changedContext.BackendFingerprint);
+        Assert.Equal(
+            originalContext.BackendIdentityFingerprint,
+            changedContext.BackendIdentityFingerprint);
+        var resultStore = new LightningManagerResultStore(
+            new MemoryCache(new MemoryCacheOptions()));
+        var paymentResultId = resultStore.StorePayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            originalContext.BackendFingerprint,
+            CreateSendResult("original-payment"));
+        resultStore.StoreChannel(
+            "user-1",
+            "store-1",
+            "BTC",
+            originalContext.BackendFingerprint,
+            new ActionResultViewModel
+            {
+                IsSuccess = true,
+                Message = "Original channel result"
+            });
+        var contextFactory = new FakeStoreLightningManagerContextFactory
+        {
+            Context = changedContext
+        };
+        var controller = TestControllerFactory.CreateController(
+            originalContext,
+            new LightningManagerService(),
+            resultStore,
+            contextFactory: contextFactory);
+
+        var changedSend = Assert.IsType<SendViewModel>(
+            Assert.IsType<ViewResult>(
+                await controller.Send(
+                    "BTC",
+                    CancellationToken.None,
+                    paymentResultId)).Model);
+        Assert.Equal(
+            "Payment result is no longer available. Check the Lightning node before retrying.",
+            changedSend.Result!.Message);
+        var changedChannels = Assert.IsType<ChannelsViewModel>(
+            Assert.IsType<ViewResult>(
+                await controller.Channels("BTC", CancellationToken.None)).Model);
+        Assert.Null(changedChannels.Result);
+
+        contextFactory.Context = originalContext;
+        var originalSend = Assert.IsType<SendViewModel>(
+            Assert.IsType<ViewResult>(
+                await controller.Send(
+                    "BTC",
+                    CancellationToken.None,
+                    paymentResultId)).Model);
+        Assert.Equal("original-payment", originalSend.Payment!.PaymentHash);
+        var originalChannels = Assert.IsType<ChannelsViewModel>(
+            Assert.IsType<ViewResult>(
+                await controller.Channels("BTC", CancellationToken.None)).Model);
+        Assert.Equal("Original channel result", originalChannels.Result!.Message);
+    }
+
+    [Fact]
     public async Task PaymentResults_AreScopedReusableAndIndependent()
     {
         var resultStore = new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions()));
-        var firstId = resultStore.StorePayment("user-1", "store-1", "BTC", CreateSendResult("first-hash"));
-        var secondId = resultStore.StorePayment("user-2", "store-2", "BTC", CreateSendResult("second-hash"));
+        var firstId = resultStore.StorePayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            CreateSendResult("first-hash"));
+        var secondId = resultStore.StorePayment(
+            "user-2",
+            "store-2",
+            "BTC",
+            ResultBackendFingerprint,
+            CreateSendResult("second-hash"));
 
-        Assert.False(resultStore.TryGetPayment(firstId, "user-2", "store-1", "BTC", out _));
-        Assert.False(resultStore.TryGetPayment(firstId, "user-1", "store-2", "BTC", out _));
-        Assert.True(resultStore.TryGetPayment(secondId, "user-2", "store-2", "BTC", out var second));
+        Assert.False(resultStore.TryGetPayment(
+            firstId,
+            "user-2",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.False(resultStore.TryGetPayment(
+            firstId,
+            "user-1",
+            "store-2",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.False(resultStore.TryGetPayment(
+            firstId,
+            "user-1",
+            "store-1",
+            "BTC",
+            "backend-b",
+            out _));
+        Assert.True(resultStore.TryGetPayment(
+            secondId,
+            "user-2",
+            "store-2",
+            "BTC",
+            ResultBackendFingerprint,
+            out var second));
         Assert.Equal("second-hash", second!.Payment!.PaymentHash);
-        Assert.True(resultStore.TryGetPayment(firstId, "user-1", "store-1", "btc", out var first));
+        Assert.True(resultStore.TryGetPayment(
+            firstId,
+            "user-1",
+            "store-1",
+            "btc",
+            ResultBackendFingerprint,
+            out var first));
         Assert.Equal("first-hash", first!.Payment!.PaymentHash);
-        Assert.True(resultStore.TryGetPayment(firstId, "user-1", "store-1", "BTC", out var refreshed));
+        Assert.True(resultStore.TryGetPayment(
+            firstId,
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out var refreshed));
         Assert.Equal("first-hash", refreshed!.Payment!.PaymentHash);
 
-        var concurrentId = resultStore.StorePayment("user-1", "store-1", "BTC", CreateSendResult("concurrent-hash"));
+        var concurrentId = resultStore.StorePayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            CreateSendResult("concurrent-hash"));
         var concurrentReads = await Task.WhenAll(
             Enumerable.Range(0, 20)
                 .Select(index => Task.Run(() =>
-                    resultStore.TryGetPayment(concurrentId, "user-1", "store-1", "BTC", out _))));
+                    resultStore.TryGetPayment(
+                        concurrentId,
+                        "user-1",
+                        "store-1",
+                        "BTC",
+                        ResultBackendFingerprint,
+                        out _))));
         Assert.All(concurrentReads, value => Assert.True(value));
     }
 
@@ -458,53 +642,135 @@ public class LightningManagerControllerTests
             "user-1",
             "store-1",
             "BTC",
+            ResultBackendFingerprint,
             CreateSendResult("first-payment-hash"));
         var secondPaymentId = resultStore.StorePayment(
             "user-1",
             "store-1",
             "BTC",
+            ResultBackendFingerprint,
             CreateSendResult("second-payment-hash"));
         var channelId = resultStore.StoreChannel(
             "user-1",
             "store-1",
             "BTC",
+            ResultBackendFingerprint,
             new ActionResultViewModel { IsSuccess = false, Message = "Channel status is unknown." });
 
-        Assert.False(resultStore.TryGetPendingPayment("user-2", "store-1", "BTC", out _));
-        Assert.True(resultStore.TryGetPendingPayment("user-1", "store-1", "btc", out var firstPayment));
+        Assert.False(resultStore.TryGetPendingPayment(
+            "user-2",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.False(resultStore.TryGetPendingPayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            "backend-b",
+            out _));
+        Assert.True(resultStore.TryGetPendingPayment(
+            "user-1",
+            "store-1",
+            "btc",
+            ResultBackendFingerprint,
+            out var firstPayment));
         Assert.Equal("first-payment-hash", firstPayment!.Payment!.PaymentHash);
-        Assert.True(resultStore.TryGetPendingPayment("user-1", "store-1", "BTC", out var secondPayment));
+        Assert.True(resultStore.TryGetPendingPayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out var secondPayment));
         Assert.Equal("second-payment-hash", secondPayment!.Payment!.PaymentHash);
-        Assert.False(resultStore.TryGetPendingPayment("user-1", "store-1", "BTC", out _));
-        Assert.True(resultStore.TryGetPayment(firstPaymentId, "user-1", "store-1", "BTC", out _));
-        Assert.True(resultStore.TryGetPayment(secondPaymentId, "user-1", "store-1", "BTC", out _));
-        Assert.False(resultStore.TryGetPayment(channelId, "user-1", "store-1", "BTC", out _));
+        Assert.False(resultStore.TryGetPendingPayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.True(resultStore.TryGetPayment(
+            firstPaymentId,
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.True(resultStore.TryGetPayment(
+            secondPaymentId,
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.False(resultStore.TryGetPayment(
+            channelId,
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
 
         var pendingPaymentId = resultStore.StorePayment(
             "user-1",
             "store-1",
             "BTC",
+            ResultBackendFingerprint,
             CreateSendResult("pending-payment-hash"));
         var redirectedPaymentId = resultStore.StorePayment(
             "user-1",
             "store-1",
             "BTC",
+            ResultBackendFingerprint,
             CreateSendResult("redirected-payment-hash"));
         Assert.True(resultStore.TryGetPayment(
             redirectedPaymentId,
             "user-1",
             "store-1",
             "BTC",
+            ResultBackendFingerprint,
             out _));
-        Assert.True(resultStore.TryGetPendingPayment("user-1", "store-1", "BTC", out var pendingPayment));
+        Assert.True(resultStore.TryGetPendingPayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out var pendingPayment));
         Assert.Equal("pending-payment-hash", pendingPayment!.Payment!.PaymentHash);
-        Assert.False(resultStore.TryGetPendingPayment("user-1", "store-1", "BTC", out _));
-        Assert.True(resultStore.TryGetPayment(pendingPaymentId, "user-1", "store-1", "BTC", out _));
+        Assert.False(resultStore.TryGetPendingPayment(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.True(resultStore.TryGetPayment(
+            pendingPaymentId,
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
 
-        Assert.True(resultStore.TryGetPendingChannel("user-1", "store-1", "BTC", out var channel));
+        Assert.True(resultStore.TryGetPendingChannel(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out var channel));
         Assert.Equal("Channel status is unknown.", channel!.Message);
-        Assert.False(resultStore.TryGetPendingChannel("user-1", "store-1", "BTC", out _));
-        Assert.True(resultStore.TryGetChannel(channelId, "user-1", "store-1", "BTC", out _));
+        Assert.False(resultStore.TryGetPendingChannel(
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
+        Assert.True(resultStore.TryGetChannel(
+            channelId,
+            "user-1",
+            "store-1",
+            "BTC",
+            ResultBackendFingerprint,
+            out _));
     }
 
     [Fact]
@@ -512,16 +778,27 @@ public class LightningManagerControllerTests
     {
         var confirmationStore = new LightningManagerChannelConfirmationStore(
             new MemoryCache(new MemoryCacheOptions()));
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
+        var service = new CountingOpenChannelLightningManagerService();
         var controller = TestControllerFactory.CreateController(
-            TestContextFactory.CreateConfigured(LightningCapabilities.Full),
-            new LightningManagerService(),
+            context,
+            service,
             new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())),
             confirmationStore);
-        var confirmationToken = confirmationStore.Create("user-1", "store-1", "BTC", "invalid", "100000", null);
+
+        var previewResult = await controller.PreviewChannel(
+            "BTC",
+            "node@127.0.0.1:9735",
+            "100000",
+            null,
+            CancellationToken.None);
+        var preview = Assert.IsType<ChannelsViewModel>(
+            Assert.IsType<ViewResult>(previewResult).Model);
+        var confirmationToken = Assert.IsType<string>(preview.OpenChannelConfirmationToken);
 
         await controller.OpenChannel(
             "BTC",
-            "invalid",
+            "node@127.0.0.1:9735",
             "100000",
             null,
             CancellationToken.None,
@@ -530,8 +807,9 @@ public class LightningManagerControllerTests
         var recoveredResult = await controller.Channels("BTC", CancellationToken.None);
         var recoveredView = Assert.IsType<ViewResult>(recoveredResult);
         var recoveredModel = Assert.IsType<ChannelsViewModel>(recoveredView.Model);
-        Assert.False(recoveredModel.Result!.IsSuccess);
-        Assert.Equal("The node URI is invalid. Use pubkey@host[:port].", recoveredModel.Result.Message);
+        Assert.True(recoveredModel.Result!.IsSuccess);
+        Assert.Equal("Channel opening request submitted.", recoveredModel.Result.Message);
+        Assert.Equal(1, service.OpenChannelCalls);
     }
 
     [Fact]
@@ -610,6 +888,64 @@ public class LightningManagerControllerTests
     }
 
     [Fact]
+    public async Task OpenChannel_WithChangedCredentials_PreservesTokenForOriginalConfiguration()
+    {
+        var originalContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            connectionString: "type=lnd-rest;server=https://node-a.example/;macaroon=AABB");
+        var changedContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            connectionString: "type=lnd-grpc;server=https://node-a.example;macaroon=CCDD");
+        Assert.NotEqual(
+            originalContext.BackendFingerprint,
+            changedContext.BackendFingerprint);
+        Assert.Equal(
+            originalContext.BackendIdentityFingerprint,
+            changedContext.BackendIdentityFingerprint);
+        var contextFactory = new FakeStoreLightningManagerContextFactory
+        {
+            Context = originalContext
+        };
+        var service = new CountingOpenChannelLightningManagerService();
+        var controller = TestControllerFactory.CreateController(
+            originalContext,
+            service,
+            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())),
+            contextFactory: contextFactory);
+        var previewResult = await controller.PreviewChannel(
+            "BTC",
+            "node@127.0.0.1:9735",
+            "100000",
+            null,
+            CancellationToken.None);
+        var preview = Assert.IsType<ChannelsViewModel>(
+            Assert.IsType<ViewResult>(previewResult).Model);
+        var confirmationToken = Assert.IsType<string>(preview.OpenChannelConfirmationToken);
+
+        contextFactory.Context = changedContext;
+        await controller.OpenChannel(
+            "BTC",
+            "node@127.0.0.1:9735",
+            "100000",
+            null,
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(0, service.OpenChannelCalls);
+
+        contextFactory.Context = originalContext;
+        await controller.OpenChannel(
+            "BTC",
+            "node@127.0.0.1:9735",
+            "100000",
+            null,
+            CancellationToken.None,
+            confirmationToken);
+
+        Assert.Equal(1, service.OpenChannelCalls);
+    }
+
+    [Fact]
     public async Task OpenChannel_WithInvalidOrExpiredConfirmation_DoesNotCallService()
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
@@ -635,6 +971,7 @@ public class LightningManagerControllerTests
             "user-1",
             "store-1",
             "BTC",
+            context.BackendFingerprint,
             "node@127.0.0.1:9735",
             "100000",
             null);

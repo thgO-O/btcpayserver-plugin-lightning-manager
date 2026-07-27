@@ -315,7 +315,7 @@ public class LightningManagerService : ILightningManagerService
 
         cancellationToken.ThrowIfCancellationRequested();
         if (!_operationGuard.TryBeginPayment(
-                context.StoreId,
+                context.BackendIdentityFingerprint,
                 context.CryptoCode,
                 preview!.PaymentHash,
                 out var operationLease))
@@ -638,7 +638,7 @@ public class LightningManagerService : ILightningManagerService
         cancellationToken.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
         if (!_operationGuard.TryBeginChannel(
-                context.StoreId,
+                context.BackendIdentityFingerprint,
                 context.CryptoCode,
                 request!.NodeInfo.NodeId.ToString(),
                 out var operationLease))

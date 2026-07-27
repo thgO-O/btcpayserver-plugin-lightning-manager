@@ -60,9 +60,20 @@ public class LightningManagerController : Controller
         var context = await GetContextAsync(cryptoCode, cancellationToken);
         var userId = User.GetId();
         var model = CreatePageModel<SendViewModel>(context, "Pay", LightningManagerNavPages.Send);
-        if (_resultStore.TryGetPayment(resultId, userId, context.StoreId, context.CryptoCode, out var executionResult) ||
+        if (_resultStore.TryGetPayment(
+                resultId,
+                userId,
+                context.StoreId,
+                context.CryptoCode,
+                context.BackendFingerprint,
+                out var executionResult) ||
             (string.IsNullOrWhiteSpace(resultId) &&
-             _resultStore.TryGetPendingPayment(userId, context.StoreId, context.CryptoCode, out executionResult)))
+             _resultStore.TryGetPendingPayment(
+                 userId,
+                 context.StoreId,
+                 context.CryptoCode,
+                 context.BackendFingerprint,
+                 out executionResult)))
         {
             model.Result = executionResult!.Result;
             model.Payment = executionResult.Payment;
@@ -99,6 +110,7 @@ public class LightningManagerController : Controller
                 User.GetId(),
                 context.StoreId,
                 context.CryptoCode,
+                context.BackendFingerprint,
                 preview!.Bolt11,
                 preview.UserAmountSats,
                 preview.MaxFeeSats);
@@ -132,6 +144,7 @@ public class LightningManagerController : Controller
                 userId,
                 context.StoreId,
                 context.CryptoCode,
+                context.BackendFingerprint,
                 bolt11,
                 amountSats,
                 maxFeeSats))
@@ -155,7 +168,12 @@ public class LightningManagerController : Controller
                 cancellationToken);
         }
 
-        var resultId = _resultStore.StorePayment(userId, context.StoreId, context.CryptoCode, result);
+        var resultId = _resultStore.StorePayment(
+            userId,
+            context.StoreId,
+            context.CryptoCode,
+            context.BackendFingerprint,
+            result);
         return RedirectToAction(nameof(Send), new { storeId = context.StoreId, cryptoCode = context.CryptoCode, resultId });
     }
 
@@ -186,9 +204,20 @@ public class LightningManagerController : Controller
         var context = await GetContextAsync(cryptoCode, cancellationToken);
         var userId = User.GetId();
         var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningManagerNavPages.Channels);
-        if (_resultStore.TryGetChannel(resultId, userId, context.StoreId, context.CryptoCode, out var channelResult) ||
+        if (_resultStore.TryGetChannel(
+                resultId,
+                userId,
+                context.StoreId,
+                context.CryptoCode,
+                context.BackendFingerprint,
+                out var channelResult) ||
             (string.IsNullOrWhiteSpace(resultId) &&
-             _resultStore.TryGetPendingChannel(userId, context.StoreId, context.CryptoCode, out channelResult)))
+             _resultStore.TryGetPendingChannel(
+                 userId,
+                 context.StoreId,
+                 context.CryptoCode,
+                 context.BackendFingerprint,
+                 out channelResult)))
         {
             model.Result = channelResult;
         }
@@ -231,6 +260,7 @@ public class LightningManagerController : Controller
                 User.GetId(),
                 context.StoreId,
                 context.CryptoCode,
+                context.BackendFingerprint,
                 nodeUri!,
                 channelAmountSats!,
                 feeRateSatsPerByte);
@@ -265,6 +295,7 @@ public class LightningManagerController : Controller
                 userId,
                 context.StoreId,
                 context.CryptoCode,
+                context.BackendFingerprint,
                 nodeUri,
                 channelAmountSats,
                 feeRateSatsPerByte))
@@ -285,7 +316,12 @@ public class LightningManagerController : Controller
                 cancellationToken);
         }
 
-        var resultId = _resultStore.StoreChannel(userId, context.StoreId, context.CryptoCode, result);
+        var resultId = _resultStore.StoreChannel(
+            userId,
+            context.StoreId,
+            context.CryptoCode,
+            context.BackendFingerprint,
+            result);
         return RedirectToAction(nameof(Channels), new { storeId = context.StoreId, cryptoCode = context.CryptoCode, resultId });
     }
 

@@ -126,7 +126,7 @@ internal sealed class FakeLightningPaymentMethodHandler : IPaymentMethodHandler
 
 internal sealed class FakeStoreLightningManagerContextFactory : IStoreLightningManagerContextFactory
 {
-    public required StoreLightningManagerContext Context { get; init; }
+    public required StoreLightningManagerContext Context { get; set; }
 
     public Task<StoreLightningManagerContext> CreateAsync(
         StoreData store,
@@ -142,16 +142,20 @@ internal static class TestContextFactory
     public static StoreLightningManagerContext CreateConfigured(
         LightningCapabilities capabilities,
         ILightningClient? client = null,
-        string? connectionString = null)
+        string? connectionString = null,
+        string storeId = "store-1")
     {
+        var backendConnectionString = connectionString ?? "type=test;server=http://127.0.0.1/";
         return new StoreLightningManagerContext
         {
-            Store = new StoreData { Id = "store-1", StoreName = "Test Store" },
-            StoreId = "store-1",
+            Store = new StoreData { Id = storeId, StoreName = "Test Store" },
+            StoreId = storeId,
             CryptoCode = "BTC",
             Network = TestNetworkFactory.GetBitcoinNetwork(),
             Client = client ?? new FakeLightningClient(),
             ConnectionString = connectionString,
+            BackendFingerprint = LightningBackendTypes.GetFingerprint(backendConnectionString),
+            BackendIdentityFingerprint = LightningBackendTypes.GetIdentityFingerprint(backendConnectionString),
             Capabilities = capabilities,
             DisplayName = "Test Node"
         };
@@ -165,6 +169,8 @@ internal static class TestContextFactory
             StoreId = "store-1",
             CryptoCode = "BTC",
             Network = TestNetworkFactory.GetBitcoinNetwork(),
+            BackendFingerprint = string.Empty,
+            BackendIdentityFingerprint = string.Empty,
             Capabilities = LightningCapabilities.None,
             ConfigurationError = message
         };
@@ -194,10 +200,11 @@ internal static class TestControllerFactory
         ILightningManagerService lightningManagerService,
         LightningManagerResultStore resultStore,
         LightningManagerChannelConfirmationStore? channelConfirmationStore = null,
-        LightningManagerPaymentConfirmationStore? paymentConfirmationStore = null)
+        LightningManagerPaymentConfirmationStore? paymentConfirmationStore = null,
+        IStoreLightningManagerContextFactory? contextFactory = null)
     {
         var controller = new Controllers.LightningManagerController(
-            new FakeStoreLightningManagerContextFactory { Context = context },
+            contextFactory ?? new FakeStoreLightningManagerContextFactory { Context = context },
             lightningManagerService,
             resultStore,
             channelConfirmationStore ?? new LightningManagerChannelConfirmationStore(

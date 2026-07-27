@@ -25,6 +25,7 @@ public sealed class LightningManagerChannelConfirmationStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         string nodeUri,
         string channelAmountSats,
         string? feeRateSatsPerByte)
@@ -32,6 +33,7 @@ public sealed class LightningManagerChannelConfirmationStore
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
         ArgumentException.ThrowIfNullOrWhiteSpace(storeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(cryptoCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(backendFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeUri);
         ArgumentException.ThrowIfNullOrWhiteSpace(channelAmountSats);
 
@@ -42,6 +44,7 @@ public sealed class LightningManagerChannelConfirmationStore
                 userId,
                 storeId,
                 cryptoCode.Trim().ToUpperInvariant(),
+                backendFingerprint,
                 nodeUri.Trim(),
                 channelAmountSats.Trim(),
                 feeRateSatsPerByte?.Trim() ?? string.Empty),
@@ -54,6 +57,7 @@ public sealed class LightningManagerChannelConfirmationStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         string nodeUri,
         string channelAmountSats,
         string? feeRateSatsPerByte)
@@ -66,6 +70,7 @@ public sealed class LightningManagerChannelConfirmationStore
             !string.Equals(confirmation.UserId, userId, StringComparison.Ordinal) ||
             !string.Equals(confirmation.StoreId, storeId, StringComparison.Ordinal) ||
             !string.Equals(confirmation.CryptoCode, cryptoCode, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(confirmation.BackendFingerprint, backendFingerprint, StringComparison.Ordinal) ||
             !string.Equals(confirmation.NodeUri, nodeUri.Trim(), StringComparison.Ordinal) ||
             !string.Equals(confirmation.ChannelAmountSats, channelAmountSats.Trim(), StringComparison.Ordinal) ||
             !string.Equals(
@@ -85,6 +90,7 @@ public sealed class LightningManagerChannelConfirmationStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         string nodeUri,
         string channelAmountSats,
         string feeRateSatsPerByte)
@@ -94,6 +100,7 @@ public sealed class LightningManagerChannelConfirmationStore
         public string UserId { get; } = userId;
         public string StoreId { get; } = storeId;
         public string CryptoCode { get; } = cryptoCode;
+        public string BackendFingerprint { get; } = backendFingerprint;
         public string NodeUri { get; } = nodeUri;
         public string ChannelAmountSats { get; } = channelAmountSats;
         public string FeeRateSatsPerByte { get; } = feeRateSatsPerByte;

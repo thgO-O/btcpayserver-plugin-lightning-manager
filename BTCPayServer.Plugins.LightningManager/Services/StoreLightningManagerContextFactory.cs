@@ -19,11 +19,17 @@ public class StoreLightningManagerContext
     public BTCPayNetwork? Network { get; init; }
     public ILightningClient? Client { get; init; }
     public string? ConnectionString { get; init; }
+    public required string BackendFingerprint { get; init; }
+    public required string BackendIdentityFingerprint { get; init; }
     public required LightningCapabilities Capabilities { get; init; }
     public string? DisplayName { get; init; }
     public string? NodeHost { get; init; }
     public string? ConfigurationError { get; init; }
-    public bool IsConfigured => Client is not null && string.IsNullOrEmpty(ConfigurationError);
+    public bool IsConfigured =>
+        Client is not null &&
+        !string.IsNullOrEmpty(BackendFingerprint) &&
+        !string.IsNullOrEmpty(BackendIdentityFingerprint) &&
+        string.IsNullOrEmpty(ConfigurationError);
 }
 
 public interface IStoreLightningManagerContextFactory
@@ -104,6 +110,8 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
                     Network = network,
                     Client = client,
                     ConnectionString = connectionString,
+                    BackendFingerprint = LightningBackendTypes.GetFingerprint(connectionString),
+                    BackendIdentityFingerprint = LightningBackendTypes.GetIdentityFingerprint(connectionString),
                     Capabilities = capabilities,
                     DisplayName = client.GetDisplayName(connectionString),
                     NodeHost = client.GetServerUri(connectionString)?.Host
@@ -141,6 +149,8 @@ public class StoreLightningManagerContextFactory : IStoreLightningManagerContext
             CryptoCode = cryptoCode,
             Network = network,
             ConnectionString = connectionString,
+            BackendFingerprint = string.Empty,
+            BackendIdentityFingerprint = string.Empty,
             Capabilities = LightningCapabilities.None,
             ConfigurationError = configurationError
         };

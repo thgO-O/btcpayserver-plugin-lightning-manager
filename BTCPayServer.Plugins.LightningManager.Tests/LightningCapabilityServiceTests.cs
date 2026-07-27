@@ -119,6 +119,150 @@ public class LightningCapabilityServiceTests
     }
 
     [Theory]
+    [InlineData(
+        " TYPE=LND-GRPC ; SERVER=https://EXAMPLE.test ; allowinsecure=TRUE;macaroon=AABB",
+        "macaroon=aabb;allowinsecure=true;server=https://example.test/;type=lnd-rest")]
+    [InlineData(
+        "type=clightning;server=/tmp/lightning-rpc",
+        "type=clightning;server=unix:///tmp/lightning-rpc")]
+    public void BackendFingerprint_NormalizesEquivalentConnectionStrings(
+        string firstConnectionString,
+        string secondConnectionString)
+    {
+        var first = LightningBackendTypes.GetFingerprint(firstConnectionString);
+        var second = LightningBackendTypes.GetFingerprint(secondConnectionString);
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void BackendFingerprint_NormalizesEquivalentCertificateThumbprints()
+    {
+        var separated = string.Join(':', Enumerable.Repeat("AA", 32));
+        var compact = string.Concat(Enumerable.Repeat("aa", 32));
+
+        var first = LightningBackendTypes.GetFingerprint(
+            $"type=lnd-rest;server=https://example.test/;certthumbprint={separated}");
+        var second = LightningBackendTypes.GetFingerprint(
+            $"type=lnd-rest;server=https://example.test/;certthumbprint={compact};allowinsecure=false");
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void BackendIdentityFingerprint_IgnoresSelfHostedCredentialsAndDefaults()
+    {
+        const string firstConnectionString =
+            "type=lnd-rest;server=https://node.example/;macaroon=AABB;allowinsecure=false";
+        const string secondConnectionString =
+            "type=lnd-grpc;server=https://node.example;macaroon=CCDD";
+
+        Assert.NotEqual(
+            LightningBackendTypes.GetFingerprint(firstConnectionString),
+            LightningBackendTypes.GetFingerprint(secondConnectionString));
+        Assert.Equal(
+            LightningBackendTypes.GetIdentityFingerprint(firstConnectionString),
+            LightningBackendTypes.GetIdentityFingerprint(secondConnectionString));
+
+        const string firstBasicAuth =
+            "type=lnd-rest;server=https://alice:secret-a@node.example/";
+        const string secondBasicAuth =
+            "type=lnd-rest;server=https://bob:secret-b@node.example/";
+        Assert.NotEqual(
+            LightningBackendTypes.GetFingerprint(firstBasicAuth),
+            LightningBackendTypes.GetFingerprint(secondBasicAuth));
+        Assert.Equal(
+            LightningBackendTypes.GetIdentityFingerprint(firstBasicAuth),
+            LightningBackendTypes.GetIdentityFingerprint(secondBasicAuth));
+    }
+
+    [Fact]
+    public void BackendIdentityFingerprint_DistinguishesSelfHostedEndpoints()
+    {
+        var first = LightningBackendTypes.GetIdentityFingerprint(
+            "type=lnd-rest;server=https://node-a.example/;macaroon=AABB");
+        var second = LightningBackendTypes.GetIdentityFingerprint(
+            "type=lnd-rest;server=https://node-b.example/;macaroon=AABB");
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void BackendIdentityFingerprint_NormalizesClnTcpSocket()
+    {
+        const string firstConnectionString =
+            "type=clightning;server=tcp://node.example:9735/";
+        const string secondConnectionString =
+            "type=clightning;server=tcp://alice@NODE.example:9735/ignored?token=test#fragment";
+
+        Assert.NotEqual(
+            LightningBackendTypes.GetFingerprint(firstConnectionString),
+            LightningBackendTypes.GetFingerprint(secondConnectionString));
+        Assert.Equal(
+            LightningBackendTypes.GetIdentityFingerprint(firstConnectionString),
+            LightningBackendTypes.GetIdentityFingerprint(secondConnectionString));
+    }
+
+    [Theory]
+    [InlineData(
+        "type=lnd-rest;server=https://node.example/proxy;macaroon=AABB",
+        "type=lnd-grpc;server=https://node.example/proxy/;macaroon=CCDD")]
+    [InlineData(
+        "type=eclair;server=https://node.example/proxy/one?token=a#fragment;password=a",
+        "type=eclair;server=https://node.example/proxy/two?token=b;password=b")]
+    [InlineData(
+        "type=phoenixd;server=https://node.example/proxy/one?token=a#fragment;password=a",
+        "type=phoenixd;server=https://node.example/proxy/two?token=b;password=b")]
+    public void BackendIdentityFingerprint_NormalizesEffectiveHttpBase(
+        string firstConnectionString,
+        string secondConnectionString)
+    {
+        Assert.NotEqual(
+            LightningBackendTypes.GetFingerprint(firstConnectionString),
+            LightningBackendTypes.GetFingerprint(secondConnectionString));
+        Assert.Equal(
+            LightningBackendTypes.GetIdentityFingerprint(firstConnectionString),
+            LightningBackendTypes.GetIdentityFingerprint(secondConnectionString));
+    }
+
+    [Theory]
+    [InlineData(
+        "type=lnd-rest;server=https://node.example/proxy-a;macaroon=AABB",
+        "type=lnd-rest;server=https://node.example/proxy-b;macaroon=AABB")]
+    [InlineData(
+        "type=eclair;server=https://node.example/proxy-a/;password=a",
+        "type=eclair;server=https://node.example/proxy-b/;password=a")]
+    [InlineData(
+        "type=phoenixd;server=https://node.example/proxy-a/;password=a",
+        "type=phoenixd;server=https://node.example/proxy-b/;password=a")]
+    public void BackendIdentityFingerprint_PreservesSignificantHttpPath(
+        string firstConnectionString,
+        string secondConnectionString)
+    {
+        Assert.NotEqual(
+            LightningBackendTypes.GetIdentityFingerprint(firstConnectionString),
+            LightningBackendTypes.GetIdentityFingerprint(secondConnectionString));
+    }
+
+    [Fact]
+    public void BackendFingerprint_ChangesWithBackendConfigurationWithoutExposingIt()
+    {
+        const string connectionString =
+            "type=blink;server=https://api.example.test/graphql;api-key=secret-a;currency=BTC";
+        var first = LightningBackendTypes.GetFingerprint(connectionString);
+        var second = LightningBackendTypes.GetFingerprint(
+            "type=blink;server=https://api.example.test/graphql;api-key=secret-b;currency=BTC");
+
+        Assert.NotEqual(first, second);
+        Assert.NotEqual(
+            LightningBackendTypes.GetIdentityFingerprint(connectionString),
+            LightningBackendTypes.GetIdentityFingerprint(
+                "type=blink;server=https://api.example.test/graphql;api-key=secret-b;currency=BTC"));
+        Assert.DoesNotContain("api.example.test", first, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secret-a", first, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("type=deprecated;server=https://example.com/")]
     [InlineData("type=breez;server=https://example.com/")]
     [InlineData("type=charge;server=https://example.com/")]

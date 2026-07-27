@@ -26,6 +26,7 @@ public sealed class LightningManagerPaymentConfirmationStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         string bolt11,
         long? amountSats,
         long? maxFeeSats)
@@ -33,6 +34,7 @@ public sealed class LightningManagerPaymentConfirmationStore
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
         ArgumentException.ThrowIfNullOrWhiteSpace(storeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(cryptoCode);
+        ArgumentException.ThrowIfNullOrWhiteSpace(backendFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(bolt11);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amountSats ?? 1);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxFeeSats ?? 1);
@@ -44,6 +46,7 @@ public sealed class LightningManagerPaymentConfirmationStore
                 userId,
                 storeId,
                 cryptoCode.Trim().ToUpperInvariant(),
+                backendFingerprint,
                 NormalizeBolt11(bolt11),
                 amountSats,
                 maxFeeSats),
@@ -59,6 +62,7 @@ public sealed class LightningManagerPaymentConfirmationStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         string? bolt11,
         string? amountSats,
         string? maxFeeSats)
@@ -70,6 +74,7 @@ public sealed class LightningManagerPaymentConfirmationStore
             !string.Equals(confirmation.UserId, userId, StringComparison.Ordinal) ||
             !string.Equals(confirmation.StoreId, storeId, StringComparison.Ordinal) ||
             !string.Equals(confirmation.CryptoCode, cryptoCode, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(confirmation.BackendFingerprint, backendFingerprint, StringComparison.Ordinal) ||
             !string.Equals(confirmation.Bolt11, NormalizeBolt11(bolt11), StringComparison.Ordinal) ||
             !MatchesOptionalValue(confirmation.AmountSats, amountSats) ||
             !MatchesOptionalValue(confirmation.MaxFeeSats, maxFeeSats) ||
@@ -107,6 +112,7 @@ public sealed class LightningManagerPaymentConfirmationStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         string bolt11,
         long? amountSats,
         long? maxFeeSats)
@@ -116,6 +122,7 @@ public sealed class LightningManagerPaymentConfirmationStore
         public string UserId { get; } = userId;
         public string StoreId { get; } = storeId;
         public string CryptoCode { get; } = cryptoCode;
+        public string BackendFingerprint { get; } = backendFingerprint;
         public string Bolt11 { get; } = bolt11;
         public long? AmountSats { get; } = amountSats;
         public long? MaxFeeSats { get; } = maxFeeSats;

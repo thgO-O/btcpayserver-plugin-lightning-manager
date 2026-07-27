@@ -348,7 +348,7 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task SendAsync_WithSamePaymentInFlight_DispatchesOnlyOnce()
+    public async Task SendAsync_WithSharedBackendAcrossStores_DispatchesOnlyOnce()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -357,20 +357,45 @@ public class LightningManagerServiceTests
         {
             PayBolt11WithParamsHandler = async (_, _, _) =>
             {
-                Interlocked.Increment(ref calls);
-                entered.TrySetResult();
-                await release.Task;
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    entered.TrySetResult();
+                    await release.Task;
+                }
                 return new PayResponse(PayResult.Ok);
             }
         };
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var firstStoreContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            client,
+            "type=lnd-rest;server=https://shared-node.example/proxy;macaroon=AABB;allowinsecure=false",
+            storeId: "store-1");
+        var secondStoreContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            client,
+            "type=lnd-grpc;server=https://shared-node.example/proxy/;macaroon=CCDD",
+            storeId: "store-2");
         var service = new BypassingValidationLightningManagerService();
+        Assert.NotEqual(
+            firstStoreContext.BackendFingerprint,
+            secondStoreContext.BackendFingerprint);
+        Assert.Equal(
+            firstStoreContext.BackendIdentityFingerprint,
+            secondStoreContext.BackendIdentityFingerprint);
 
-        var first = service.SendAsync(context, "lnbcrt1test", null, null);
+        var first = service.SendAsync(firstStoreContext, "lnbcrt1test", null, null);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var duplicate = await service.SendAsync(context, "lnbcrt1test", null, null);
-        release.TrySetResult();
-        var original = await first;
+        SendExecutionResult duplicate;
+        try
+        {
+            duplicate = await service.SendAsync(secondStoreContext, "lnbcrt1test", null, null)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        var original = await first.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(original.Result.IsSuccess);
         Assert.False(duplicate.Result.IsSuccess);
@@ -1222,7 +1247,7 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task OpenChannelAsync_WithSamePeerInFlight_DispatchesOnlyOnce()
+    public async Task OpenChannelAsync_WithSharedBackendAcrossStores_DispatchesOnlyOnce()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1231,22 +1256,47 @@ public class LightningManagerServiceTests
         {
             OpenChannelHandler = async (_, _) =>
             {
-                Interlocked.Increment(ref calls);
-                entered.TrySetResult();
-                await release.Task;
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    entered.TrySetResult();
+                    await release.Task;
+                }
                 return new OpenChannelResponse(OpenChannelResult.Ok);
             }
         };
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var firstStoreContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            client,
+            "type=eclair;server=https://shared-node.example/proxy/one?token=a;password=first",
+            storeId: "store-1");
+        var secondStoreContext = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Full,
+            client,
+            "type=eclair;server=https://shared-node.example/proxy/two#fragment;password=second",
+            storeId: "store-2");
         var service = new LightningManagerService();
+        Assert.NotEqual(
+            firstStoreContext.BackendFingerprint,
+            secondStoreContext.BackendFingerprint);
+        Assert.Equal(
+            firstStoreContext.BackendIdentityFingerprint,
+            secondStoreContext.BackendIdentityFingerprint);
         const string nodeUri =
             "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735";
 
-        var first = service.OpenChannelAsync(context, nodeUri, "100000", null);
+        var first = service.OpenChannelAsync(firstStoreContext, nodeUri, "100000", null);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var duplicate = await service.OpenChannelAsync(context, nodeUri, "100000", null);
-        release.TrySetResult();
-        var original = await first;
+        ActionResultViewModel duplicate;
+        try
+        {
+            duplicate = await service.OpenChannelAsync(secondStoreContext, nodeUri, "100000", null)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        var original = await first.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.True(original.IsSuccess);
         Assert.False(duplicate.IsSuccess);

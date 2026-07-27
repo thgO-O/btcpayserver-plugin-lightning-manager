@@ -16,9 +16,14 @@ public sealed class LightningManagerResultStore
         _memoryCache = memoryCache;
     }
 
-    public string StorePayment(string userId, string storeId, string cryptoCode, SendExecutionResult result)
+    public string StorePayment(
+        string userId,
+        string storeId,
+        string cryptoCode,
+        string backendFingerprint,
+        SendExecutionResult result)
     {
-        return Store(ResultScope.Payment, userId, storeId, cryptoCode, result);
+        return Store(ResultScope.Payment, userId, storeId, cryptoCode, backendFingerprint, result);
     }
 
     public bool TryGetPayment(
@@ -26,23 +31,43 @@ public sealed class LightningManagerResultStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         out SendExecutionResult? result)
     {
-        return TryGet(ResultScope.Payment, resultId, userId, storeId, cryptoCode, out result);
+        return TryGet(
+            ResultScope.Payment,
+            resultId,
+            userId,
+            storeId,
+            cryptoCode,
+            backendFingerprint,
+            out result);
     }
 
     public bool TryGetPendingPayment(
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         out SendExecutionResult? result)
     {
-        return TryGetPending(ResultScope.Payment, userId, storeId, cryptoCode, out result);
+        return TryGetPending(
+            ResultScope.Payment,
+            userId,
+            storeId,
+            cryptoCode,
+            backendFingerprint,
+            out result);
     }
 
-    public string StoreChannel(string userId, string storeId, string cryptoCode, ActionResultViewModel result)
+    public string StoreChannel(
+        string userId,
+        string storeId,
+        string cryptoCode,
+        string backendFingerprint,
+        ActionResultViewModel result)
     {
-        return Store(ResultScope.Channel, userId, storeId, cryptoCode, result);
+        return Store(ResultScope.Channel, userId, storeId, cryptoCode, backendFingerprint, result);
     }
 
     public bool TryGetChannel(
@@ -50,30 +75,64 @@ public sealed class LightningManagerResultStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         out ActionResultViewModel? result)
     {
-        return TryGet(ResultScope.Channel, resultId, userId, storeId, cryptoCode, out result);
+        return TryGet(
+            ResultScope.Channel,
+            resultId,
+            userId,
+            storeId,
+            cryptoCode,
+            backendFingerprint,
+            out result);
     }
 
     public bool TryGetPendingChannel(
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         out ActionResultViewModel? result)
     {
-        return TryGetPending(ResultScope.Channel, userId, storeId, cryptoCode, out result);
+        return TryGetPending(
+            ResultScope.Channel,
+            userId,
+            storeId,
+            cryptoCode,
+            backendFingerprint,
+            out result);
     }
 
-    private string Store<T>(ResultScope scope, string userId, string storeId, string cryptoCode, T result)
+    private string Store<T>(
+        ResultScope scope,
+        string userId,
+        string storeId,
+        string cryptoCode,
+        string backendFingerprint,
+        T result)
         where T : class
     {
         var resultId = Guid.NewGuid().ToString("N");
         var normalizedCryptoCode = NormalizeCryptoCode(cryptoCode);
         _memoryCache.Set(
             CacheKeyPrefix + resultId,
-            new ScopedResult(scope, userId, storeId, normalizedCryptoCode, result),
+            new ScopedResult(
+                scope,
+                userId,
+                storeId,
+                normalizedCryptoCode,
+                backendFingerprint,
+                result),
             ResultLifetime);
-        AddPendingResult(new PendingResultKey(scope, userId, storeId, normalizedCryptoCode), resultId);
+        AddPendingResult(
+            new PendingResultKey(
+                scope,
+                userId,
+                storeId,
+                normalizedCryptoCode,
+                backendFingerprint),
+            resultId);
         return resultId;
     }
 
@@ -83,6 +142,7 @@ public sealed class LightningManagerResultStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         out T? result)
         where T : class
     {
@@ -99,13 +159,19 @@ public sealed class LightningManagerResultStore
             !string.Equals(cached.UserId, userId, StringComparison.Ordinal) ||
             !string.Equals(cached.StoreId, storeId, StringComparison.Ordinal) ||
             !string.Equals(cached.CryptoCode, cryptoCode, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(cached.BackendFingerprint, backendFingerprint, StringComparison.Ordinal) ||
             cached.Result is not T typedResult)
         {
             return false;
         }
 
         RemovePendingResult(
-            new PendingResultKey(scope, userId, storeId, NormalizeCryptoCode(cryptoCode)),
+            new PendingResultKey(
+                scope,
+                userId,
+                storeId,
+                NormalizeCryptoCode(cryptoCode),
+                backendFingerprint),
             resultId);
         result = typedResult;
         return true;
@@ -116,14 +182,27 @@ public sealed class LightningManagerResultStore
         string userId,
         string storeId,
         string cryptoCode,
+        string backendFingerprint,
         out T? result)
         where T : class
     {
         result = null;
-        var pendingKey = new PendingResultKey(scope, userId, storeId, NormalizeCryptoCode(cryptoCode));
+        var pendingKey = new PendingResultKey(
+            scope,
+            userId,
+            storeId,
+            NormalizeCryptoCode(cryptoCode),
+            backendFingerprint);
         while (TryTakePendingResult(pendingKey, out var resultId))
         {
-            if (TryGet(scope, resultId, userId, storeId, cryptoCode, out result))
+            if (TryGet(
+                    scope,
+                    resultId,
+                    userId,
+                    storeId,
+                    cryptoCode,
+                    backendFingerprint,
+                    out result))
             {
                 return true;
             }
@@ -219,11 +298,13 @@ public sealed class LightningManagerResultStore
         ResultScope Scope,
         string UserId,
         string StoreId,
-        string CryptoCode);
+        string CryptoCode,
+        string BackendFingerprint);
     private sealed record ScopedResult(
         ResultScope Scope,
         string UserId,
         string StoreId,
         string CryptoCode,
+        string BackendFingerprint,
         object Result);
 }

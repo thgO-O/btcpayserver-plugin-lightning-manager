@@ -44,6 +44,12 @@ public class StoreLightningManagerContextFactoryTests
         Assert.NotNull(context.Client);
         Assert.Equal("BTC", context.CryptoCode);
         Assert.Equal(config.ConnectionString, context.ConnectionString);
+        Assert.Equal(
+            LightningBackendTypes.GetFingerprint(config.ConnectionString),
+            context.BackendFingerprint);
+        Assert.Equal(
+            LightningBackendTypes.GetIdentityFingerprint(config.ConnectionString),
+            context.BackendIdentityFingerprint);
         Assert.Same(LightningCapabilities.Full, context.Capabilities);
         Assert.Null(context.ConfigurationError);
     }
@@ -74,6 +80,8 @@ public class StoreLightningManagerContextFactoryTests
         Assert.False(context.IsConfigured);
         Assert.Null(context.Client);
         Assert.Null(context.ConnectionString);
+        Assert.Empty(context.BackendFingerprint);
+        Assert.Empty(context.BackendIdentityFingerprint);
         Assert.Same(LightningCapabilities.None, context.Capabilities);
         Assert.Equal("Lightning Manager supports external BTC Lightning backends only.", context.ConfigurationError);
     }
