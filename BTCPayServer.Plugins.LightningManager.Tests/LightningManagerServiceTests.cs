@@ -667,6 +667,244 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenBlinkResponseConfirmsFailureAndLookupIsEmpty_ReturnsFailed()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Error, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Failed,
+                    PaymentHash = uint256.One
+                }))
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Lightning payment failed.", result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Failed, result.Payment!.Status);
+        Assert.Equal(uint256.One.ToString(), result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenResponseIsUnknown_DoesNotTrustFailedDetails()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Unknown, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Failed,
+                    PaymentHash = uint256.One
+                }))
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal(
+            "Payment status is unknown. Check the Lightning node before retrying.",
+            result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Unknown, result.Payment!.Status);
+        Assert.Equal(uint256.One.ToString(), result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenLookupIsPending_DoesNotTrustConflictingFailedResponse()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Error, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Failed,
+                    PaymentHash = uint256.One
+                })),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Pending,
+                PaymentHash = "test-hash"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal(
+            "Payment status is unknown. Check the Lightning node before retrying.",
+            result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Pending, result.Payment!.Status);
+        Assert.Equal("test-hash", result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenBlinkLookupReturnsOlderFailureAndCurrentResponseIsUnknown_ReturnsUnknown()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Unknown)),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Failed,
+                PaymentHash = "older-failed-attempt"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal(
+            "Payment status is unknown. Check the Lightning node before retrying.",
+            result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Unknown, result.Payment!.Status);
+        Assert.Equal("older-failed-attempt", result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenBlinkCurrentResponseIsPendingAndLookupReturnsOlderFailure_PreservesPending()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Unknown, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Pending,
+                    PaymentHash = uint256.One
+                })),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Failed,
+                PaymentHash = "older-failed-attempt"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal(
+            "Payment status is unknown. Check the Lightning node before retrying.",
+            result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Pending, result.Payment!.Status);
+        Assert.Equal("older-failed-attempt", result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenBlinkResponseIsPendingAndLookupIsUnavailable_PreservesPendingDetails()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Unknown, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Pending,
+                    PaymentHash = uint256.One
+                }))
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal(
+            "Payment status is unknown. Check the Lightning node before retrying.",
+            result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Pending, result.Payment!.Status);
+        Assert.Equal(uint256.One.ToString(), result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenBlinkResponseAndLookupConfirmFailure_ReturnsFailed()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Error, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Failed,
+                    PaymentHash = uint256.One
+                })),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Failed,
+                PaymentHash = "failed-attempt"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("Lightning payment failed.", result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Failed, result.Payment!.Status);
+        Assert.Equal("failed-attempt", result.Payment.PaymentHash);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenBlinkResponseClaimsFailureButLookupIsComplete_ReturnsSuccess()
+    {
+        var service = new BypassingValidationLightningManagerService();
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Error, new PayDetails
+                {
+                    Status = LightningPaymentStatus.Failed,
+                    PaymentHash = uint256.One
+                })),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment
+            {
+                Status = LightningPaymentStatus.Complete,
+                PaymentHash = "completed-attempt"
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.BlinkPayOnly,
+            client,
+            connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
+
+        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal("Payment sent successfully.", result.Result.Message);
+        Assert.Equal(LightningPaymentStatus.Complete, result.Payment!.Status);
+        Assert.Equal("completed-attempt", result.Payment.PaymentHash);
+    }
+
+    [Fact]
     public async Task SendAsync_WhenEclairReturnsOlderFailedAttempt_ReturnsUnknown()
     {
         var service = new BypassingValidationLightningManagerService();

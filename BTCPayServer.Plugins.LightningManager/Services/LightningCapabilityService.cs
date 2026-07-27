@@ -40,6 +40,12 @@ public class LightningCapabilityService : ILightningCapabilityService
 
         if (type.Equals(LightningBackendTypes.Blink, StringComparison.OrdinalIgnoreCase))
         {
+            var apiKey = LightningBackendTypes.TryGetValue(connectionString, "api-key");
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                return LightningCapabilities.None;
+            }
+
             var currency = LightningBackendTypes.TryGetValue(connectionString, "currency");
             if (currency is null || currency.Equals("USD", StringComparison.OrdinalIgnoreCase))
             {

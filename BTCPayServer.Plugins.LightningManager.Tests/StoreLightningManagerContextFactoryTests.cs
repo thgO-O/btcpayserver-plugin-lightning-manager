@@ -92,8 +92,8 @@ public class StoreLightningManagerContextFactoryTests
     [InlineData("type=clightning;server=tcp://127.0.0.1:30993/")]
     [InlineData("type=eclair;server=https://example.test;password=test")]
     [InlineData("type=phoenixd;server=https://example.test;password=test")]
-    [InlineData("type=blink;server=https://api.example.test/graphql")]
-    [InlineData("type=blink;currency=USD;server=https://api.example.test/graphql")]
+    [InlineData("type=blink;server=https://api.example.test/graphql;api-key=test")]
+    [InlineData("type=blink;currency=USD;server=https://api.example.test/graphql;api-key=test")]
     public async Task CreateAsync_WithSupportedBackendButMissingHandler_ReturnsUnavailable(string connectionString)
     {
         var handler = new FakeLightningPaymentMethodHandler();
@@ -123,6 +123,43 @@ public class StoreLightningManagerContextFactoryTests
         Assert.Equal(config.ConnectionString, context.ConnectionString);
         Assert.Same(LightningCapabilities.None, context.Capabilities);
         Assert.Equal("Lightning backend unavailable.", context.ConfigurationError);
+    }
+
+    [Theory]
+    [InlineData("type=blink;ln-address=user@blink.sv")]
+    [InlineData("type=blink;username=user@blink.sv;currency=USD")]
+    public async Task CreateAsync_WithBlinkReceiveOnly_ReturnsUnsupportedManagerContext(
+        string connectionString)
+    {
+        var handler = new FakeLightningPaymentMethodHandler();
+        var handlers = new PaymentMethodHandlerDictionary([handler]);
+        var config = new LightningPaymentMethodConfig
+        {
+            ConnectionString = connectionString
+        };
+        var store = new StoreData { Id = "store-1" };
+        store.SetPaymentMethodConfig(handler, config);
+        var factory = new StoreLightningManagerContextFactory(
+            new BTCPayNetworkProvider(
+                [TestNetworkFactory.GetBitcoinNetwork()],
+                new NBXplorerNetworkProvider(ChainName.Regtest),
+                new Logs()),
+            handlers,
+            new LightningClientFactoryService(
+                new FakeHttpClientFactory(),
+                [],
+                []),
+            new LightningCapabilityService());
+
+        var context = await factory.CreateAsync(store, "BTC");
+
+        Assert.False(context.IsConfigured);
+        Assert.Null(context.Client);
+        Assert.Equal(connectionString, context.ConnectionString);
+        Assert.Same(LightningCapabilities.None, context.Capabilities);
+        Assert.Equal(
+            "Lightning backend is not supported by Lightning Manager.",
+            context.ConfigurationError);
     }
 
     [Fact]

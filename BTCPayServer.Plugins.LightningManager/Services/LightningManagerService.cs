@@ -358,7 +358,11 @@ public class LightningManagerService : ILightningManagerService
             var details = CreatePaymentDetails(preview.PaymentHash, knownPayment, payResponse);
             if (payResponse.Result != PayResult.Ok)
             {
-                var knownResult = ResolveKnownPaymentResult(context, preview.PaymentHash, knownPayment);
+                var knownResult = ResolveKnownPaymentResult(
+                    context,
+                    preview.PaymentHash,
+                    knownPayment,
+                    payResponse);
                 if (knownResult is not null)
                 {
                     return CompleteSend(
@@ -396,6 +400,11 @@ public class LightningManagerService : ILightningManagerService
                         IsSuccess = false,
                         Message = "No route to the invoice destination was found."
                     }
+                },
+                PayResult.Error when details.Status == LightningPaymentStatus.Failed => new SendExecutionResult
+                {
+                    Result = Failure("Lightning payment failed."),
+                    Payment = details
                 },
                 PayResult.Error => new SendExecutionResult
                 {
@@ -915,9 +924,20 @@ public class LightningManagerService : ILightningManagerService
         var feeAmount = payment?.Fee ?? responseDetails?.FeeAmount;
         return new SendResultDetailsViewModel
         {
-            Status = statusOverride ?? (response?.Result == PayResult.Ok
-                ? LightningPaymentStatus.Complete
-                : payment?.Status ?? LightningPaymentStatus.Unknown),
+            Status = statusOverride ??
+                     (response?.Result == PayResult.Ok
+                         ? LightningPaymentStatus.Complete
+                         : payment?.Status ??
+                           response?.Result switch
+                           {
+                               PayResult.Error
+                                   when responseDetails?.Status == LightningPaymentStatus.Failed =>
+                                   LightningPaymentStatus.Failed,
+                               PayResult.Unknown
+                                   when responseDetails?.Status == LightningPaymentStatus.Pending =>
+                                   LightningPaymentStatus.Pending,
+                               _ => LightningPaymentStatus.Unknown
+                           }),
             TotalAmountDisplay = totalAmount is null ? null : FormatLightMoney(totalAmount),
             FeeAmountDisplay = feeAmount is null ? null : FormatLightMoney(feeAmount),
             PaymentHash = payment?.PaymentHash ?? responseDetails?.PaymentHash?.ToString() ?? paymentHash,
@@ -928,18 +948,31 @@ public class LightningManagerService : ILightningManagerService
     private static SendExecutionResult? ResolveKnownPaymentResult(
         StoreLightningManagerContext context,
         string paymentHash,
-        LightningPayment? payment)
+        LightningPayment? payment,
+        PayResponse? response = null)
     {
+        var isBlink = LightningBackendTypes.Is(
+            context.ConnectionString,
+            LightningBackendTypes.Blink);
         if (payment?.Status == LightningPaymentStatus.Failed &&
-            LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Eclair))
+            (LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Eclair) ||
+             (isBlink &&
+              (response?.Result != PayResult.Error ||
+               response.Details?.Status != LightningPaymentStatus.Failed))))
         {
+            var reconciledStatus =
+                isBlink &&
+                response?.Result == PayResult.Unknown &&
+                response.Details?.Status == LightningPaymentStatus.Pending
+                    ? LightningPaymentStatus.Pending
+                    : LightningPaymentStatus.Unknown;
             return new SendExecutionResult
             {
                 Result = Failure(UnknownPaymentStatusMessage),
                 Payment = CreatePaymentDetails(
                     paymentHash,
                     payment,
-                    statusOverride: LightningPaymentStatus.Unknown)
+                    statusOverride: reconciledStatus)
             };
         }
 

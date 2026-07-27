@@ -65,6 +65,7 @@ public class LightningCapabilityServiceTests
     [Theory]
     [InlineData("type=blink;server=https://api.blink.sv/graphql;api-key=test")]
     [InlineData("CURRENCY=usd;type=blink;server=https://api.blink.sv/graphql;api-key=test")]
+    [InlineData("type=blink;ln-address=user@blink.sv;api-key=test")]
     public void BlinkWithoutCurrencyOrUsd_HasPayOnlyWithoutMaxFee(string connectionString)
     {
         var capabilities = _service.GetCapabilities(connectionString);
@@ -78,6 +79,19 @@ public class LightningCapabilityServiceTests
         Assert.False(capabilities.CanConnectPeer);
         Assert.False(capabilities.CanOpenChannel);
         Assert.False(capabilities.CanListChannels);
+    }
+
+    [Theory]
+    [InlineData("type=blink;ln-address=user@blink.sv")]
+    [InlineData("TYPE=BLINK;USERNAME=user")]
+    [InlineData("type=blink;ln-address=user@blink.sv;currency=BTC")]
+    [InlineData("type=blink;username=user@blink.sv;currency=USD")]
+    public void BlinkReceiveOnly_ReturnsNoCapabilities(string connectionString)
+    {
+        var capabilities = _service.GetCapabilities(connectionString);
+
+        Assert.Same(LightningCapabilities.None, capabilities);
+        Assert.False(capabilities.HasAny);
     }
 
     [Fact]
