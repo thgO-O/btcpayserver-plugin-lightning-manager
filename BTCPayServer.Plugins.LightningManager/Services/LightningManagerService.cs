@@ -44,8 +44,10 @@ public class LightningManagerService : ILightningManagerService
     private const decimal DefaultChannelOpenFeeRate = 1.0m;
     private const long MinimumLndChannelAmountSats = 20_000;
     private const long MaximumChannelOpenFeeRate = int.MaxValue;
+    private const string PhoenixdAdapterAssemblyName = "BTCPayServer.Lightning.Phoenixd";
     private const string UnknownPaymentStatusMessage =
         "Payment status is unknown. Check the Lightning node before retrying.";
+    private static readonly Version AffectedPhoenixdAdapterVersion = new(1, 7, 1, 0);
     private static readonly TimeSpan PaymentLookupTimeout = TimeSpan.FromSeconds(5);
     private readonly ILogger<LightningManagerService> _logger;
     private readonly LightningManagerOperationGuard _operationGuard;
@@ -96,6 +98,17 @@ public class LightningManagerService : ILightningManagerService
                 model.ActiveChannelsCount = info.ActiveChannelsCount;
                 model.InactiveChannelsCount = info.InactiveChannelsCount;
                 model.PendingChannelsCount = info.PendingChannelsCount;
+                if (LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Phoenixd) &&
+                    IsAffectedPhoenixdAdapter(context.Client) &&
+                    model.InactiveChannelsCount is not null &&
+                    model.PendingChannelsCount > 0 &&
+                    model.InactiveChannelsCount == model.PendingChannelsCount)
+                {
+                    // Phoenixd 1.7.1 reports every non-normal channel in both buckets.
+                    // Neither classification is reliable, so do not present either bucket.
+                    model.InactiveChannelsCount = null;
+                    model.PendingChannelsCount = null;
+                }
                 foreach (var nodeInfo in info.NodeInfoList)
                 {
                     model.NodeUris.Add(nodeInfo.ToString());
@@ -191,6 +204,21 @@ public class LightningManagerService : ILightningManagerService
         AddSummaryRow(model.SummaryRows, "Active channels", model.ActiveChannelsCount?.ToString());
         AddSummaryRow(model.SummaryRows, "Inactive channels", model.InactiveChannelsCount?.ToString());
         AddSummaryRow(model.SummaryRows, "Pending channels", model.PendingChannelsCount?.ToString());
+    }
+
+    internal static bool IsAffectedPhoenixdAdapter(ILightningClient? client)
+    {
+        var assemblyName = client?.GetType().Assembly.GetName();
+        return IsAffectedPhoenixdAdapter(assemblyName?.Name, assemblyName?.Version);
+    }
+
+    internal static bool IsAffectedPhoenixdAdapter(string? assemblyName, Version? version)
+    {
+        return string.Equals(
+                   assemblyName,
+                   PhoenixdAdapterAssemblyName,
+                   StringComparison.Ordinal) &&
+               version == AffectedPhoenixdAdapterVersion;
     }
 
     public virtual bool TryCreateSendPreview(

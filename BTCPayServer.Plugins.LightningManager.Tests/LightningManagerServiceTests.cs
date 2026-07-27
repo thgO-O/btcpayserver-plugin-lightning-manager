@@ -1,5 +1,8 @@
 using System.Globalization;
+using System.Net;
+using System.Text;
 using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.Phoenixd;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.Extensions.Logging;
@@ -1144,6 +1147,108 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
+    public async Task PopulateOverviewAsync_WithPhoenixdOverlap_OmitsAmbiguousCounts()
+    {
+        using var httpClient = new HttpClient(new StaticJsonHttpMessageHandler(
+            """
+            {
+              "chain": "regtest",
+              "blockHeight": 100,
+              "version": "v0.6.1",
+              "channels": [
+                { "state": "Normal" },
+                { "state": "Normal" },
+                { "state": "Offline" },
+                { "state": "Closing" },
+                { "state": "Syncing" }
+              ]
+            }
+            """));
+        var client = new PhoenixdLightningClient(
+            new Uri("https://example.test/"),
+            "test",
+            Network.RegTest,
+            httpClient);
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Phoenixd,
+            client,
+            connectionString: "type=phoenixd;server=https://example.test/;password=test");
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(2, model.ActiveChannelsCount);
+        Assert.Null(model.InactiveChannelsCount);
+        Assert.Null(model.PendingChannelsCount);
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "2");
+        Assert.DoesNotContain(model.SummaryRows, row => row.Label == "Inactive channels");
+        Assert.DoesNotContain(model.SummaryRows, row => row.Label == "Pending channels");
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WithEqualCountsFromUnaffectedAdapter_PreservesBothCounts()
+    {
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
+            {
+                InactiveChannelsCount = 3,
+                PendingChannelsCount = 3
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Phoenixd,
+            client,
+            connectionString: "type=phoenixd;server=https://example.test/;password=test");
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(3, model.InactiveChannelsCount);
+        Assert.Equal(3, model.PendingChannelsCount);
+    }
+
+    [Theory]
+    [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.1.0", true)]
+    [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.0.0", false)]
+    [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.2.0", false)]
+    [InlineData("Another.Adapter", "1.7.1.0", false)]
+    public void IsAffectedPhoenixdAdapter_MatchesOnlyAffectedAssemblyVersion(
+        string assemblyName,
+        string version,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            LightningManagerService.IsAffectedPhoenixdAdapter(
+                assemblyName,
+                Version.Parse(version)));
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WithNoPhoenixdChannels_PreservesZeroCounts()
+    {
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
+            {
+                InactiveChannelsCount = 0,
+                PendingChannelsCount = 0
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Phoenixd,
+            client,
+            connectionString: "type=phoenixd;server=https://example.test/;password=test");
+        var model = new ViewModels.OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(0, model.InactiveChannelsCount);
+        Assert.Equal(0, model.PendingChannelsCount);
+    }
+
+    [Fact]
     public async Task PopulateOverviewAsync_WhenChannelListingOmitsPending_PreservesGetInfoPendingCount()
     {
         var client = new FakeLightningClient
@@ -1615,6 +1720,20 @@ public class LightningManagerServiceTests
             Func<TState, Exception?, string> formatter)
         {
             Entries.Add(formatter(state, exception));
+        }
+    }
+
+    private sealed class StaticJsonHttpMessageHandler(string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                RequestMessage = request
+            });
         }
     }
 }
