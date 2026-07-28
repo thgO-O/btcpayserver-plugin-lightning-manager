@@ -104,5 +104,11 @@ if ! grep -Fq "Running plugin $plugin_identifier - 0.1.0.0" "$log_file"; then
     exit 1
 fi
 
-curl --fail --silent --show-error "$listening_url/" >/dev/null
+curl \
+    --fail \
+    --silent \
+    --show-error \
+    --connect-timeout 5 \
+    --max-time 15 \
+    "$listening_url/" >/dev/null
 printf 'Package host smoke passed: %s\n' "$listening_url"

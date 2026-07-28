@@ -116,7 +116,75 @@ validate_known_nu1608_warnings \
     "$repo_root/BTCPayServer.Plugins.LightningManager.Tests/obj/project.assets.json"
 dotnet clean "$plugin_project" -c Release --nologo -v:q -p:BuildProjectReferences=false -m:1 -nr:false
 dotnet build "$plugin_project" -c Release --no-restore -p:TreatWarningsAsErrors=true --nologo -m:1 -nr:false
-dotnet test "$tests_project" -c Release --no-restore -p:TreatWarningsAsErrors=true --nologo -m:1 -nr:false
+test_results_dir="$(mktemp -d "${TMPDIR:-/tmp}/lightning-manager-test-results.XXXXXX")"
+trap 'rm -rf "$test_results_dir"' EXIT
+dotnet test "$tests_project" \
+    -c Release \
+    --no-restore \
+    -p:TreatWarningsAsErrors=true \
+    --nologo \
+    -m:1 \
+    -nr:false \
+    --results-directory "$test_results_dir" \
+    --logger "trx;LogFileName=lightning-manager.trx"
+
+test_results_file="$test_results_dir/lightning-manager.trx"
+if [[ ! -f "$test_results_file" ]]; then
+    printf 'The test runner did not produce the expected TRX result.\n' >&2
+    exit 1
+fi
+
+total_tests=""
+executed_tests=""
+not_executed_tests=""
+while IFS= read -r line; do
+    if [[ "$line" == *"<Counters "* ]]; then
+        if [[ "$line" =~ total=\"([0-9]+)\" ]]; then
+            total_tests="${BASH_REMATCH[1]}"
+        fi
+        if [[ "$line" =~ executed=\"([0-9]+)\" ]]; then
+            executed_tests="${BASH_REMATCH[1]}"
+        fi
+        if [[ "$line" =~ notExecuted=\"([0-9]+)\" ]]; then
+            not_executed_tests="${BASH_REMATCH[1]}"
+        fi
+        break
+    fi
+done < "$test_results_file"
+
+if [[ -z "$total_tests" || -z "$executed_tests" || -z "$not_executed_tests" ]]; then
+    printf 'The TRX result does not contain valid execution counters.\n' >&2
+    exit 1
+fi
+if [[ "$total_tests" -eq 0 ||
+      "$total_tests" -ne "$executed_tests" ||
+      "$not_executed_tests" -ne 0 ]]; then
+    printf 'Release tests must execute without skips (total=%s, executed=%s, notExecuted=%s).\n' \
+        "$total_tests" "$executed_tests" "$not_executed_tests" >&2
+    exit 1
+fi
+printf 'Release tests verified without skips: %s/%s executed.\n' \
+    "$executed_tests" "$total_tests"
+
+expected_e2e_test_name='BTCPayServer.Plugins.LightningManager.Tests.LightningManagerE2ETests.ClnAndLndManagementAndPaymentsWorkThroughProductionService'
+e2e_test_count=0
+e2e_passed_count=0
+while IFS= read -r line; do
+    if [[ "$line" == *"<UnitTestResult "* &&
+          "$line" == *"testName=\"$expected_e2e_test_name\""* ]]; then
+        e2e_test_count=$((e2e_test_count + 1))
+        if [[ "$line" == *'outcome="Passed"'* ]]; then
+            e2e_passed_count=$((e2e_passed_count + 1))
+        fi
+    fi
+done < "$test_results_file"
+
+if [[ "$e2e_test_count" -ne 1 || "$e2e_passed_count" -ne 1 ]]; then
+    printf 'Release tests must contain exactly one passed %s result (found=%s, passed=%s).\n' \
+        "$expected_e2e_test_name" "$e2e_test_count" "$e2e_passed_count" >&2
+    exit 1
+fi
+printf 'Required CLN/LND end-to-end test passed.\n'
 
 audit_output="$(dotnet list "$plugin_project" package --vulnerable --include-transitive --no-restore --format json)"
 printf '%s\n' "$audit_output"

@@ -51,3 +51,14 @@ jobs:
 
       - name: Build, test, audit, and package
         run: ./scripts/release-check.sh "$RUNNER_TEMP/lightning-manager-packages"
+
+      - name: Smoke-test packaged plugin
+        run: |
+          shopt -s nullglob
+          packages=("$RUNNER_TEMP/lightning-manager-packages"/BTCPayServer.Plugins.LightningManager/*/BTCPayServer.Plugins.LightningManager.btcpay)
+          shopt -u nullglob
+          if [ "${#packages[@]}" -ne 1 ]; then
+            printf 'Expected exactly one packaged plugin, found %s.\n' "${#packages[@]}" >&2
+            exit 1
+          fi
+          ./scripts/package-smoke.sh "${packages[0]}"
