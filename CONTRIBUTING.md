@@ -76,12 +76,12 @@ The script performs:
 - checksum verification; and
 - package-content and manifest validation.
 
-CI starts and initializes the BTCPay Server regtest fixture before calling the
-same script. It does not publish or upload the resulting package. This gate
-does not run the package-startup smoke or manual backend sign-off described
-below. It is pinned to the BTCPay Server `2.4.1` baseline, whose Lightning
-adapter includes the corrected CLN fee-rate serialization and pending-channel
-mapping.
+CI starts and initializes the BTCPay Server regtest fixture, calls the same
+script, and then runs the package-startup smoke against the resulting package.
+It does not publish or upload the package, and it does not replace the manual
+backend sign-off described below. The gate is pinned to the BTCPay Server
+`2.4.1` baseline, whose Lightning adapter includes the corrected CLN fee-rate
+serialization and pending-channel mapping.
 
 ## Package Startup Smoke
 
@@ -137,18 +137,21 @@ instance and verify:
 4. Success is shown only after the payment settles.
 5. LND, CLN, Eclair, and Phoenixd accept a positive whole-sat amount for an
    amountless invoice.
-6. Blink rejects amountless invoices before dispatch.
-7. A malformed or invalid invoice produces a friendly error.
-8. Phoenixd and Blink show the backend-fee-policy warning and do not submit a
-   maximum-fee value.
+6. Blink custodial connections reject amountless invoices before dispatch.
+7. Blink receive-only connections without `api-key=` do not expose Lightning
+   Manager actions.
+8. A malformed or invalid invoice produces a friendly error.
+9. Phoenixd and Blink custodial connections show the backend-fee-policy
+   warning and do not submit a maximum-fee value.
 
 Automated sign-off currently covers LND and CLN peer connection, existing
 channel listing, channel-open preview validation, and bidirectional payments.
-It deliberately does not submit channel funding.
+Real channel funding remains part of the manual sign-off and is not submitted
+by the automated test.
 
 Use [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) to record the
-manual Eclair, Phoenixd, Blink BTC, Blink USD, and legacy Blink results without
-copying credentials.
+manual Eclair, Phoenixd, Blink custodial, and Blink receive-only results
+without copying credentials.
 
 ## Manual Channel-Opening Sign-Off
 

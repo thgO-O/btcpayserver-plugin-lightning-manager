@@ -20,9 +20,10 @@ the backend supports those actions.
 - `Channels`: list existing channels and open new channels.
 
 The actions shown come from a capability preset selected from the external
-connection string's `type=` value and, for Blink, its `currency=` value. The
-credentials configured in BTCPay Server still determine whether the backend
-authorizes each request.
+connection string. For Blink, payment actions require `api-key=` and
+`currency=` determines whether Balance is available. The credentials
+configured in BTCPay Server still determine whether the backend authorizes
+each request.
 
 ## Requirements
 
@@ -60,8 +61,9 @@ authorizes each request.
 | Core Lightning (CLN) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | Eclair | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | Phoenixd | Yes | Yes | Yes | Yes | No | No | No | No |
-| Blink with `currency=BTC` | No | Yes | Yes | No | No | No | No | No |
-| Blink USD or legacy connection without `currency=` | No | No | Yes | No | No | No | No | No |
+| Blink custodial with `api-key=` and `currency=BTC` | No | Yes | Yes | No | No | No | No | No |
+| Blink custodial USD or legacy `api-key=` without `currency=` | No | No | Yes | No | No | No | No | No |
+| Blink receive-only with `ln-address=` or `username=`, without `api-key=` | No | No | No | No | No | No | No | No |
 
 LND connections use the REST client provided by BTCPay Server. The historical
 `type=lnd-grpc` connection-string value is an alias for that REST client; it
@@ -70,6 +72,10 @@ does not select a separate gRPC transport.
 The table describes the actions exposed by each connection-string preset; it
 is not a runtime feature probe.
 
+Blink receive-only connections do not expose Lightning Manager. They are
+intended to receive payments, while this plugin does not create invoices or
+provide receiving tools.
+
 Peer and channel actions are available only for LND, CLN, and Eclair. Phoenixd
 and Blink control routing fees through their own backend policy, so Lightning
 Manager cannot set a per-payment maximum fee for them.
@@ -77,8 +83,9 @@ Manager cannot set a per-payment maximum fee for them.
 For fixed-amount invoices, the signed invoice amount is authoritative and any
 submitted amount override is ignored. For amountless invoices on supported
 backends, enter a positive whole number of satoshis before previewing the
-payment. Blink currently supports fixed-amount invoices only because its
-upstream adapter does not pass an operator-entered amount to the wallet.
+payment. Blink custodial connections currently support fixed-amount invoices
+only because the upstream adapter does not pass an operator-entered amount to
+the wallet.
 
 ## Safety
 
@@ -117,12 +124,13 @@ Confirm that the store uses a supported external BTC Lightning connection and
 that your user has the Lightning node access permission. The plugin is
 intentionally hidden for BTCPay's shared internal node, non-BTC Lightning
 configurations, unknown backends, and connection strings without a recognized
-`type=`.
+`type=`. It is also hidden for Blink receive-only connections without
+`api-key=` because Lightning Manager does not provide receiving tools.
 
 ### A tab or action is missing
 
-This normally means the capability preset for the connection-string `type=`
-and, for Blink, `currency=` does not include that action. Compare the setup
+This normally means the capability preset for the connection string does not
+include that action. For Blink, compare its `api-key=` and `currency=` fields
 with the table above. For LND, also verify that the configured macaroon
 authorizes the requested operation.
 
@@ -134,9 +142,10 @@ the final response.
 
 ### Blink has limited overview information
 
-Blink with `currency=BTC` exposes Balance and Pay but not node Info. Blink USD
-and legacy Blink connections without an explicit `currency=` are exposed as
-payment-only.
+Blink custodial connections with `api-key=` and `currency=BTC` expose Balance
+and Pay but not node Info. Blink custodial USD and legacy connections without
+an explicit `currency=` are payment-only. Blink receive-only connections
+without `api-key=` do not expose Lightning Manager.
 
 ## Development
 

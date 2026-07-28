@@ -33,19 +33,24 @@ Never copy credentials or the full connection string into the report.
 - [ ] The backend-fee-policy notice is shown and no max-fee value is submitted.
 - [ ] A small fixed-amount and amountless payment settle.
 
-## Blink BTC (`currency=BTC`)
+## Blink custodial BTC (`api-key=` and `currency=BTC`)
 
 - [ ] Balance and Pay are available; Info, peer and channel actions are absent.
 - [ ] The backend-fee-policy notice is shown and no max-fee value is submitted.
 - [ ] A small fixed-amount payment settles.
 - [ ] An amountless invoice is rejected before dispatch with a friendly message.
 
-## Blink USD or legacy connection without `currency=`
+## Blink custodial USD or legacy `api-key=` without `currency=`
 
 - [ ] Only Pay is available.
 - [ ] The backend-fee-policy notice is shown and no max-fee value is submitted.
 - [ ] A small fixed-amount payment settles.
 - [ ] An amountless invoice is rejected before dispatch with a friendly message.
+
+## Blink receive-only (`ln-address=` or `username=`, without `api-key=`)
+
+- [ ] Lightning Manager navigation and actions are absent.
+- [ ] No outgoing payment is attempted through Lightning Manager.
 
 ## Sign-off record
 
@@ -53,5 +58,6 @@ Never copy credentials or the full connection string into the report.
 | --- | --- | --- | --- | --- | --- |
 | Eclair | | | | | |
 | Phoenixd | | | | | |
-| Blink BTC | | | | | |
-| Blink USD/legacy | | | | | |
+| Blink custodial BTC | | | | | |
+| Blink custodial USD/legacy | | | | | |
+| Blink receive-only | | | | | |
