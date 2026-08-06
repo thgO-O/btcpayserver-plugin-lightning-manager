@@ -1,0 +1,74 @@
+services:
+  postgres:
+    environment:
+      # The base test compose does not create NBXplorer's database on a fresh
+      # volume. Declaring it here keeps this disposable E2E fixture bootable.
+      POSTGRES_DB: nbxplorer
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --quiet --username=postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+  nbxplorer:
+    depends_on:
+      bitcoind:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+  bitcoind:
+    environment:
+      # Eclair 0.8 subscribes to hashblock, which is not enabled by the base
+      # BTCPayServer.Tests fixture. Keep this in sync with its bitcoind args.
+      BITCOIN_EXTRA_ARGS: |-
+        rpcuser=ceiwHEbqWI83
+        rpcpassword=DwubwWsoo3
+        rpcport=43782
+        rpcbind=0.0.0.0:43782
+        rpcallowip=0.0.0.0/0
+        port=39388
+        whitelist=0.0.0.0/0
+        zmqpubrawblock=tcp://0.0.0.0:28332
+        zmqpubhashblock=tcp://0.0.0.0:28334
+        zmqpubrawtx=tcp://0.0.0.0:28333
+        deprecatedrpc=signrawtransaction
+        fallbackfee=0.0002
+        minrelaytxfee=0.00001000
+        unsafesqlitesync=1
+  eclair:
+    image: acinq/eclair:release-0.8.0@sha256:909b93adb610de3e1cd0bcd66c0029f59499519bb844fc5c0b341f76d7174220
+    platform: linux/amd64
+    stop_signal: SIGKILL
+    environment:
+      JAVA_OPTS: |
+        -Xmx256m
+        -Declair.printToConsole
+        -Declair.headless
+        -Declair.chain=regtest
+        -Declair.server.binding-ip=0.0.0.0
+        -Declair.server.public-ips.0=eclair
+        -Declair.server.port=9735
+        -Declair.api.enabled=true
+        -Declair.api.binding-ip=0.0.0.0
+        -Declair.api.port=8080
+        -Declair.api.password=lightning-manager-e2e
+        -Declair.node-alias=eclair
+        -Declair.bitcoind.host=bitcoind
+        -Declair.bitcoind.rpcport=43782
+        -Declair.bitcoind.rpcuser=ceiwHEbqWI83
+        -Declair.bitcoind.rpcpassword=DwubwWsoo3
+        -Declair.bitcoind.zmqblock=tcp://bitcoind:28334
+        -Declair.bitcoind.zmqtx=tcp://bitcoind:28333
+        -Don-chain-fees.feerate-tolerance.ratio-low=0.1
+        -Don-chain-fees.feerate-tolerance.ratio-high=100.0
+        -Declair.channel.mindepth-blocks=1
+        -Declair.ping-disconnect=false
+        -Declair.features.keysend=optional
+    ports:
+      - "127.0.0.1:4570:8080"
+    expose:
+      - "8080"
+      - "9735"
+    tmpfs:
+      - /data
+    depends_on:
+      - bitcoind
