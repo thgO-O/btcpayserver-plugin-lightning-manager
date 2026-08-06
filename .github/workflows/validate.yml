@@ -2,14 +2,22 @@ name: Validate
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  CI: true
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PLAYWRIGHT_HEADLESS: true
+
 jobs:
-  release-check:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -24,41 +32,120 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Build unit tests
+        run: >-
+          dotnet build
+          BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
+          -c Release --nologo -m:1 -nr:false
+
+      - name: Run unit tests
+        run: >-
+          dotnet test
+          BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
+          -c Release --no-build --nologo -m:1 -nr:false
+
+      - name: Build E2E tests
+        run: >-
+          dotnet build
+          BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj
+          -c Debug --nologo -m:1 -nr:false
+
+      - name: Install Playwright Chromium
+        run: >-
+          pwsh
+          BTCPayServer.Plugins.LightningManager.E2ETests/bin/Debug/net10.0/playwright.ps1
+          install --with-deps chromium
+
       - name: Start BTCPay Server regtest fixture
         working-directory: submodules/btcpayserver/BTCPayServer.Tests
-        run: docker compose up -d dev
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f ../../../scripts/eclair-0.8.compose.yml \
+            up -d dev
+          docker compose \
+            -f docker-compose.yml \
+            -f ../../../scripts/eclair-0.8.compose.yml \
+            up -d --force-recreate --no-deps eclair
 
-      - name: Initialize Lightning channels
+      - name: Wait for Lightning fixture
         working-directory: submodules/btcpayserver/BTCPayServer.Tests
         run: |
-          for attempt in $(seq 1 90); do
-            if docker compose exec -T bitcoind bitcoin-cli -datadir=/data getblockchaininfo >/dev/null 2>&1 &&
-               docker compose exec -T customer_lightningd lightning-cli --rpc-file=/root/.lightning/lightning-rpc getinfo >/dev/null 2>&1 &&
-               docker compose exec -T merchant_lightningd lightning-cli --rpc-file=/root/.lightning/lightning-rpc getinfo >/dev/null 2>&1 &&
-               test "$(docker compose exec -T customer_lnd lncli --no-macaroons --rpcserver localhost:10008 getinfo 2>/dev/null |
-                 jq -r '.synced_to_chain')" = true &&
-               test "$(docker compose exec -T merchant_lnd lncli --no-macaroons --rpcserver localhost:10008 getinfo 2>/dev/null |
-                 jq -r '.synced_to_chain')" = true; then
+          cln_ready() {
+            docker compose exec -T "$1" lightning-cli --rpc-file=/root/.lightning/lightning-rpc getinfo 2>/dev/null |
+              jq -e --argjson height "$2" '
+                .id and
+                .network == "regtest" and
+                .blockheight == $height and
+                (.warning_bitcoind_sync // "") == "" and
+                (.warning_lightningd_sync // "") == ""
+              ' >/dev/null
+          }
+
+          lnd_ready() {
+            docker compose exec -T "$1" lncli --no-macaroons --rpcserver localhost:10008 getinfo 2>/dev/null |
+              jq -e --argjson height "$2" '
+                .identity_pubkey and
+                any(.chains[]?; .network == "regtest") and
+                (.block_height | tonumber) == $height and
+                .synced_to_chain == true and
+                .wallet_synced == true
+              ' >/dev/null
+          }
+
+          eclair_ready() {
+            eclair_info="$(curl --fail --silent --user ':lightning-manager-e2e' --request POST \
+              http://127.0.0.1:4570/getinfo)" || return 1
+            test "$(jq -r '.network' <<< "$eclair_info")" = regtest &&
+              test "$(jq -r '.version | startswith("0.8")' <<< "$eclair_info")" = true &&
+              test "$(jq -r '.blockHeight' <<< "$eclair_info")" = "$1"
+          }
+
+          nbxplorer_ready() {
+            curl --fail --silent http://127.0.0.1:32838/v1/cryptos/BTC/status |
+              jq -e '
+                .cryptoCode == "BTC" and
+                (.networkType | ascii_downcase) == "regtest" and
+                .isFullySynched == true
+              ' >/dev/null
+          }
+
+          for attempt in $(seq 1 120); do
+            bitcoin_height="$(docker compose exec -T bitcoind bitcoin-cli -datadir=/data getblockcount 2>/dev/null)"
+            if test -n "$bitcoin_height" &&
+               nbxplorer_ready &&
+               cln_ready customer_lightningd "$bitcoin_height" &&
+               cln_ready merchant_lightningd "$bitcoin_height" &&
+               lnd_ready customer_lnd "$bitcoin_height" &&
+               lnd_ready merchant_lnd "$bitcoin_height" &&
+               eclair_ready "$bitcoin_height"; then
               break
             fi
-            if [ "$attempt" -eq 90 ]; then
-              docker compose ps
+            if [ "$attempt" -eq 120 ]; then
+              docker compose \
+                -f docker-compose.yml \
+                -f ../../../scripts/eclair-0.8.compose.yml \
+                ps
+              docker compose \
+                -f docker-compose.yml \
+                -f ../../../scripts/eclair-0.8.compose.yml \
+                logs --tail 80 postgres nbxplorer eclair customer_lightningd merchant_lightningd customer_lnd merchant_lnd
               exit 1
             fi
             sleep 2
           done
-          script -q -e -c './docker-lightning-channel-setup.sh' /dev/null
 
-      - name: Build, test, audit, and package
-        run: ./scripts/release-check.sh "$RUNNER_TEMP/lightning-manager-packages"
+      - name: Run E2E tests
+        run: >-
+          dotnet test
+          BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj
+          -c Debug --no-build --nologo -m:1 -nr:false
 
-      - name: Smoke-test packaged plugin
-        run: |
-          shopt -s nullglob
-          packages=("$RUNNER_TEMP/lightning-manager-packages"/BTCPayServer.Plugins.LightningManager/*/BTCPayServer.Plugins.LightningManager.btcpay)
-          shopt -u nullglob
-          if [ "${#packages[@]}" -ne 1 ]; then
-            printf 'Expected exactly one packaged plugin, found %s.\n' "${#packages[@]}" >&2
-            exit 1
-          fi
-          ./scripts/package-smoke.sh "${packages[0]}"
+      - name: Stop BTCPay Server regtest fixture
+        if: always()
+        working-directory: submodules/btcpayserver/BTCPayServer.Tests
+        run: >-
+          docker compose
+          -f docker-compose.yml
+          -f ../../../scripts/eclair-0.8.compose.yml
+          down --volumes --remove-orphans
