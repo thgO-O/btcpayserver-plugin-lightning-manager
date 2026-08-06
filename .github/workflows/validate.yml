@@ -111,8 +111,8 @@ jobs:
           }
 
           for attempt in $(seq 1 120); do
-            bitcoin_height="$(docker compose exec -T bitcoind bitcoin-cli -datadir=/data getblockcount 2>/dev/null)"
-            if test -n "$bitcoin_height" &&
+            if bitcoin_height="$(docker compose exec -T bitcoind bitcoin-cli -datadir=/data getblockcount 2>/dev/null)" &&
+               test -n "$bitcoin_height" &&
                nbxplorer_ready &&
                cln_ready customer_lightningd "$bitcoin_height" &&
                cln_ready merchant_lightningd "$bitcoin_height" &&
@@ -136,10 +136,22 @@ jobs:
           done
 
       - name: Run E2E tests
-        run: >-
-          dotnet test
-          BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj
-          -c Debug --no-build --nologo -m:1 -nr:false
+        run: |
+          results_directory="${RUNNER_TEMP}/lightning-manager-e2e-results"
+          dotnet test \
+            BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj \
+            -c Debug --no-build --nologo -m:1 -nr:false \
+            --logger "trx;LogFileName=e2e.trx" \
+            --results-directory "$results_directory"
+
+          executed_tests="$(
+            sed -n 's/.*<Counters[^>]*executed="\([0-9][0-9]*\)".*/\1/p' \
+              "$results_directory/e2e.trx"
+          )"
+          if [ "$executed_tests" != 4 ]; then
+            echo "::error::Expected exactly 4 E2E tests to execute, but found ${executed_tests:-0}."
+            exit 1
+          fi
 
       - name: Stop BTCPay Server regtest fixture
         if: always()
