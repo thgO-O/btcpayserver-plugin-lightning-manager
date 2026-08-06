@@ -74,6 +74,8 @@ capability. Record unsupported checks as `N/A` in the sign-off notes.
 
 | Backend | BTCPay version | Backend version | Date | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
+| CLN | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
+| LND | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
 | Eclair | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
 | Phoenixd | — | — | — | Not run | Release sign-off pending. |
 | Blink custodial BTC | — | — | — | Not run | Release sign-off pending. |
