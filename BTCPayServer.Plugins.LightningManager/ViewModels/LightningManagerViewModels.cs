@@ -39,6 +39,7 @@ public class OverviewViewModel : LightningManagerPageViewModel
     public List<ValueRowViewModel> OnchainBalanceRows { get; } = [];
     public List<ValueRowViewModel> OffchainBalanceRows { get; } = [];
     public List<string> Notices { get; } = [];
+    public List<string> Warnings { get; } = [];
 }
 
 public class SendPreviewViewModel

@@ -243,6 +243,9 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             await Expect(version).ToContainTextAsync(expectedVersionPrefix);
         }
 
+        await Expect(tester.Page.Locator(".alert-warning"))
+            .ToHaveCountAsync(0);
+
         foreach (var page in new[] { "send", "peers", "channels" })
         {
             await Expect(tester.Page.Locator($"a[href$=\"/manager/{page}\"]"))

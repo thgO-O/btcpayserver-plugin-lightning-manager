@@ -95,7 +95,7 @@ public sealed class LightningManagerService
             }
             catch (Exception exception)
             {
-                model.Notices.Add("Could not load node information.");
+                model.Warnings.Add("Could not load node information.");
                 LogOperation(context, "get-info", stopwatch, "failed", exception.GetType().Name);
             }
         }
@@ -148,7 +148,7 @@ public sealed class LightningManagerService
             catch (Exception exception)
             {
                 // Keep GetInfo channel counts when ListChannels is unavailable for a backend.
-                model.Notices.Add("Could not load channels.");
+                model.Warnings.Add("Could not load channels.");
                 LogOperation(context, "list-channels-summary", stopwatch, "failed", exception.GetType().Name);
             }
         }
@@ -186,7 +186,7 @@ public sealed class LightningManagerService
             }
             catch (Exception exception)
             {
-                model.Notices.Add("Could not load balances.");
+                model.Warnings.Add("Could not load balances.");
                 LogOperation(context, "get-balance", stopwatch, "failed", exception.GetType().Name);
             }
         }

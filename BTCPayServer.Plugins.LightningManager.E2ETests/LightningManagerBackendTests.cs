@@ -86,10 +86,12 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
         var clnOverview = new OverviewViewModel();
         await service.PopulateOverviewAsync(clnOverview, clnContext, timeout.Token);
         Assert.Empty(clnOverview.Notices);
+        Assert.Empty(clnOverview.Warnings);
 
         var lndOverview = new OverviewViewModel();
         await service.PopulateOverviewAsync(lndOverview, lndContext, timeout.Token);
         Assert.Empty(lndOverview.Notices);
+        Assert.Empty(lndOverview.Warnings);
         AssertPositivePeerCount(lndOverview);
     }
 

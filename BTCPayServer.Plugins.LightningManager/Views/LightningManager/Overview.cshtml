@@ -33,6 +33,10 @@ else
     {
         <div class="alert alert-info">@notice</div>
     }
+    @foreach (var warning in Model.Warnings)
+    {
+        <div class="alert alert-warning" role="alert">@warning</div>
+    }
 
     <div class="mb-4">
         <h3 class="h5">Capabilities</h3>

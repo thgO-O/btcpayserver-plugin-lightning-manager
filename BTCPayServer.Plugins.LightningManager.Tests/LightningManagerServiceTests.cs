@@ -1109,6 +1109,25 @@ public class LightningManagerServiceTests
         Assert.Contains(model.OffchainBalanceRows, row => row.Label == "Remote");
         Assert.DoesNotContain(model.OnchainBalanceRows, row => row.Label == "Reserved");
         Assert.Empty(model.Notices);
+        Assert.Empty(model.Warnings);
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WhenBalanceFails_AddsWarning()
+    {
+        var client = new FakeLightningClient
+        {
+            GetBalanceHandler = _ => throw new InvalidOperationException("balance unavailable")
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities { CanGetBalance = true },
+            client);
+        var model = new OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Contains("Could not load balances.", model.Warnings);
+        Assert.DoesNotContain("Could not load balances.", model.Notices);
     }
 
     [Fact]
@@ -1177,7 +1196,8 @@ public class LightningManagerServiceTests
         Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "2");
         Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "3");
         Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "4");
-        Assert.Contains("Could not load channels.", model.Notices);
+        Assert.Contains("Could not load channels.", model.Warnings);
+        Assert.DoesNotContain("Could not load channels.", model.Notices);
     }
 
     [Fact]
@@ -1206,7 +1226,8 @@ public class LightningManagerServiceTests
         Assert.Equal(0, balanceCalls);
         Assert.Empty(model.OnchainBalanceRows);
         Assert.Empty(model.OffchainBalanceRows);
-        Assert.Contains("Could not load node information.", model.Notices);
+        Assert.Contains("Could not load node information.", model.Warnings);
+        Assert.DoesNotContain("Could not load node information.", model.Notices);
     }
 
     [Fact]
@@ -1234,7 +1255,8 @@ public class LightningManagerServiceTests
 
         Assert.Equal(1, balanceCalls);
         Assert.Contains(model.OnchainBalanceRows, row => row.Label == "Confirmed");
-        Assert.Contains("Could not load node information.", model.Notices);
+        Assert.Contains("Could not load node information.", model.Warnings);
+        Assert.DoesNotContain("Could not load node information.", model.Notices);
     }
 
     [Fact]
@@ -1510,7 +1532,8 @@ public class LightningManagerServiceTests
 
         await service.PopulateOverviewAsync(model, context);
 
-        Assert.Contains("Could not load node information.", model.Notices);
+        Assert.Contains("Could not load node information.", model.Warnings);
+        Assert.DoesNotContain("Could not load node information.", model.Notices);
         var log = Assert.Single(logger.Entries);
         Assert.Contains("get-info", log, StringComparison.Ordinal);
         Assert.Contains("store-1", log, StringComparison.Ordinal);
