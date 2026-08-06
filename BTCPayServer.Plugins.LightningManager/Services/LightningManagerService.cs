@@ -21,16 +21,32 @@ public sealed class LightningManagerService
     private const string UnknownPaymentStatusMessage =
         "Payment status is unknown. Check the Lightning node before retrying.";
     private static readonly Version AffectedPhoenixdAdapterVersion = new(1, 7, 1, 0);
+    private static readonly TimeSpan DefaultChannelOpenTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PaymentLookupTimeout = TimeSpan.FromSeconds(5);
     private readonly ILogger<LightningManagerService> _logger;
     private readonly LightningManagerOperationGuard _operationGuard;
+    private readonly TimeSpan _channelOpenTimeout;
 
     public LightningManagerService(
         ILogger<LightningManagerService> logger,
         LightningManagerOperationGuard operationGuard)
+        : this(logger, operationGuard, DefaultChannelOpenTimeout)
     {
+    }
+
+    internal LightningManagerService(
+        ILogger<LightningManagerService> logger,
+        LightningManagerOperationGuard operationGuard,
+        TimeSpan channelOpenTimeout)
+    {
+        if (channelOpenTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channelOpenTimeout));
+        }
+
         _logger = logger;
         _operationGuard = operationGuard;
+        _channelOpenTimeout = channelOpenTimeout;
     }
 
     public async Task PopulateOverviewAsync(
@@ -653,10 +669,14 @@ public sealed class LightningManagerService
                 Failure("Channel opening is already in progress for this peer."));
         }
 
-        using var lease = operationLease;
+        var lease = operationLease!;
+        Task<OpenChannelResponse>? openChannelTask = null;
         try
         {
-            var response = await context.Client!.OpenChannel(request, cancellationToken);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(_channelOpenTimeout);
+            openChannelTask = context.Client!.OpenChannel(request, timeout.Token);
+            var response = await openChannelTask.WaitAsync(timeout.Token);
             var actionResult = response.Result switch
             {
                 OpenChannelResult.Ok => Success("Channel opening request submitted."),
@@ -692,6 +712,17 @@ public sealed class LightningManagerService
                 "unknown",
                 Failure("Channel opening status is unknown. Check the Lightning node before retrying."),
                 exception.GetType().Name);
+        }
+        finally
+        {
+            if (openChannelTask is { IsCompleted: false })
+            {
+                _ = ReleaseLeaseWhenCompletedAsync(openChannelTask, lease);
+            }
+            else
+            {
+                lease.Dispose();
+            }
         }
     }
 
@@ -962,6 +993,23 @@ public sealed class LightningManagerService
     private static ActionResultViewModel Success(string message)
     {
         return new ActionResultViewModel { IsSuccess = true, Message = message };
+    }
+
+    private static async Task ReleaseLeaseWhenCompletedAsync(Task operation, IDisposable lease)
+    {
+        try
+        {
+            await operation.ConfigureAwait(false);
+        }
+        catch
+        {
+            // The request already returned a safe unknown result. This continuation
+            // observes late failures and keeps duplicate funding blocked until completion.
+        }
+        finally
+        {
+            lease.Dispose();
+        }
     }
 
     private static ActionResultViewModel Failure(string message)

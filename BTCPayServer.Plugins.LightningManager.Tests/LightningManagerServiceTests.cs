@@ -1796,6 +1796,60 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
+    public async Task OpenChannelAsync_WhenBackendIgnoresCancellation_TimesOutButKeepsGuard()
+    {
+        var neverCompletes = new TaskCompletionSource<OpenChannelResponse>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var firstCallToken = CancellationToken.None;
+        var client = new FakeLightningClient
+        {
+            OpenChannelHandler = (_, token) =>
+            {
+                if (Interlocked.Increment(ref calls) != 1)
+                {
+                    return Task.FromResult(new OpenChannelResponse(OpenChannelResult.Ok));
+                }
+
+                firstCallToken = token;
+                return neverCompletes.Task;
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var service = new LightningManagerService(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<LightningManagerService>.Instance,
+            new LightningManagerOperationGuard(),
+            TimeSpan.FromMilliseconds(50));
+        const string nodeUri =
+            "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735";
+
+        ActionResultViewModel first;
+        ActionResultViewModel second;
+        try
+        {
+            first = await service
+                .OpenChannelAsync(context, nodeUri, "100000", null)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            second = await service
+                .OpenChannelAsync(context, nodeUri, "100000", null)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            neverCompletes.TrySetResult(new OpenChannelResponse(OpenChannelResult.Ok));
+        }
+
+        Assert.False(first.IsSuccess);
+        Assert.Equal(
+            "Channel opening status is unknown. Check the Lightning node before retrying.",
+            first.Message);
+        Assert.True(firstCallToken.IsCancellationRequested);
+        Assert.False(second.IsSuccess);
+        Assert.Equal("Channel opening is already in progress for this peer.", second.Message);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task OpenChannelAsync_WhenBackendNeedsMoreConfirmations_WarnsAboutPendingState()
     {
         var client = new FakeLightningClient
