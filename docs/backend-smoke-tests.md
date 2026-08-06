@@ -1,8 +1,21 @@
 # Backend smoke tests
 
-Use this checklist against the final packaged plugin. Record the BTCPay Server
-version, backend version, connection-string `type` and result for every row.
-Never copy credentials or the full connection string into the report.
+Use this checklist against the final Plugin Builder artifact selected for
+release. Record the BTCPay Server version, backend version and result for every
+row. Never copy credentials or the full connection string into the report.
+
+CLN and LND have automated service-level and browser coverage. Eclair 0.8 also
+has browser coverage through BTCPay Server's native Playwright harness. Those
+tests build the plugin from source; this checklist verifies the final artifact
+and records backend sign-off. Do not interpret an exposed capability preset as
+a successful sign-off.
+
+The CLightning adapter currently selected by BTCPay Server 2.4.1 does not map
+CLN's reported peer count. The automated CLN sign-off therefore excludes that
+Overview field until the upstream fix is published and consumed by BTCPay.
+
+Run each common check only when the backend exposes the corresponding
+capability. Record unsupported checks as `N/A` in the sign-off notes.
 
 ## Common checks
 
@@ -11,6 +24,9 @@ Never copy credentials or the full connection string into the report.
 - [ ] A fixed-amount invoice preview uses the signed amount.
 - [ ] When supported by the backend, an amountless invoice accepts a positive
       whole-sat amount.
+- [ ] For every payment exercised below, the destination reports the expected
+      amount received: the signed amount for a fixed invoice or the entered
+      amount for an amountless invoice.
 - [ ] A malformed or expired invoice produces a generic error.
 - [ ] Refreshing the result page does not submit the operation again.
 - [ ] Backend errors and application logs contain no credentials, BOLT11,
@@ -19,7 +35,9 @@ Never copy credentials or the full connection string into the report.
 ## Eclair
 
 - [ ] Info and balance load.
-- [ ] A small payment settles with an explicit maximum fee.
+- [ ] A small fixed-amount and amountless payment settle with an explicit
+      maximum fee.
+- [ ] The destination reports the expected amount for both payments.
 - [ ] Peer connection succeeds or returns a sanitized backend result.
 - [ ] Existing channels are listed.
 - [ ] A small channel-open request reaches Eclair with the entered sat/vB fee.
@@ -56,8 +74,8 @@ Never copy credentials or the full connection string into the report.
 
 | Backend | BTCPay version | Backend version | Date | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Eclair | | | | | |
-| Phoenixd | | | | | |
-| Blink custodial BTC | | | | | |
-| Blink custodial USD/legacy | | | | | |
-| Blink receive-only | | | | | |
+| Eclair | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
+| Phoenixd | — | — | — | Not run | Release sign-off pending. |
+| Blink custodial BTC | — | — | — | Not run | Release sign-off pending. |
+| Blink custodial USD/legacy | — | — | — | Not run | Release sign-off pending. |
+| Blink receive-only | — | — | — | Not run | Release sign-off pending. |

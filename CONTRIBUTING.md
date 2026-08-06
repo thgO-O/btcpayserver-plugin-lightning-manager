@@ -1,15 +1,14 @@
 # Contributing
 
-This document contains developer and release-validation instructions for
-Lightning Manager. It covers local package creation and verification, not
-publishing or distribution.
+This document covers local development and validation for Lightning Manager.
+Packaging and distribution are handled separately through the BTCPay Server
+Plugin Builder and are not part of this repository's test gate.
 
 ## Prerequisites
 
 - .NET `10.0` SDK.
+- Docker, `jq`, and PowerShell (`pwsh`).
 - The BTCPay Server submodule initialized at `submodules/btcpayserver`.
-- Docker and the BTCPay Server regtest stack for package-smoke and end-to-end
-  checks.
 
 Initialize the submodule:
 
@@ -17,190 +16,149 @@ Initialize the submodule:
 git submodule update --init --recursive
 ```
 
-Start the BTCPay Server regtest fixture:
-
-```bash
-cd submodules/btcpayserver/BTCPayServer.Tests
-docker compose up -d dev
-```
-
-After the CLN and LND containers are running and synchronized, initialize the
-test channels:
-
-```bash
-./docker-lightning-channel-setup.sh
-cd ../../..
-```
-
-The channel setup is idempotent. If an initial attempt runs before the nodes
-finish synchronizing, wait and rerun it. `./scripts/e2e.sh` is the definitive
-fixture check.
-
-## Build and Test
+## Build and deterministic tests
 
 Build the plugin:
 
 ```bash
-dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj
+dotnet build \
+  BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj
 ```
 
-Run the test suite:
+Run the unit tests:
 
 ```bash
-dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
+dotnet test \
+  BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
 ```
 
-The full suite includes the CLN/LND end-to-end test and therefore requires the
-BTCPay Server regtest stack and Lightning channels described below. For a
-focused unit-test iteration, exclude the `LightningManagerE2E` category:
+## BTCPay Server test stack
+
+The end-to-end tests use the standard BTCPay Server regtest stack. The only
+plugin-specific infrastructure is the Eclair 0.8 Docker Compose overlay.
+
+The browser cases open real channels and therefore require disposable fixture
+volumes. The following reset deletes only the BTCPay test-stack data, then
+starts the official fixture and recreates Eclair:
 
 ```bash
-dotnet test BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj \
-  --filter 'Category!=LightningManagerE2E'
+cd submodules/btcpayserver/BTCPayServer.Tests
+docker compose \
+  -f docker-compose.yml \
+  -f ../../../scripts/eclair-0.8.compose.yml \
+  down --volumes
+docker compose \
+  -f docker-compose.yml \
+  -f ../../../scripts/eclair-0.8.compose.yml \
+  up -d dev
+docker compose \
+  -f docker-compose.yml \
+  -f ../../../scripts/eclair-0.8.compose.yml \
+  up -d --force-recreate --no-deps eclair
 ```
 
-## Automated Package Gate
-
-Run the automated package gate with a new or empty output directory:
+Return to the plugin root before running the tests:
 
 ```bash
-./scripts/release-check.sh /private/tmp/lightning-manager-release
+cd ../../..
 ```
 
-The script performs:
+## Native end-to-end tests
 
-- a Release build with warnings treated as errors;
-- the full test suite, including the CLN/LND end-to-end check;
-- a transitive NuGet vulnerability check;
-- a PluginPacker build and package creation;
-- checksum verification; and
-- package-content and manifest validation.
-
-CI starts and initializes the BTCPay Server regtest fixture, calls the same
-script, and then runs the package-startup smoke against the resulting package.
-It does not publish or upload the package, and it does not replace the manual
-backend sign-off described below. The gate is pinned to the BTCPay Server
-`2.4.1` baseline, whose Lightning adapter includes the corrected CLN fee-rate
-serialization and pending-channel mapping.
-
-## Package Startup Smoke
-
-With the BTCPay Server regtest stack running, load the resulting package in an
-isolated temporary BTCPay database and verify plugin startup plus HTTP:
+The required service test and all three browser cases live in the xUnit v3 E2E
+project. Run the complete project without a filter so a renamed trait cannot
+silently remove a release test. Its native xUnit configuration also treats
+skips as failures:
 
 ```bash
-./scripts/package-smoke.sh /private/tmp/lightning-manager-release/BTCPayServer.Plugins.LightningManager/0.1.0.0/BTCPayServer.Plugins.LightningManager.btcpay
+dotnet build \
+  BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj \
+  -c Debug
+pwsh \
+  BTCPayServer.Plugins.LightningManager.E2ETests/bin/Debug/net10.0/playwright.ps1 \
+  install chromium
+dotnet test \
+  BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj \
+  -c Debug --no-build
 ```
 
-The smoke test creates and drops only its uniquely named PostgreSQL database.
-It does not stop or reset the shared regtest containers.
+The CLN/LND service test uses `ServerTester.EnsureChannelsSetup()` rather than
+a shell channel-setup wrapper. It:
 
-## CLN and LND End-to-End Test
+- prepares the fixture channels through BTCPay's test helper;
+- reconnects the peers idempotently;
+- lists their existing channels through `LightningManagerService`;
+- validates channel-opening previews without funding another channel; and
+- settles payments in both directions and verifies the destination amount.
 
-Run the real bidirectional CLN/LND test against the BTCPay Server regtest
-stack:
+## Backend Playwright tests
+
+The CLN, LND, and Eclair browser cases use BTCPay Server's `UnitTestBase`,
+`ServerTester`, and `PlaywrightTester` instead of maintaining a second
+application host or browser harness.
+
+Each case creates its BTCPay user and store through the native harness, then
+uses the browser to configure the external backend, navigate Lightning
+Manager, connect a peer, open and confirm a real regtest channel, and settle
+fixed and amountless payments. Bitcoin RPC and the Lightning clients are used
+only to prepare and verify external state.
+
+Stop the test stack when finished:
 
 ```bash
-./scripts/e2e.sh
+cd submodules/btcpayserver/BTCPayServer.Tests
+docker compose \
+  -f docker-compose.yml \
+  -f ../../../scripts/eclair-0.8.compose.yml \
+  down --volumes
+cd ../../..
 ```
 
-The stack must already have an active CLN/LND channel with at least 500 sats of
-outbound liquidity in each direction. The script does not create, fund, or mine
-a channel; missing channels or liquidity are reported as fixture failures.
+## Validation scope
 
-The end-to-end test is part of the full test suite and fails when its fixture is
-unavailable or invalid. The script verifies the local CLN and LND endpoints
-before running only the `LightningManagerE2E` category. The test:
+Repository validation consists of the Release build, deterministic tests,
+the CLN/LND service integration test, and native Playwright cases for CLN, LND,
+and Eclair. A test that needs its Lightning fixture must fail when that fixture
+is unavailable; it must not be silently skipped.
 
-- reconnects the two existing peers idempotently;
-- maps their existing channels through the production service;
-- validates channel-open previews without funding a channel; and
-- sends equal-value payments in both directions.
+The published CLightning adapter used by BTCPay Server 2.4.1 does not yet map
+CLN's `num_peers`, so the CLN Overview peer count is excluded from automated
+sign-off. All other CLN flows above remain covered. Restore the positive peer
+count assertion when that upstream adapter fix reaches BTCPay Server.
 
-Custom connection strings may be set with
-`LIGHTNING_MANAGER_E2E_CLN` and `LIGHTNING_MANAGER_E2E_LND`. When the probe
-endpoints differ from the local BTCPay test defaults, set
-`LIGHTNING_MANAGER_E2E_CLN_PROBE`,
-`LIGHTNING_MANAGER_E2E_LND_PROBE_URL`, and
-`LIGHTNING_MANAGER_E2E_LND_PROBE_USER` as needed. If either node does not
-advertise a reachable peer URI, set `LIGHTNING_MANAGER_E2E_CLN_NODE_URI` or
-`LIGHTNING_MANAGER_E2E_LND_NODE_URI` to `pubkey@host[:port]`.
+This validation builds the plugin from source. Creating, installing, and
+publishing the final `.btcpay` artifact stays in the Plugin Builder workflow.
+Before publishing, run the manual checks below against that exact artifact and
+BTCPay Server version.
 
-## Manual Backend Sign-Off
+## Manual backend sign-off
 
-Before a public release, install the final `.btcpay` package on a BTCPay Server
-instance and verify:
+Use [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) as the
+canonical checklist and sign-off record. It retains a final installation smoke
+for Eclair and records the currently manual Phoenixd and Blink validation.
+Never copy credentials into the record.
 
-1. The plugin loads after restart.
-2. The available actions match the configured node or wallet.
-3. A small fixed-amount payment settles and reaches its destination.
-4. Success is shown only after the payment settles.
-5. LND, CLN, Eclair, and Phoenixd accept a positive whole-sat amount for an
-   amountless invoice.
-6. Blink custodial connections reject amountless invoices before dispatch.
-7. Blink receive-only connections without `api-key=` do not expose Lightning
-   Manager actions.
-8. A malformed or invalid invoice produces a friendly error.
-9. Phoenixd and Blink custodial connections show the backend-fee-policy
-   warning and do not submit a maximum-fee value.
-
-Automated sign-off currently covers LND and CLN peer connection, existing
-channel listing, channel-open preview validation, and bidirectional payments.
-Real channel funding remains part of the manual sign-off and is not submitted
-by the automated test.
-
-Use [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) to record the
-manual Eclair, Phoenixd, Blink custodial, and Blink receive-only results
-without copying credentials.
-
-## Manual Channel-Opening Sign-Off
+## Manual channel-opening sign-off
 
 Use disposable, funded regtest nodes for the final LND and CLN check:
 
-1. Record both nodes' channel lists and on-chain balances.
+1. Record both nodes' channel lists, pending-channel counts, and on-chain
+   balances.
 2. Connect the remote peer through Lightning Manager.
 3. Preview a small channel at `1 sat/vB` and verify the peer, amount, and fee.
 4. Submit the confirmation once.
-5. Before mining, reopen `Channels` and confirm exactly one pending channel is
-   listed even when it does not yet have a short channel ID.
-6. For CLN, verify the adapter sent `1000perkb` for the `1 sat/vB` input.
-7. Mine a block and verify exactly one funding transaction and one new channel
-   with the expected peer, capacity, and state.
+5. Before mining, validate the backend-specific pending state:
+   - For CLN, reopen `Channels` and confirm one additional channel is listed.
+     On the node, confirm it does not yet have a short channel ID and verify the
+     adapter sent `1000perkb` for the `1 sat/vB` input.
+   - For LND, confirm that `Pending channels` in `Overview` and the node's
+     pending-channel count each increased by one. Do not expect the channel in
+     `Channels` before confirmation because the LND adapter does not include
+     pending opens in its channel list.
+6. Mine enough blocks for the configured channel confirmation threshold.
+7. Verify exactly one funding transaction and one additional channel with the
+   expected peer, capacity, and state.
 
 Lightning Manager uses the Lightning adapter loaded by the BTCPay Server host;
-it does not bundle a competing adapter. The functional checks above must
-therefore be run against the exact BTCPay Server version selected for release.
-
-## Manual Package Commands
-
-The automated package gate is the preferred path. For isolated debugging,
-build the plugin and PluginPacker in Release mode:
-
-```bash
-dotnet build BTCPayServer.Plugins.LightningManager/BTCPayServer.Plugins.LightningManager.csproj -c Release
-
-dotnet build submodules/btcpayserver/BTCPayServer.PluginPacker/BTCPayServer.PluginPacker.csproj -c Release
-```
-
-Then create a package:
-
-```bash
-dotnet submodules/btcpayserver/BTCPayServer.PluginPacker/bin/Release/net10.0/BTCPayServer.PluginPacker.dll \
-  BTCPayServer.Plugins.LightningManager/bin/Release/net10.0 \
-  BTCPayServer.Plugins.LightningManager \
-  /private/tmp/lightning-manager-package
-```
-
-Always package into a new, empty output directory. PluginPacker replaces the
-package and checksum files, but it does not remove unrelated files left by an
-older release.
-
-The package directory must contain:
-
-- `BTCPayServer.Plugins.LightningManager.btcpay`;
-- `BTCPayServer.Plugins.LightningManager.btcpay.json`; and
-- `SHA256SUMS`.
-
-The `.btcpay` archive must contain only the plugin DLL and `.deps.json`. It
-must not contain `.pdb` files or an empty static-web-assets manifest left by
-an older build.
+it does not bundle a competing adapter. Run these checks against the exact
+BTCPay Server version selected for release.

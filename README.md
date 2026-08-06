@@ -46,31 +46,38 @@ each request.
 ## Quick Start
 
 1. Open a store that already has external BTC Lightning configured.
-2. Open the store's Lightning menu and select `Overview`.
+2. In the store sidebar, open `Plugins` and select `Lightning Manager`. This
+   opens the BTC `Overview` page.
 3. Confirm that Lightning Manager detected the expected node or wallet and
    review the available actions.
 4. Use `Pay` to preview an invoice before sending it.
-5. Use `Peers` or `Channels` only when those tabs are available for your
+5. Use `Peers` or `Channels` only when those menu items are available for your
    backend.
 
-## Supported Lightning Setups
+## Capability Presets
 
-| Setup | Info | Balance | Pay | Amountless BOLT11 | Maximum fee | Connect peer | Open channel | List channels |
-| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| LND REST / BTCPay `lnd-grpc` value | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Core Lightning (CLN) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Eclair | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Phoenixd | Yes | Yes | Yes | Yes | No | No | No | No |
-| Blink custodial with `api-key=` and `currency=BTC` | No | Yes | Yes | No | No | No | No | No |
-| Blink custodial USD or legacy `api-key=` without `currency=` | No | No | Yes | No | No | No | No | No |
-| Blink receive-only with `ln-address=` or `username=`, without `api-key=` | No | No | No | No | No | No | No | No |
+| Setup | Info | Balance | Pay | Amountless BOLT11 | Maximum fee | Connect peer | Open channel | List channels | Validation status |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
+| LND REST / BTCPay `lnd-grpc` value | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Automated service + Playwright E2E |
+| Core Lightning (CLN) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Automated service + Playwright E2E; peer count blocked upstream |
+| Eclair | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Automated Playwright E2E (0.8) |
+| Phoenixd | Yes | Yes | Yes | Yes | No | No | No | No | Manual sign-off pending |
+| Blink custodial with `api-key=` and `currency=BTC` | No | Yes | Yes | No | No | No | No | No | Manual sign-off pending |
+| Blink custodial USD or legacy `api-key=` without `currency=` | No | No | Yes | No | No | No | No | No | Manual sign-off pending |
+| Blink receive-only with `ln-address=` or `username=`, without `api-key=` | No | No | No | No | No | No | No | No | Manual sign-off pending |
 
 LND connections use the REST client provided by BTCPay Server. The historical
 `type=lnd-grpc` connection-string value is an alias for that REST client; it
 does not select a separate gRPC transport.
 
-The table describes the actions exposed by each connection-string preset; it
-is not a runtime feature probe.
+The Yes/No columns describe actions exposed by each connection-string preset;
+they are not compatibility or release sign-off claims. Repository validation
+uses the standard BTCPay test stack for real service-level CLN/LND integration
+and Playwright channel/payment flows for CLN, LND, and Eclair 0.8. Packaging
+and distribution are handled separately through the Plugin Builder. Phoenixd
+and Blink remain unvalidated until their manual records in
+[`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) contain real
+backend evidence.
 
 Blink receive-only connections do not expose Lightning Manager. They are
 intended to receive payments, while this plugin does not create invoices or
@@ -83,9 +90,7 @@ Manager cannot set a per-payment maximum fee for them.
 For fixed-amount invoices, the signed invoice amount is authoritative and any
 submitted amount override is ignored. For amountless invoices on supported
 backends, enter a positive whole number of satoshis before previewing the
-payment. Blink custodial connections currently support fixed-amount invoices
-only because the upstream adapter does not pass an operator-entered amount to
-the wallet.
+payment. Backends without amountless support accept fixed-amount invoices only.
 
 ## Safety
 
@@ -120,14 +125,15 @@ Lightning Manager:
 
 ### Lightning Manager does not appear
 
-Confirm that the store uses a supported external BTC Lightning connection and
-that your user has the Lightning node access permission. The plugin is
+Look for `Lightning Manager` under `Plugins` in the store sidebar. Confirm that
+the store uses a supported external BTC Lightning connection and that your user
+has the Lightning node access permission. The plugin is
 intentionally hidden for BTCPay's shared internal node, non-BTC Lightning
 configurations, unknown backends, and connection strings without a recognized
 `type=`. It is also hidden for Blink receive-only connections without
 `api-key=` because Lightning Manager does not provide receiving tools.
 
-### A tab or action is missing
+### A page or action is missing
 
 This normally means the capability preset for the connection string does not
 include that action. For Blink, compare its `api-key=` and `currency=` fields
@@ -140,16 +146,9 @@ Reopen the same page and check the Lightning node or wallet before retrying.
 The operation may have reached the backend even if the browser never received
 the final response.
 
-### Blink has limited overview information
-
-Blink custodial connections with `api-key=` and `currency=BTC` expose Balance
-and Pay but not node Info. Blink custodial USD and legacy connections without
-an explicit `currency=` are payment-only. Blink receive-only connections
-without `api-key=` do not expose Lightning Manager.
-
 ## Development
 
-Build, test, package-validation, and backend sign-off instructions are in
+Build, native BTCPay test-harness, and backend sign-off instructions are in
 [`CONTRIBUTING.md`](CONTRIBUTING.md). The manual backend checklist is in
 [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md).
 
