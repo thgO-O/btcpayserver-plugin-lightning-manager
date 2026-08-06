@@ -1,7 +1,6 @@
 using BTCPayServer;
 using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Models;
-using BTCPayServer.Hosting;
 using BTCPayServer.Plugins.LightningManager.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -16,15 +15,12 @@ public class LightningManagerPlugin : BaseBTCPayServerPlugin
 
     public override void Execute(IServiceCollection services)
     {
-        var plugins = (PluginServiceCollection)services;
-
-        plugins.AddSingleton<ILightningCapabilityService, LightningCapabilityService>();
-        plugins.AddSingleton<LightningManagerResultStore>();
-        plugins.AddSingleton<LightningManagerChannelConfirmationStore>();
-        plugins.AddSingleton<LightningManagerPaymentConfirmationStore>();
-        plugins.AddSingleton<LightningManagerOperationGuard>();
-        plugins.AddScoped<IStoreLightningManagerContextFactory, StoreLightningManagerContextFactory>();
-        plugins.AddSingleton<ILightningManagerService, LightningManagerService>();
-        plugins.AddUIExtension("lightning-nav", "LightningManager/LightningManagerNav");
+        services.AddSingleton<LightningManagerResultStore>();
+        services.AddSingleton<LightningManagerChannelConfirmationStore>();
+        services.AddSingleton<LightningManagerPaymentConfirmationStore>();
+        services.AddSingleton<LightningManagerOperationGuard>();
+        services.AddSingleton<IStoreLightningManagerContextFactory, StoreLightningManagerContextFactory>();
+        services.AddSingleton<LightningManagerService>();
+        services.AddUIExtension("store-integrations-nav", "LightningManager/LightningManagerStoreNav");
     }
 }

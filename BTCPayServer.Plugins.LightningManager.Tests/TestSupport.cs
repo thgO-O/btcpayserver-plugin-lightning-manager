@@ -1,4 +1,3 @@
-#nullable enable
 using System.Security.Claims;
 using BTCPayServer;
 using BTCPayServer.Data;
@@ -12,6 +11,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NBitcoin;
@@ -19,22 +20,61 @@ using NBXplorer;
 
 namespace BTCPayServer.Plugins.LightningManager.Tests;
 
+internal static class TestInvoiceData
+{
+    public const string AmountlessBolt11 =
+        "lnbcrt1p49g38fsp5pt3nfdequqzynepp4fnqkjky3vpnnjy7k4aw4qsrpjx8uauslj8spp5e0ecjegxuc8k760w6cluj2tvrgytwpp6ls9wwata4wx6qkj043lsdpyd35kw6r5de5kueedd4skuct8v4ez6ar9wd6qxqxfvcqcqcqp29qxpqysgqstrrcpnyws5g93th9wu7ngjvu29pa9tattwpj6q6nsq0ep2wv4ax964t0hgnjszwspy3udg88xft902rudt9mvc4trj8l2tv0uukf9gpgzqz2r";
+    public const string FixedAmountBolt11 =
+        "lnbcrt20n1p49g3gqsp5ne4g7vrg5my5m7ur9u9curv7hfvn0tfx9h4k65uwwwk2gezwt5gqpp5umaryhan5kynzu7xd56zaqc9g32ahul3ehdh9cn2uuz0yh8nd5gqdpdd35kw6r5de5kueedd4skuct8v4ez6enf0pjkgtt5v4ehgxqxfvcqcqcqp29qxpqysgqu7ku8yv7szhps4005y5lh6yulv8heln8ztfwj4urk8lhrws20d7nncm8965ctns7c920kn7k46egwcmmuuhtt6cyyyqzg7vf485klzqpa09hcc";
+}
+
+internal static class TestLightningManagerServiceFactory
+{
+    public static LightningManagerService Create(ILogger<LightningManagerService>? logger = null)
+    {
+        return new LightningManagerService(
+            logger ?? NullLogger<LightningManagerService>.Instance,
+            new LightningManagerOperationGuard());
+    }
+}
+
+internal static class ConcurrentTestRunner
+{
+    public static async Task<T[]> RunAsync<T>(int workerCount, Func<T> action)
+    {
+        var readyCount = 0;
+        var allReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = Enumerable.Range(0, workerCount)
+            .Select(_ => Task.Run(async () =>
+            {
+                if (Interlocked.Increment(ref readyCount) == workerCount)
+                {
+                    allReady.SetResult();
+                }
+
+                await release.Task;
+                return action();
+            }))
+            .ToArray();
+
+        await allReady.Task;
+        release.SetResult();
+        return await Task.WhenAll(attempts);
+    }
+}
+
 internal static class TestNetworkFactory
 {
-    private static readonly Lazy<BTCPayNetwork> Network = new(CreateNetwork);
+    private static readonly BTCPayNetwork Network = new()
+    {
+        CryptoCode = "BTC",
+        NBXplorerNetwork = new NBXplorerNetworkProvider(ChainName.Regtest).GetBTC()
+    };
 
     public static BTCPayNetwork GetBitcoinNetwork()
     {
-        return Network.Value;
-    }
-
-    private static BTCPayNetwork CreateNetwork()
-    {
-        return new BTCPayNetwork
-        {
-            CryptoCode = "BTC",
-            NBXplorerNetwork = new NBXplorerNetworkProvider(ChainName.Regtest).GetBTC()
-        };
+        return Network;
     }
 }
 
@@ -42,8 +82,6 @@ internal class FakeLightningClient : ILightningClient
 {
     public Func<CancellationToken, Task<LightningNodeInformation>>? GetInfoHandler { get; set; }
     public Func<CancellationToken, Task<LightningNodeBalance>>? GetBalanceHandler { get; set; }
-    public Func<string, CancellationToken, Task<LightningInvoice>>? GetInvoiceHandler { get; set; }
-    public Func<uint256, CancellationToken, Task<LightningInvoice>>? GetInvoiceByPaymentHashHandler { get; set; }
     public Func<string, CancellationToken, Task<PayResponse>>? PayBolt11Handler { get; set; }
     public Func<string, PayInvoiceParams, CancellationToken, Task<PayResponse>>? PayBolt11WithParamsHandler { get; set; }
     public Func<NodeInfo, CancellationToken, Task<ConnectionResult>>? ConnectToHandler { get; set; }
@@ -51,10 +89,8 @@ internal class FakeLightningClient : ILightningClient
     public Func<CancellationToken, Task<LightningChannel[]>>? ListChannelsHandler { get; set; }
     public Func<string, CancellationToken, Task<LightningPayment>>? GetPaymentHandler { get; set; }
 
-    public Task<LightningInvoice> GetInvoice(string invoiceId, CancellationToken cancellation = default) =>
-        GetInvoiceHandler is null ? throw new NotSupportedException() : GetInvoiceHandler(invoiceId, cancellation);
-    public Task<LightningInvoice> GetInvoice(uint256 paymentHash, CancellationToken cancellation = default) =>
-        GetInvoiceByPaymentHashHandler is null ? throw new NotSupportedException() : GetInvoiceByPaymentHashHandler(paymentHash, cancellation);
+    public Task<LightningInvoice> GetInvoice(string invoiceId, CancellationToken cancellation = default) => throw new NotSupportedException();
+    public Task<LightningInvoice> GetInvoice(uint256 paymentHash, CancellationToken cancellation = default) => throw new NotSupportedException();
     public Task<LightningInvoice[]> ListInvoices(CancellationToken cancellation = default) => throw new NotSupportedException();
     public Task<LightningInvoice[]> ListInvoices(ListInvoicesParams request, CancellationToken cancellation = default) => throw new NotSupportedException();
     public Task<LightningPayment> GetPayment(string paymentHash, CancellationToken cancellation = default) =>
@@ -128,12 +164,9 @@ internal sealed class FakeStoreLightningManagerContextFactory : IStoreLightningM
 {
     public required StoreLightningManagerContext Context { get; set; }
 
-    public Task<StoreLightningManagerContext> CreateAsync(
-        StoreData store,
-        string cryptoCode,
-        CancellationToken cancellationToken = default)
+    public StoreLightningManagerContext Create(StoreData store, string cryptoCode)
     {
-        return Task.FromResult(Context);
+        return Context;
     }
 }
 
@@ -145,15 +178,14 @@ internal static class TestContextFactory
         string? connectionString = null,
         string storeId = "store-1")
     {
-        var backendConnectionString = connectionString ?? "type=test;server=http://127.0.0.1/";
+        var backendConnectionString = connectionString ?? "type=clightning;server=tcp://127.0.0.1:9735/";
         return new StoreLightningManagerContext
         {
-            Store = new StoreData { Id = storeId, StoreName = "Test Store" },
             StoreId = storeId,
             CryptoCode = "BTC",
             Network = TestNetworkFactory.GetBitcoinNetwork(),
             Client = client ?? new FakeLightningClient(),
-            ConnectionString = connectionString,
+            BackendType = LightningBackendTypes.TryGet(backendConnectionString),
             BackendFingerprint = LightningBackendTypes.GetFingerprint(backendConnectionString),
             BackendIdentityFingerprint = LightningBackendTypes.GetIdentityFingerprint(backendConnectionString),
             Capabilities = capabilities,
@@ -165,10 +197,8 @@ internal static class TestContextFactory
     {
         return new StoreLightningManagerContext
         {
-            Store = new StoreData { Id = "store-1", StoreName = "Test Store" },
             StoreId = "store-1",
             CryptoCode = "BTC",
-            Network = TestNetworkFactory.GetBitcoinNetwork(),
             BackendFingerprint = string.Empty,
             BackendIdentityFingerprint = string.Empty,
             Capabilities = LightningCapabilities.None,
@@ -180,44 +210,30 @@ internal static class TestContextFactory
 internal static class TestControllerFactory
 {
     public static Controllers.LightningManagerController CreateController(
-        StoreLightningManagerContext context)
-    {
-        return CreateController(context, new LightningManagerService());
-    }
-
-    public static Controllers.LightningManagerController CreateController(
         StoreLightningManagerContext context,
-        ILightningManagerService lightningManagerService)
-    {
-        return CreateController(
-            context,
-            lightningManagerService,
-            new LightningManagerResultStore(new MemoryCache(new MemoryCacheOptions())));
-    }
-
-    public static Controllers.LightningManagerController CreateController(
-        StoreLightningManagerContext context,
-        ILightningManagerService lightningManagerService,
-        LightningManagerResultStore resultStore,
+        LightningManagerResultStore? resultStore = null,
         LightningManagerChannelConfirmationStore? channelConfirmationStore = null,
         LightningManagerPaymentConfirmationStore? paymentConfirmationStore = null,
         IStoreLightningManagerContextFactory? contextFactory = null)
     {
+        var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var controller = new Controllers.LightningManagerController(
             contextFactory ?? new FakeStoreLightningManagerContextFactory { Context = context },
-            lightningManagerService,
-            resultStore,
-            channelConfirmationStore ?? new LightningManagerChannelConfirmationStore(
-                new MemoryCache(new MemoryCacheOptions())),
-            paymentConfirmationStore ?? new LightningManagerPaymentConfirmationStore(
-                new MemoryCache(new MemoryCacheOptions())));
+            TestLightningManagerServiceFactory.Create(),
+            resultStore ?? new LightningManagerResultStore(memoryCache),
+            channelConfirmationStore ?? new LightningManagerChannelConfirmationStore(memoryCache),
+            paymentConfirmationStore ?? new LightningManagerPaymentConfirmationStore(memoryCache));
 
         var httpContext = new DefaultHttpContext();
         httpContext.User = new ClaimsPrincipal(
             new ClaimsIdentity(
                 [new Claim(ClaimTypes.NameIdentifier, "user-1")],
                 "Test"));
-        httpContext.SetStoreData(context.Store);
+        httpContext.SetStoreData(new StoreData
+        {
+            Id = context.StoreId,
+            StoreName = "Test Store"
+        });
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = httpContext

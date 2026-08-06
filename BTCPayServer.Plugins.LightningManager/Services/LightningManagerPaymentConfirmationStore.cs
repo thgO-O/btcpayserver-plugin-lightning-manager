@@ -1,4 +1,3 @@
-#nullable enable
 using System.Globalization;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -36,8 +35,14 @@ public sealed class LightningManagerPaymentConfirmationStore
         ArgumentException.ThrowIfNullOrWhiteSpace(cryptoCode);
         ArgumentException.ThrowIfNullOrWhiteSpace(backendFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(bolt11);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amountSats ?? 1);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxFeeSats ?? 1);
+        if (amountSats is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amountSats));
+        }
+        if (maxFeeSats is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxFeeSats));
+        }
 
         var token = Guid.NewGuid().ToString("N");
         _memoryCache.Set(
@@ -50,10 +55,7 @@ public sealed class LightningManagerPaymentConfirmationStore
                 NormalizeBolt11(bolt11),
                 amountSats,
                 maxFeeSats),
-            new MemoryCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = _lifetime
-            });
+            _lifetime);
         return token;
     }
 

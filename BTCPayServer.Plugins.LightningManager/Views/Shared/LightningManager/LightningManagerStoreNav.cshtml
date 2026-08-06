@@ -1,0 +1,81 @@
+@using BTCPayServer.Client
+@model BTCPayServer.Components.MainNav.MainNavViewModel
+@inject IStoreLightningManagerContextFactory ContextFactory
+@{
+    const string cryptoCode = LightningManagerCrypto.Bitcoin;
+    var managerContext = Model.Store is null
+        ? null
+        : ContextFactory.Create(Model.Store, cryptoCode);
+    var activePage = ViewData["ActivePage"]?.ToString();
+    var isManagerPage = activePage is
+        LightningManagerNavPages.Overview or
+        LightningManagerNavPages.Send or
+        LightningManagerNavPages.Peers or
+        LightningManagerNavPages.Channels;
+}
+
+@if (managerContext is { IsConfigured: true })
+{
+    <li class="nav-item"
+        permission="@Policies.CanUseLightningNodeInStore"
+        permission-resource="@managerContext.StoreId">
+        <a layout-menu-item="@LightningManagerNavPages.Overview"
+           asp-area=""
+           asp-controller="LightningManager"
+           asp-action="Overview"
+           asp-route-storeId="@managerContext.StoreId"
+           asp-route-cryptoCode="@managerContext.CryptoCode">
+            <vc:icon symbol="lightning-node" />
+            <span>Lightning Manager</span>
+        </a>
+    </li>
+
+    @if (isManagerPage && managerContext.Capabilities.CanPayBolt11)
+    {
+        <li class="nav-item nav-item-sub"
+            permission="@Policies.CanUseLightningNodeInStore"
+            permission-resource="@managerContext.StoreId">
+            <a layout-menu-item="@LightningManagerNavPages.Send"
+               asp-area=""
+               asp-controller="LightningManager"
+               asp-action="Send"
+               asp-route-storeId="@managerContext.StoreId"
+               asp-route-cryptoCode="@managerContext.CryptoCode">
+                Pay
+            </a>
+        </li>
+    }
+
+    @if (isManagerPage && managerContext.Capabilities.CanConnectPeer)
+    {
+        <li class="nav-item nav-item-sub"
+            permission="@Policies.CanUseLightningNodeInStore"
+            permission-resource="@managerContext.StoreId">
+            <a layout-menu-item="@LightningManagerNavPages.Peers"
+               asp-area=""
+               asp-controller="LightningManager"
+               asp-action="Peers"
+               asp-route-storeId="@managerContext.StoreId"
+               asp-route-cryptoCode="@managerContext.CryptoCode">
+                Peers
+            </a>
+        </li>
+    }
+
+    @if (isManagerPage &&
+         (managerContext.Capabilities.CanListChannels || managerContext.Capabilities.CanOpenChannel))
+    {
+        <li class="nav-item nav-item-sub"
+            permission="@Policies.CanUseLightningNodeInStore"
+            permission-resource="@managerContext.StoreId">
+            <a layout-menu-item="@LightningManagerNavPages.Channels"
+               asp-area=""
+               asp-controller="LightningManager"
+               asp-action="Channels"
+               asp-route-storeId="@managerContext.StoreId"
+               asp-route-cryptoCode="@managerContext.CryptoCode">
+                Channels
+            </a>
+        </li>
+    }
+}

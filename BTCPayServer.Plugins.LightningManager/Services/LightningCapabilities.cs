@@ -14,12 +14,22 @@ public sealed class LightningCapabilities
         CanOpenChannel = true,
         CanListChannels = true
     };
-    public static LightningCapabilities CoreLightning { get; } = Full;
-    public static LightningCapabilities Eclair { get; } = Full;
-    public static LightningCapabilities Phoenixd { get; } = PayOnly(canPayAmountless: true);
-    public static LightningCapabilities BlinkBitcoin { get; } = PayOnly(canGetInfo: false);
-    public static LightningCapabilities BlinkPayOnly { get; } = PayOnly(canGetInfo: false, canGetBalance: false);
-    public static LightningCapabilities InfoBalancePay { get; } = Phoenixd;
+    public static LightningCapabilities Phoenixd { get; } = new()
+    {
+        CanGetInfo = true,
+        CanGetBalance = true,
+        CanPayBolt11 = true,
+        CanPayAmountless = true
+    };
+    public static LightningCapabilities BlinkBitcoin { get; } = new()
+    {
+        CanGetBalance = true,
+        CanPayBolt11 = true
+    };
+    public static LightningCapabilities BlinkPayOnly { get; } = new()
+    {
+        CanPayBolt11 = true
+    };
 
     private bool _canPayAmountless;
 
@@ -42,18 +52,4 @@ public sealed class LightningCapabilities
         CanConnectPeer ||
         CanOpenChannel ||
         CanListChannels;
-
-    public static LightningCapabilities PayOnly(
-        bool canGetInfo = true,
-        bool canGetBalance = true,
-        bool canPayAmountless = false)
-    {
-        return new LightningCapabilities
-        {
-            CanGetInfo = canGetInfo,
-            CanGetBalance = canGetBalance,
-            CanPayBolt11 = true,
-            CanPayAmountless = canPayAmountless
-        };
-    }
 }

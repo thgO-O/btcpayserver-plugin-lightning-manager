@@ -8,6 +8,30 @@ public class LightningManagerPaymentConfirmationStoreTests
 {
     private const string BackendFingerprint = "backend-a";
 
+    [Theory]
+    [InlineData(0L, null, "amountSats")]
+    [InlineData(null, 0L, "maxFeeSats")]
+    public void Create_RejectsNonPositiveOptionalValues(
+        long? amountSats,
+        long? maxFeeSats,
+        string expectedParameter)
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new LightningManagerPaymentConfirmationStore(cache);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            store.Create(
+                "user-1",
+                "store-1",
+                "BTC",
+                BackendFingerprint,
+                "lnbcrt1test",
+                amountSats,
+                maxFeeSats));
+
+        Assert.Equal(expectedParameter, exception.ParamName);
+    }
+
     [Fact]
     public void Confirmation_IsScopedAndPayloadMismatchDoesNotConsumeIt()
     {
@@ -48,10 +72,17 @@ public class LightningManagerPaymentConfirmationStoreTests
         var store = new LightningManagerPaymentConfirmationStore(cache);
         var token = store.Create("user-1", "store-1", "BTC", BackendFingerprint, "lnbcrt1test", 123, null);
 
-        var results = await Task.WhenAll(
-            Enumerable.Range(0, 20)
-                .Select(_ => Task.Run(() =>
-                    store.TryConsume(token, "user-1", "store-1", "BTC", BackendFingerprint, "lnbcrt1test", "123", null))));
+        var results = await ConcurrentTestRunner.RunAsync(
+            20,
+            () => store.TryConsume(
+                token,
+                "user-1",
+                "store-1",
+                "BTC",
+                BackendFingerprint,
+                "lnbcrt1test",
+                "123",
+                null));
 
         Assert.Single(results, consumed => consumed);
     }

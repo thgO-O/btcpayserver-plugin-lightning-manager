@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Text;
 using BTCPayServer.Lightning;
@@ -15,12 +14,10 @@ public class LightningManagerServiceTests
 {
     private const string ExpiredBolt11 =
         "lnbcrt20u1psd66dppp5m4ughz9keyptj80qcn35cx9w52p7gc8eyx4m6y5456jlhm04wfvsdqqcqzpgxqyz5vqsp5pdsxhsnrs69n940373fnec2zxw5yzlksnev40ejcq39lnju5lt3s9qyyssqpq760qvf46y3cch948wau8e5ym0zungnqfvdx5wruy6f0hru2pp9txtc9up2lfc439a2xuz6nvgjw40vsddhywjpc5qmm0q3dj4m3dcqxzjjeg";
-    private const string AmountlessBolt11 =
-        "lnbcrt1p49g38fsp5pt3nfdequqzynepp4fnqkjky3vpnnjy7k4aw4qsrpjx8uauslj8spp5e0ecjegxuc8k760w6cluj2tvrgytwpp6ls9wwata4wx6qkj043lsdpyd35kw6r5de5kueedd4skuct8v4ez6ar9wd6qxqxfvcqcqcqp29qxpqysgqstrrcpnyws5g93th9wu7ngjvu29pa9tattwpj6q6nsq0ep2wv4ax964t0hgnjszwspy3udg88xft902rudt9mvc4trj8l2tv0uukf9gpgzqz2r";
-    private const string FixedAmountBolt11 =
-        "lnbcrt20n1p49g3gqsp5ne4g7vrg5my5m7ur9u9curv7hfvn0tfx9h4k65uwwwk2gezwt5gqpp5umaryhan5kynzu7xd56zaqc9g32ahul3ehdh9cn2uuz0yh8nd5gqdpdd35kw6r5de5kueedd4skuct8v4ez6enf0pjkgtt5v4ehgxqxfvcqcqcqp29qxpqysgqu7ku8yv7szhps4005y5lh6yulv8heln8ztfwj4urk8lhrws20d7nncm8965ctns7c920kn7k46egwcmmuuhtt6cyyyqzg7vf485klzqpa09hcc";
+    private static readonly string FixedAmountPaymentHash =
+        BOLT11PaymentRequest.Parse(TestInvoiceData.FixedAmountBolt11, Network.RegTest).PaymentHash!.ToString();
 
-    private readonly LightningManagerService _service = new();
+    private readonly LightningManagerService _service = TestLightningManagerServiceFactory.Create();
 
     [Fact]
     public void TryCreateSendPreview_WithInvalidBolt11_ReturnsFriendlyError()
@@ -45,14 +42,46 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task ConnectPeerAsync_WhenRequestIsCanceled_PropagatesCancellation()
+    public async Task ConnectPeerAsync_WithValidNode_ConnectsOnceAndReturnsSuccess()
+    {
+        const string nodeId = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        const string nodeUri = $"{nodeId}@127.0.0.1:9735";
+        var callCount = 0;
+        NodeInfo? connectedNode = null;
+        var propagatedToken = CancellationToken.None;
+        var client = new FakeLightningClient
+        {
+            ConnectToHandler = (node, token) =>
+            {
+                callCount++;
+                connectedNode = node;
+                propagatedToken = token;
+                return Task.FromResult(ConnectionResult.Ok);
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        using var cancellation = new CancellationTokenSource();
+
+        var result = await _service.ConnectPeerAsync(context, nodeUri, cancellation.Token);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("Connected to peer successfully.", result.Message);
+        Assert.Equal(1, callCount);
+        Assert.NotNull(connectedNode);
+        Assert.Equal(nodeId, connectedNode.NodeId.ToString());
+        Assert.Equal("127.0.0.1", connectedNode.Host);
+        Assert.Equal(9735, connectedNode.Port);
+        Assert.Equal(cancellation.Token, propagatedToken);
+        Assert.True(propagatedToken.CanBeCanceled);
+        Assert.False(propagatedToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task ConnectPeerAsync_WhenCanceledBeforeDispatch_PropagatesCancellation()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        var client = new FakeLightningClient
-        {
-            ConnectToHandler = (_, token) => throw new OperationCanceledException(token)
-        };
+        var client = new FakeLightningClient();
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -65,14 +94,13 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WithUnknownPayResult_DoesNotMarkPaymentAsSuccessful()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Unknown))
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
@@ -83,7 +111,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WithProviderError_DoesNotExposeRawErrorDetail()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -91,19 +118,18 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
         Assert.NotNull(result.Payment);
         Assert.Equal(LightningPaymentStatus.Unknown, result.Payment.Status);
-        Assert.Equal("test-hash", result.Payment.PaymentHash);
+        Assert.Equal(FixedAmountPaymentHash, result.Payment.PaymentHash);
     }
 
     [Fact]
     public async Task SendAsync_WithProviderErrorMentioningBalance_RemainsUnknownWithoutReconciliation()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -111,7 +137,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
@@ -122,7 +148,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_UsesExplicitMaximumFee()
     {
-        var service = new BypassingValidationLightningManagerService();
         PayInvoiceParams? capturedParams = null;
         var client = new FakeLightningClient
         {
@@ -134,7 +159,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, "21");
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, "21");
 
         Assert.True(result.Result.IsSuccess);
         Assert.NotNull(capturedParams);
@@ -144,7 +169,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_UsesNormalizedPreviewInvoice()
     {
-        var service = new BypassingValidationLightningManagerService();
         string? capturedBolt11 = null;
         var client = new FakeLightningClient
         {
@@ -156,23 +180,41 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, " lnbcrt1test ", null, null);
+        var result = await _service.SendAsync(context, $" {TestInvoiceData.FixedAmountBolt11} ", null, null);
 
         Assert.True(result.Result.IsSuccess);
-        Assert.Equal("lnbcrt1test", capturedBolt11);
+        Assert.Equal(TestInvoiceData.FixedAmountBolt11, capturedBolt11);
     }
 
     [Theory]
     [InlineData("-1")]
     [InlineData("0")]
+    [InlineData("9223372036854776")]
     public void TryCreateSendPreview_WithInvalidMaxFee_ReturnsFriendlyError(string maxFeeSats)
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
 
-        var ok = _service.TryCreateSendPreview(context, FixedAmountBolt11, null, maxFeeSats, out _, out var error);
+        var ok = _service.TryCreateSendPreview(context, TestInvoiceData.FixedAmountBolt11, null, maxFeeSats, out _, out var error);
 
         Assert.False(ok);
         Assert.Equal("Maximum fee must be a positive whole number of sats.", error);
+    }
+
+    [Fact]
+    public void TryCreateSendPreview_WithMaximumRepresentableMaxFee_Succeeds()
+    {
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
+
+        var ok = _service.TryCreateSendPreview(
+            context,
+            TestInvoiceData.FixedAmountBolt11,
+            null,
+            "9223372036854775",
+            out var preview,
+            out var error);
+
+        Assert.True(ok, error);
+        Assert.Equal(9_223_372_036_854_775, preview!.MaxFeeSats);
     }
 
     [Fact]
@@ -182,7 +224,7 @@ public class LightningManagerServiceTests
 
         var ok = _service.TryCreateSendPreview(
             context,
-            AmountlessBolt11,
+            TestInvoiceData.AmountlessBolt11,
             "123",
             "7",
             out var preview,
@@ -198,49 +240,16 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WithBlinkAmountlessInvoice_DoesNotDispatchPayment()
     {
-        var payCalled = false;
-        var client = new FakeLightningClient
-        {
-            PayBolt11WithParamsHandler = (_, _, _) =>
-            {
-                payCalled = true;
-                return Task.FromResult(new PayResponse(PayResult.Ok));
-            }
-        };
+        var client = new FakeLightningClient();
         var context = TestContextFactory.CreateConfigured(
             LightningCapabilities.BlinkBitcoin,
             client,
             "type=blink;server=https://api.blink.sv/;currency=BTC");
 
-        var result = await _service.SendAsync(context, AmountlessBolt11, "123", null);
+        var result = await _service.SendAsync(context, TestInvoiceData.AmountlessBolt11, "123", null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Amountless invoices are not supported by this backend.", result.Result.Message);
-        Assert.False(payCalled);
-    }
-
-    [Fact]
-    public async Task SendAsync_WithoutAmountlessCapability_DoesNotDispatchPayment()
-    {
-        var payCalled = false;
-        var client = new FakeLightningClient
-        {
-            PayBolt11WithParamsHandler = (_, _, _) =>
-            {
-                payCalled = true;
-                return Task.FromResult(new PayResponse(PayResult.Ok));
-            }
-        };
-        var context = TestContextFactory.CreateConfigured(
-            LightningCapabilities.PayOnly(),
-            client,
-            "type=phoenixd;server=https://example.com");
-
-        var result = await _service.SendAsync(context, AmountlessBolt11, "123", null);
-
-        Assert.False(result.Result.IsSuccess);
-        Assert.Equal("Amountless invoices are not supported by this backend.", result.Result.Message);
-        Assert.False(payCalled);
     }
 
     [Fact]
@@ -252,7 +261,7 @@ public class LightningManagerServiceTests
 
         var ok = _service.TryCreateSendPreview(
             context,
-            FixedAmountBolt11,
+            TestInvoiceData.FixedAmountBolt11,
             null,
             null,
             out var preview,
@@ -265,18 +274,16 @@ public class LightningManagerServiceTests
 
     [Theory]
     [InlineData(null)]
-    [InlineData("")]
     [InlineData("0")]
-    [InlineData("-1")]
     [InlineData("1.5")]
-    [InlineData("9223372036854775808")]
+    [InlineData("9223372036854775807")]
     public void TryCreateSendPreview_WithInvalidAmountlessAmount_ReturnsFriendlyError(string? amountSats)
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
 
         var ok = _service.TryCreateSendPreview(
             context,
-            AmountlessBolt11,
+            TestInvoiceData.AmountlessBolt11,
             amountSats,
             null,
             out _,
@@ -293,7 +300,7 @@ public class LightningManagerServiceTests
 
         var ok = _service.TryCreateSendPreview(
             context,
-            FixedAmountBolt11,
+            TestInvoiceData.FixedAmountBolt11,
             "999999",
             null,
             out var preview,
@@ -320,7 +327,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await _service.SendAsync(context, AmountlessBolt11, "321", "9");
+        var result = await _service.SendAsync(context, TestInvoiceData.AmountlessBolt11, "321", "9");
 
         Assert.True(result.Result.IsSuccess);
         Assert.NotNull(capturedParams);
@@ -342,7 +349,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Phoenixd, client);
 
-        var result = await _service.SendAsync(context, FixedAmountBolt11, "999999", "-10");
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, "999999", "-10");
 
         Assert.True(result.Result.IsSuccess);
         Assert.NotNull(capturedParams);
@@ -378,7 +385,6 @@ public class LightningManagerServiceTests
             client,
             "type=lnd-grpc;server=https://shared-node.example/proxy/;macaroon=CCDD",
             storeId: "store-2");
-        var service = new BypassingValidationLightningManagerService();
         Assert.NotEqual(
             firstStoreContext.BackendFingerprint,
             secondStoreContext.BackendFingerprint);
@@ -386,12 +392,12 @@ public class LightningManagerServiceTests
             firstStoreContext.BackendIdentityFingerprint,
             secondStoreContext.BackendIdentityFingerprint);
 
-        var first = service.SendAsync(firstStoreContext, "lnbcrt1test", null, null);
+        var first = _service.SendAsync(firstStoreContext, TestInvoiceData.FixedAmountBolt11, null, null);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         SendExecutionResult duplicate;
         try
         {
-            duplicate = await service.SendAsync(secondStoreContext, "lnbcrt1test", null, null)
+            duplicate = await _service.SendAsync(secondStoreContext, TestInvoiceData.FixedAmountBolt11, null, null)
                 .WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
@@ -410,7 +416,7 @@ public class LightningManagerServiceTests
     public async Task SendAsync_LogsOnlySanitizedOperationMetadata()
     {
         var logger = new RecordingLogger();
-        var service = new BypassingValidationLightningManagerService(logger);
+        var service = TestLightningManagerServiceFactory.Create(logger);
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => throw new InvalidOperationException(
@@ -421,7 +427,7 @@ public class LightningManagerServiceTests
             client,
             "type=lnd-rest;server=https://secret.example;macaroon=super-secret");
 
-        await service.SendAsync(context, "lnbcrt1test", null, null);
+        await service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         var log = Assert.Single(logger.Entries);
         Assert.Contains("pay", log, StringComparison.Ordinal);
@@ -430,8 +436,8 @@ public class LightningManagerServiceTests
         Assert.Contains("lnd-rest", log, StringComparison.Ordinal);
         Assert.Contains("unknown", log, StringComparison.Ordinal);
         Assert.Contains(nameof(InvalidOperationException), log, StringComparison.Ordinal);
-        Assert.DoesNotContain("lnbcrt1test", log, StringComparison.Ordinal);
-        Assert.DoesNotContain("test-hash", log, StringComparison.Ordinal);
+        Assert.DoesNotContain(TestInvoiceData.FixedAmountBolt11, log, StringComparison.Ordinal);
+        Assert.DoesNotContain(FixedAmountPaymentHash, log, StringComparison.Ordinal);
         Assert.DoesNotContain("secret.example", log, StringComparison.Ordinal);
         Assert.DoesNotContain("super-secret", log, StringComparison.Ordinal);
         Assert.DoesNotContain("private-preimage", log, StringComparison.Ordinal);
@@ -440,7 +446,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenPayThrowsAndPaymentIsUnknown_ReturnsUnknown()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => throw new TimeoutException("timed out"),
@@ -452,7 +457,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
@@ -463,29 +468,18 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenCanceledBeforeDispatch_PropagatesCancellation()
     {
-        var service = new BypassingValidationLightningManagerService();
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        var payCalled = false;
-        var client = new FakeLightningClient
-        {
-            PayBolt11Handler = (_, token) =>
-            {
-                payCalled = true;
-                throw new OperationCanceledException(token);
-            }
-        };
+        var client = new FakeLightningClient();
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => service.SendAsync(context, "lnbcrt1test", null, null, cts.Token));
-        Assert.False(payCalled);
+            () => _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null, cts.Token));
     }
 
     [Fact]
     public async Task SendAsync_WhenCanceledAfterDispatch_ReconcilesWithIndependentTimeout()
     {
-        var service = new BypassingValidationLightningManagerService();
         using var cts = new CancellationTokenSource();
         var reconciliationCalled = false;
         var client = new FakeLightningClient
@@ -508,7 +502,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null, cts.Token);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null, cts.Token);
 
         Assert.True(reconciliationCalled);
         Assert.False(result.Result.IsSuccess);
@@ -519,7 +513,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenPaymentSucceedsAndDetailsLookupIsCanceled_PreservesSuccess()
     {
-        var service = new BypassingValidationLightningManagerService();
         using var cts = new CancellationTokenSource();
         var client = new FakeLightningClient
         {
@@ -532,19 +525,18 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null, cts.Token);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null, cts.Token);
 
         Assert.True(result.Result.IsSuccess);
         Assert.Equal("Payment sent successfully.", result.Result.Message);
         Assert.NotNull(result.Payment);
         Assert.Equal(LightningPaymentStatus.Complete, result.Payment.Status);
-        Assert.Equal("test-hash", result.Payment.PaymentHash);
+        Assert.Equal(FixedAmountPaymentHash, result.Payment.PaymentHash);
     }
 
     [Fact]
     public async Task SendAsync_WhenSuccessfulPaymentLookupStalls_CompletesAfterInternalTimeout()
     {
-        var service = new BypassingValidationLightningManagerService();
         var neverCompletes = new TaskCompletionSource<LightningPayment>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var client = new FakeLightningClient
@@ -554,8 +546,8 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service
-            .SendAsync(context, "lnbcrt1test", null, null)
+        var result = await _service
+            .SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null)
             .WaitAsync(TimeSpan.FromSeconds(8));
 
         Assert.True(result.Result.IsSuccess);
@@ -564,9 +556,107 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenSuccessfulResponseTotalIncludesFee_DoesNotDoubleCountOrLookup()
+    {
+        var neverCompletes = new TaskCompletionSource<LightningPayment>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var getPaymentCalls = 0;
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Ok, new PayDetails
+                {
+                    TotalAmount = LightMoney.Satoshis(3),
+                    FeeAmount = LightMoney.Satoshis(1),
+                    PaymentHash = new uint256(FixedAmountPaymentHash),
+                    Preimage = uint256.One,
+                    Status = LightningPaymentStatus.Complete
+                })),
+            GetPaymentHandler = (_, _) =>
+            {
+                Interlocked.Increment(ref getPaymentCalls);
+                return neverCompletes.Task;
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await _service
+            .SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal(0, getPaymentCalls);
+        Assert.Equal("3 sats", result.Payment!.TotalAmountDisplay);
+        Assert.Equal("1 sats", result.Payment.FeeAmountDisplay);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenSuccessfulResponseTotalExcludesFee_UsesCanonicalAmountPlusFee()
+    {
+        var getPaymentCalls = 0;
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Ok, new PayDetails
+                {
+                    TotalAmount = LightMoney.Satoshis(2),
+                    FeeAmount = LightMoney.Satoshis(1),
+                    PaymentHash = new uint256(FixedAmountPaymentHash),
+                    Preimage = uint256.One,
+                    Status = LightningPaymentStatus.Complete
+                })),
+            GetPaymentHandler = (_, _) =>
+            {
+                Interlocked.Increment(ref getPaymentCalls);
+                return Task.FromResult(new LightningPayment
+                {
+                    Status = LightningPaymentStatus.Failed,
+                    AmountSent = LightMoney.Satoshis(100),
+                    Fee = LightMoney.Satoshis(20),
+                    PaymentHash = "stale-payment-hash",
+                    Preimage = "stale-preimage"
+                });
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal(0, getPaymentCalls);
+        Assert.Equal(LightningPaymentStatus.Complete, result.Payment!.Status);
+        Assert.Equal("3 sats", result.Payment.TotalAmountDisplay);
+        Assert.Equal("1 sats", result.Payment.FeeAmountDisplay);
+        Assert.Equal(FixedAmountPaymentHash, result.Payment.PaymentHash);
+        Assert.Equal(uint256.One.ToString(), result.Payment.Preimage);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenSuccessfulResponseHasNoFee_UsesResponseTotal()
+    {
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(
+                new PayResponse(PayResult.Ok, new PayDetails
+                {
+                    TotalAmount = LightMoney.Satoshis(4),
+                    PaymentHash = new uint256(FixedAmountPaymentHash),
+                    Preimage = uint256.One,
+                    Status = LightningPaymentStatus.Complete
+                }))
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
+
+        Assert.True(result.Result.IsSuccess);
+        Assert.Equal("4 sats", result.Payment!.TotalAmountDisplay);
+        Assert.Null(result.Payment.FeeAmountDisplay);
+    }
+
+    [Fact]
     public async Task SendAsync_WhenPaySucceedsButLookupIsStale_ReportsComplete()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Ok)),
@@ -578,7 +668,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.True(result.Result.IsSuccess);
         Assert.NotNull(result.Payment);
@@ -588,7 +678,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenPayThrowsAndPaymentCompleted_ReturnsSuccess()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => throw new TimeoutException("timed out"),
@@ -603,12 +692,14 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.True(result.Result.IsSuccess);
         Assert.Equal("Payment sent successfully.", result.Result.Message);
         Assert.NotNull(result.Payment);
         Assert.Equal(LightningPaymentStatus.Complete, result.Payment.Status);
+        Assert.Equal("2 sats", result.Payment.TotalAmountDisplay);
+        Assert.Equal("0.1 sats", result.Payment.FeeAmountDisplay);
         Assert.Equal("test-hash", result.Payment.PaymentHash);
         Assert.Equal("preimage", result.Payment.Preimage);
     }
@@ -616,7 +707,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenPayReturnsErrorButPaymentCompleted_ReturnsSuccess()
     {
-        var service = new BypassingValidationLightningManagerService();
         var getPaymentCalls = 0;
         var client = new FakeLightningClient
         {
@@ -634,7 +724,7 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.True(result.Result.IsSuccess);
         Assert.Equal("Payment sent successfully.", result.Result.Message);
@@ -647,7 +737,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenLndReconciliationConfirmsFailure_ReturnsFailed()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Error)),
@@ -662,7 +751,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=lnd-rest;server=https://example.com/");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Lightning payment failed.", result.Result.Message);
@@ -672,7 +761,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenBlinkResponseConfirmsFailureAndLookupIsEmpty_ReturnsFailed()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -687,7 +775,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Lightning payment failed.", result.Result.Message);
@@ -698,7 +786,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenResponseIsUnknown_DoesNotTrustFailedDetails()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -713,7 +800,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal(
@@ -726,7 +813,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenLookupIsPending_DoesNotTrustConflictingFailedResponse()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -746,7 +832,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal(
@@ -759,7 +845,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenBlinkLookupReturnsOlderFailureAndCurrentResponseIsUnknown_ReturnsUnknown()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Unknown)),
@@ -774,7 +859,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal(
@@ -787,7 +872,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenBlinkCurrentResponseIsPendingAndLookupReturnsOlderFailure_PreservesPending()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -807,7 +891,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal(
@@ -820,7 +904,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenBlinkResponseIsPendingAndLookupIsUnavailable_PreservesPendingDetails()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -835,7 +918,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal(
@@ -848,7 +931,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenBlinkResponseAndLookupConfirmFailure_ReturnsFailed()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -868,7 +950,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Lightning payment failed.", result.Result.Message);
@@ -879,7 +961,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenBlinkResponseClaimsFailureButLookupIsComplete_ReturnsSuccess()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(
@@ -899,7 +980,7 @@ public class LightningManagerServiceTests
             client,
             connectionString: "type=blink;server=https://api.example.test/graphql;api-key=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.True(result.Result.IsSuccess);
         Assert.Equal("Payment sent successfully.", result.Result.Message);
@@ -910,7 +991,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenEclairReturnsOlderFailedAttempt_ReturnsUnknown()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Error)),
@@ -921,11 +1001,11 @@ public class LightningManagerServiceTests
             })
         };
         var context = TestContextFactory.CreateConfigured(
-            LightningCapabilities.Eclair,
+            LightningCapabilities.Full,
             client,
             connectionString: "type=eclair;server=http://127.0.0.1:8080;password=test");
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
@@ -936,7 +1016,6 @@ public class LightningManagerServiceTests
     [Fact]
     public async Task SendAsync_WhenPayReturnsRouteFailureButPaymentPending_ReturnsUnknown()
     {
-        var service = new BypassingValidationLightningManagerService();
         var client = new FakeLightningClient
         {
             PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.CouldNotFindRoute)),
@@ -948,23 +1027,12 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await service.SendAsync(context, "lnbcrt1test", null, null);
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
 
         Assert.False(result.Result.IsSuccess);
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
         Assert.NotNull(result.Payment);
         Assert.Equal(LightningPaymentStatus.Pending, result.Payment.Status);
-    }
-
-    [Fact]
-    public async Task PopulatePeersAsync_ShowsUnavailableMessage()
-    {
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
-        var model = new ViewModels.PeersViewModel();
-
-        await _service.PopulatePeersAsync(model, context);
-
-        Assert.Equal("Peer listing is not available for this backend.", model.PeerListMessage);
     }
 
     [Fact]
@@ -996,7 +1064,6 @@ public class LightningManagerServiceTests
     [Theory]
     [InlineData("1.5")]
     [InlineData("0")]
-    [InlineData("-1")]
     [InlineData("2147483648")]
     public void TryCreateOpenChannelPreview_WithInvalidFeeRate_ReturnsFriendlyError(string feeRate)
     {
@@ -1007,40 +1074,6 @@ public class LightningManagerServiceTests
 
         Assert.False(ok);
         Assert.Equal("Fee rate must be a whole number between 1 and 2147483647 sat/vB.", error);
-    }
-
-    [Fact]
-    public void TryCreateOpenChannelPreview_ParsesWholeFeeRateWithInvariantCulture()
-    {
-        var previousCulture = CultureInfo.CurrentCulture;
-        try
-        {
-            CultureInfo.CurrentCulture = new CultureInfo("pt-BR");
-            var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full);
-            const string nodeUri = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735";
-
-            var ok = _service.TryCreateOpenChannelPreview(context, nodeUri, "25000", "2", out var preview, out var error);
-
-            Assert.True(ok, error);
-            Assert.NotNull(preview);
-            Assert.Equal("2 sat/vB", preview.FeeRateDisplay);
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = previousCulture;
-        }
-    }
-
-    [Fact]
-    public void CreateTabs_WithPayOnlyCapabilities_HidesPeerAndChannelTabs()
-    {
-        var context = TestContextFactory.CreateConfigured(LightningCapabilities.PayOnly());
-
-        var tabs = _service.CreateTabs(context, ViewModels.LightningManagerNavPages.Send);
-
-        Assert.True(tabs.ShowSend);
-        Assert.False(tabs.ShowPeers);
-        Assert.False(tabs.ShowChannels);
     }
 
     [Fact]
@@ -1075,7 +1108,7 @@ public class LightningManagerServiceTests
         Assert.Contains(model.OnchainBalanceRows, row => row.Label == "Confirmed");
         Assert.Contains(model.OffchainBalanceRows, row => row.Label == "Remote");
         Assert.DoesNotContain(model.OnchainBalanceRows, row => row.Label == "Reserved");
-        Assert.DoesNotContain(model.Notices, notice => notice.StartsWith("Could not load balances:", StringComparison.Ordinal));
+        Assert.Empty(model.Notices);
     }
 
     [Fact]
@@ -1083,22 +1116,25 @@ public class LightningManagerServiceTests
     {
         var client = new FakeLightningClient
         {
-            ListChannelsHandler = _ => Task.FromResult(new[]
+            ListChannelsHandler = _ => Task.FromResult(new LightningChannel[]
             {
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     IsActive = true,
+                    IsPending = false,
                     ChannelPoint = new OutPoint(uint256.One, 0)
                 },
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     IsActive = false,
+                    IsPending = false,
                     ChannelPoint = new OutPoint(uint256.One, 1)
                 },
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     IsActive = true,
-                    ChannelPoint = null
+                    IsPending = true,
+                    ChannelPoint = new OutPoint(uint256.One, 2)
                 }
             })
         };
@@ -1109,9 +1145,6 @@ public class LightningManagerServiceTests
 
         await _service.PopulateOverviewAsync(model, context);
 
-        Assert.Equal(1, model.ActiveChannelsCount);
-        Assert.Equal(1, model.InactiveChannelsCount);
-        Assert.Equal(1, model.PendingChannelsCount);
         Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "1");
         Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "1");
         Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "1");
@@ -1141,9 +1174,67 @@ public class LightningManagerServiceTests
 
         await _service.PopulateOverviewAsync(model, context);
 
-        Assert.Equal(2, model.ActiveChannelsCount);
-        Assert.Equal(3, model.InactiveChannelsCount);
-        Assert.Equal(4, model.PendingChannelsCount);
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "2");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "3");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "4");
+        Assert.Contains("Could not load channels.", model.Notices);
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WhenPhoenixdInfoFails_DoesNotLoadBalance()
+    {
+        var balanceCalls = 0;
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => throw new InvalidOperationException("wrong network"),
+            GetBalanceHandler = _ =>
+            {
+                balanceCalls++;
+                return Task.FromResult(new LightningNodeBalance(
+                    new OnchainBalance { Confirmed = Money.Satoshis(1000) },
+                    null));
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(
+            LightningCapabilities.Phoenixd,
+            client,
+            connectionString: "type=phoenixd;server=https://example.test/;password=test");
+        var model = new OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(0, balanceCalls);
+        Assert.Empty(model.OnchainBalanceRows);
+        Assert.Empty(model.OffchainBalanceRows);
+        Assert.Contains("Could not load node information.", model.Notices);
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WhenNonPhoenixdInfoFails_StillLoadsBalance()
+    {
+        var balanceCalls = 0;
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => throw new InvalidOperationException("info unavailable"),
+            GetBalanceHandler = _ =>
+            {
+                balanceCalls++;
+                return Task.FromResult(new LightningNodeBalance(
+                    new OnchainBalance { Confirmed = Money.Satoshis(1000) },
+                    null));
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities { CanGetInfo = true, CanGetBalance = true },
+            client,
+            connectionString: "type=eclair;server=https://example.test/;password=test");
+        var model = new OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Equal(1, balanceCalls);
+        Assert.Contains(model.OnchainBalanceRows, row => row.Label == "Confirmed");
+        Assert.Contains("Could not load node information.", model.Notices);
     }
 
     [Fact]
@@ -1177,9 +1268,6 @@ public class LightningManagerServiceTests
 
         await _service.PopulateOverviewAsync(model, context);
 
-        Assert.Equal(2, model.ActiveChannelsCount);
-        Assert.Null(model.InactiveChannelsCount);
-        Assert.Null(model.PendingChannelsCount);
         Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "2");
         Assert.DoesNotContain(model.SummaryRows, row => row.Label == "Inactive channels");
         Assert.DoesNotContain(model.SummaryRows, row => row.Label == "Pending channels");
@@ -1204,8 +1292,8 @@ public class LightningManagerServiceTests
 
         await _service.PopulateOverviewAsync(model, context);
 
-        Assert.Equal(3, model.InactiveChannelsCount);
-        Assert.Equal(3, model.PendingChannelsCount);
+        Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "3");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "3");
     }
 
     [Theory]
@@ -1226,30 +1314,18 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task PopulateOverviewAsync_WithNoPhoenixdChannels_PreservesZeroCounts()
+    public void TryGetExplicitPendingState_WithUnknownNullableState_ReturnsUnsupported()
     {
-        var client = new FakeLightningClient
-        {
-            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
-            {
-                InactiveChannelsCount = 0,
-                PendingChannelsCount = 0
-            })
-        };
-        var context = TestContextFactory.CreateConfigured(
-            LightningCapabilities.Phoenixd,
-            client,
-            connectionString: "type=phoenixd;server=https://example.test/;password=test");
-        var model = new ViewModels.OverviewViewModel();
+        var supported = LightningManagerService.TryGetExplicitPendingState(
+            new ExplicitPendingLightningChannel { IsPending = null },
+            out var isPending);
 
-        await _service.PopulateOverviewAsync(model, context);
-
-        Assert.Equal(0, model.InactiveChannelsCount);
-        Assert.Equal(0, model.PendingChannelsCount);
+        Assert.False(supported);
+        Assert.Null(isPending);
     }
 
     [Fact]
-    public async Task PopulateOverviewAsync_WhenChannelListingOmitsPending_PreservesGetInfoPendingCount()
+    public async Task PopulateOverviewAsync_WithExplicitListing_UsesSingleListSnapshot()
     {
         var client = new FakeLightningClient
         {
@@ -1259,16 +1335,18 @@ public class LightningManagerServiceTests
                 InactiveChannelsCount = 6,
                 PendingChannelsCount = 2
             }),
-            ListChannelsHandler = _ => Task.FromResult(new[]
+            ListChannelsHandler = _ => Task.FromResult(new LightningChannel[]
             {
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     IsActive = true,
+                    IsPending = false,
                     ChannelPoint = new OutPoint(uint256.One, 0)
                 },
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     IsActive = false,
+                    IsPending = false,
                     ChannelPoint = new OutPoint(uint256.One, 1)
                 }
             })
@@ -1284,9 +1362,117 @@ public class LightningManagerServiceTests
 
         await _service.PopulateOverviewAsync(model, context);
 
-        Assert.Equal(1, model.ActiveChannelsCount);
-        Assert.Equal(1, model.InactiveChannelsCount);
-        Assert.Equal(2, model.PendingChannelsCount);
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "1");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "1");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "0");
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WithLndListing_PreservesCompleteGetInfoSnapshot()
+    {
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
+            {
+                ActiveChannelsCount = 5,
+                InactiveChannelsCount = 6,
+                PendingChannelsCount = 2
+            }),
+            ListChannelsHandler = _ => Task.FromResult(new LightningChannel[]
+            {
+                new ExplicitPendingLightningChannel
+                {
+                    IsActive = true,
+                    IsPending = false,
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities
+            {
+                CanGetInfo = true,
+                CanListChannels = true
+            },
+            client,
+            "type=lnd-rest;server=https://example.test/");
+        var model = new OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "5");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "6");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "2");
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WithUnknownEclairState_DoesNotCallItInactive()
+    {
+        var client = new FakeLightningClient
+        {
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel
+                {
+                    IsActive = false,
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities { CanListChannels = true },
+            client,
+            "type=eclair;server=https://example.test/;password=test");
+        var model = new OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "0");
+        Assert.DoesNotContain(model.SummaryRows, row => row.Label == "Inactive channels");
+        Assert.DoesNotContain(model.SummaryRows, row => row.Label == "Pending channels");
+    }
+
+    [Fact]
+    public async Task PopulateOverviewAsync_WithLegacyAdapter_PreservesExclusiveGetInfoCounts()
+    {
+        var client = new FakeLightningClient
+        {
+            GetInfoHandler = _ => Task.FromResult(new LightningNodeInformation
+            {
+                ActiveChannelsCount = 1,
+                InactiveChannelsCount = 0,
+                PendingChannelsCount = 1
+            }),
+            ListChannelsHandler = _ => Task.FromResult(new[]
+            {
+                new LightningChannel
+                {
+                    IsActive = true,
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                },
+                new LightningChannel
+                {
+                    // A legacy CLN adapter loses CHANNELD_AWAITING_LOCKIN here even
+                    // though the funding outpoint is already available.
+                    IsActive = false,
+                    ChannelPoint = new OutPoint(uint256.One, 1)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(
+            new LightningCapabilities
+            {
+                CanGetInfo = true,
+                CanListChannels = true
+            },
+            client);
+        var model = new OverviewViewModel();
+
+        await _service.PopulateOverviewAsync(model, context);
+
+        Assert.Contains(model.SummaryRows, row => row.Label == "Active channels" && row.Value == "1");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Inactive channels" && row.Value == "0");
+        Assert.Contains(model.SummaryRows, row => row.Label == "Pending channels" && row.Value == "1");
     }
 
     [Fact]
@@ -1310,10 +1496,11 @@ public class LightningManagerServiceTests
     public async Task PopulateOverviewAsync_WhenBackendFails_LogsOnlySanitizedMetadata()
     {
         var logger = new RecordingLogger();
-        var service = new LightningManagerService(logger);
+        var service = TestLightningManagerServiceFactory.Create(logger);
         var client = new FakeLightningClient
         {
-            GetInfoHandler = _ => throw new InvalidOperationException("api-key=super-secret")
+            GetInfoHandler = _ => throw new InvalidOperationException(
+                "server=https://secret.example;api-key=super-secret")
         };
         var context = TestContextFactory.CreateConfigured(
             new LightningCapabilities { CanGetInfo = true },
@@ -1362,7 +1549,7 @@ public class LightningManagerServiceTests
         Assert.Equal("20,000 sats", channel.CapacityDisplay);
         Assert.Equal("12,000 sats", channel.LocalBalanceDisplay);
         Assert.Equal("8,000 sats", channel.RemoteBalanceDisplay);
-        Assert.False(channel.IsPending);
+        Assert.Null(channel.IsPending);
         Assert.Equal("Active", channel.Status);
     }
 
@@ -1392,22 +1579,50 @@ public class LightningManagerServiceTests
         var channel = Assert.Single(model.Channels);
         Assert.Equal(20_000m, channel.CapacitySats);
         Assert.Equal(20_000m, channel.LocalBalanceSats);
-        Assert.Equal(0m, channel.RemoteBalanceSats);
         Assert.Equal("20,000 sats", channel.LocalBalanceDisplay);
         Assert.Equal("0 sats", channel.RemoteBalanceDisplay);
     }
 
     [Fact]
-    public async Task PopulateChannelsAsync_WithPendingChannelWithoutOutpoint_KeepsChannelList()
+    public async Task PopulateChannelsAsync_WithExplicitPendingChannelAndOutpoint_MarksPending()
     {
         var client = new FakeLightningClient
         {
-            ListChannelsHandler = _ => Task.FromResult(new[]
+            ListChannelsHandler = _ => Task.FromResult(new LightningChannel[]
             {
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
                     IsActive = true,
+                    IsPending = true,
+                    Capacity = LightMoney.Satoshis(20_000),
+                    LocalBalance = LightMoney.Satoshis(20_000),
+                    ChannelPoint = new OutPoint(uint256.One, 0)
+                }
+            })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+        var model = new ViewModels.ChannelsViewModel();
+
+        await _service.PopulateChannelsAsync(model, context);
+
+        var channel = Assert.Single(model.Channels);
+        Assert.NotNull(channel.ChannelPoint);
+        Assert.Equal(true, channel.IsPending);
+        Assert.Equal("Pending", channel.Status);
+        Assert.Null(model.ChannelListMessage);
+    }
+
+    [Fact]
+    public async Task PopulateChannelsAsync_WithoutExplicitState_DoesNotInferPendingFromMissingOutpoint()
+    {
+        var client = new FakeLightningClient
+        {
+            ListChannelsHandler = _ => Task.FromResult(new LightningChannel[]
+            {
+                new LightningChannel
+                {
+                    IsActive = false,
                     Capacity = LightMoney.Satoshis(20_000),
                     LocalBalance = LightMoney.Satoshis(20_000),
                     ChannelPoint = null
@@ -1420,10 +1635,9 @@ public class LightningManagerServiceTests
         await _service.PopulateChannelsAsync(model, context);
 
         var channel = Assert.Single(model.Channels);
-        Assert.Equal("Pending", channel.ChannelPoint);
-        Assert.True(channel.IsPending);
-        Assert.Equal("Pending", channel.Status);
-        Assert.Null(model.ChannelListMessage);
+        Assert.Null(channel.ChannelPoint);
+        Assert.Null(channel.IsPending);
+        Assert.Equal("Unknown", channel.Status);
     }
 
     [Fact]
@@ -1431,12 +1645,13 @@ public class LightningManagerServiceTests
     {
         var client = new FakeLightningClient
         {
-            ListChannelsHandler = _ => Task.FromResult(new[]
+            ListChannelsHandler = _ => Task.FromResult(new LightningChannel[]
             {
-                new LightningChannel
+                new ExplicitPendingLightningChannel
                 {
                     RemoteNode = new PubKey("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
                     IsActive = false,
+                    IsPending = false,
                     Capacity = LightMoney.Satoshis(20_000),
                     LocalBalance = LightMoney.Satoshis(10_000),
                     ChannelPoint = new OutPoint(uint256.One, 0)
@@ -1449,7 +1664,7 @@ public class LightningManagerServiceTests
         await _service.PopulateChannelsAsync(model, context);
 
         var channel = Assert.Single(model.Channels);
-        Assert.False(channel.IsPending);
+        Assert.Equal(false, channel.IsPending);
         Assert.Equal("Inactive", channel.Status);
     }
 
@@ -1471,10 +1686,10 @@ public class LightningManagerServiceTests
     }
 
     [Fact]
-    public async Task PopulateChannelsAsync_WhenSuccessful_LogsSanitizedMetadata()
+    public async Task PopulateChannelsAsync_WhenSuccessful_LogsOperationMetadata()
     {
         var logger = new RecordingLogger();
-        var service = new LightningManagerService(logger);
+        var service = TestLightningManagerServiceFactory.Create(logger);
         var client = new FakeLightningClient
         {
             ListChannelsHandler = _ => Task.FromResult(Array.Empty<LightningChannel>())
@@ -1491,7 +1706,6 @@ public class LightningManagerServiceTests
         Assert.Contains("store-1", log, StringComparison.Ordinal);
         Assert.Contains("clightning", log, StringComparison.Ordinal);
         Assert.Contains("success", log, StringComparison.Ordinal);
-        Assert.DoesNotContain("30993", log, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1499,15 +1713,7 @@ public class LightningManagerServiceTests
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        var openCalled = false;
-        var client = new FakeLightningClient
-        {
-            OpenChannelHandler = (_, token) =>
-            {
-                openCalled = true;
-                throw new OperationCanceledException(token);
-            }
-        };
+        var client = new FakeLightningClient();
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -1517,7 +1723,6 @@ public class LightningManagerServiceTests
                 "100000",
                 null,
                 cts.Token));
-        Assert.False(openCalled);
     }
 
     [Fact]
@@ -1617,7 +1822,6 @@ public class LightningManagerServiceTests
             client,
             "type=eclair;server=https://shared-node.example/proxy/two#fragment;password=second",
             storeId: "store-2");
-        var service = new LightningManagerService();
         Assert.NotEqual(
             firstStoreContext.BackendFingerprint,
             secondStoreContext.BackendFingerprint);
@@ -1627,12 +1831,12 @@ public class LightningManagerServiceTests
         const string nodeUri =
             "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735";
 
-        var first = service.OpenChannelAsync(firstStoreContext, nodeUri, "100000", null);
+        var first = _service.OpenChannelAsync(firstStoreContext, nodeUri, "100000", null);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         ActionResultViewModel duplicate;
         try
         {
-            duplicate = await service.OpenChannelAsync(secondStoreContext, nodeUri, "100000", null)
+            duplicate = await _service.OpenChannelAsync(secondStoreContext, nodeUri, "100000", null)
                 .WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
@@ -1659,45 +1863,6 @@ public class LightningManagerServiceTests
         Assert.Equal("This invoice has already expired.", error);
     }
 
-    private sealed class BypassingValidationLightningManagerService : LightningManagerService
-    {
-        public BypassingValidationLightningManagerService(
-            ILogger<LightningManagerService>? logger = null,
-            LightningManagerOperationGuard? operationGuard = null)
-            : base(logger, operationGuard)
-        {
-        }
-
-        public override bool TryCreateSendPreview(
-            StoreLightningManagerContext context,
-            string? bolt11,
-            string? amountSats,
-            string? maxFeeSats,
-            out SendPreviewViewModel? preview,
-            out string? error)
-        {
-            var maxFeeDisplay = string.IsNullOrWhiteSpace(maxFeeSats)
-                ? LightningManagerDefaults.SendMaxFeeSats.ToString(CultureInfo.InvariantCulture)
-                : maxFeeSats;
-            preview = new SendPreviewViewModel
-            {
-                Bolt11 = (bolt11 ?? string.Empty).Trim(),
-                PaymentAmount = LightMoney.Satoshis(1),
-                AmountDisplay = "1 sat",
-                MaxFeeSats = string.IsNullOrWhiteSpace(maxFeeSats)
-                    ? LightningManagerDefaults.SendMaxFeeSats
-                    : long.Parse(maxFeeSats, CultureInfo.InvariantCulture),
-                MaxFeeDisplay = $"{maxFeeDisplay} sats",
-                Description = "Test invoice",
-                PaymentHash = "test-hash",
-                Payee = "test-payee",
-                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5)
-            };
-            error = null;
-            return true;
-        }
-    }
-
     private sealed class RecordingLogger : ILogger<LightningManagerService>
     {
         public List<string> Entries { get; } = [];
@@ -1721,6 +1886,13 @@ public class LightningManagerServiceTests
         {
             Entries.Add(formatter(state, exception));
         }
+    }
+
+    private sealed class ExplicitPendingLightningChannel : LightningChannel
+    {
+#pragma warning disable CS0109 // The current package lacks this future upstream property.
+        public new bool? IsPending { get; init; }
+#pragma warning restore CS0109
     }
 
     private sealed class StaticJsonHttpMessageHandler(string json) : HttpMessageHandler

@@ -16,62 +16,31 @@
     </script>
 }
 
-<partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
-
 <div class="sticky-header">
     <h2>Channels</h2>
 </div>
-
-<partial name="_StatusMessage" />
 
 @if (!Model.IsConfigured)
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>
 }
+else if (!Model.Capabilities.CanOpenChannel && !Model.Capabilities.CanListChannels)
+{
+    <div class="alert alert-info">Channel management is not supported by this Lightning backend.</div>
+}
 
 @if (Model.Result is not null)
-    {
-        <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
-            <div>@Model.Result.Message</div>
-        </div>
-    }
-
-@foreach (var notice in Model.Notices)
 {
-    <div class="alert alert-info">@notice</div>
+    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+        @Model.Result.Message
+    </div>
 }
 
 @if (Model.Capabilities.CanOpenChannel)
 {
-    <div class="card">
-        <div class="card-body">
-            <h3 class="h5">Open Channel</h3>
-            <form asp-controller="LightningManager"
-                  asp-action="PreviewChannel"
-                  asp-route-storeId="@Model.StoreId"
-                  asp-route-cryptoCode="@Model.CryptoCode"
-                  method="post">
-                <div class="mb-3">
-                    <label class="form-label" for="channelNodeUri">Node URI</label>
-                    <input class="form-control" id="channelNodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" />
-                </div>
-                <div class="mb-3">
-                    <label class="form-label" for="channelAmountSats">Channel amount (sats)</label>
-                    <input class="form-control" id="channelAmountSats" name="channelAmountSats" value="@Model.ChannelAmountSats" />
-                </div>
-                <div class="mb-3">
-                    <label class="form-label" for="feeRateSatsPerByte">Fee rate (sat/vB)</label>
-                    <input class="form-control" id="feeRateSatsPerByte" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" inputmode="numeric" min="1" max="@int.MaxValue" step="1" />
-                    <div class="form-text">Leave blank to use the default 1 sat/vB.</div>
-                </div>
-                <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured)">Preview channel open</button>
-            </form>
-        </div>
-    </div>
-
     @if (Model.Preview is not null)
     {
-        <div class="card mt-4">
+        <div class="card">
             <div class="card-body">
                 <h3 class="h5">Confirm Channel Open</h3>
                 <dl>
@@ -92,7 +61,44 @@
                     <input type="hidden" name="channelAmountSats" value="@Model.ChannelAmountSats" />
                     <input type="hidden" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" />
                     <input type="hidden" name="confirmationToken" value="@Model.OpenChannelConfirmationToken" />
-                    <button type="submit" class="btn btn-primary">Open channel</button>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="submit" class="btn btn-primary">Open channel</button>
+                        <a asp-controller="LightningManager"
+                           asp-action="Channels"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-secondary">
+                            Start over
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <h3 class="h5">Open Channel</h3>
+                <form asp-controller="LightningManager"
+                      asp-action="PreviewChannel"
+                      asp-route-storeId="@Model.StoreId"
+                      asp-route-cryptoCode="@Model.CryptoCode"
+                      method="post">
+                    <div class="mb-3">
+                        <label class="form-label" for="channelNodeUri">Node URI</label>
+                        <input class="form-control" id="channelNodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="channelAmountSats">Channel amount (sats)</label>
+                        <input class="form-control" id="channelAmountSats" name="channelAmountSats" value="@Model.ChannelAmountSats" type="number" inputmode="numeric" min="1" step="1" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="feeRateSatsPerByte">Fee rate (sat/vB)</label>
+                        <input class="form-control" id="feeRateSatsPerByte" name="feeRateSatsPerByte" value="@Model.FeeRateSatsPerByte" type="number" inputmode="numeric" min="1" max="@int.MaxValue" step="1" />
+                        <div class="form-text">Leave blank to use the default 1 sat/vB.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Preview channel open</button>
                 </form>
             </div>
         </div>
@@ -106,7 +112,7 @@
         <h3 class="h5">Existing Channels</h3>
         @if (!string.IsNullOrWhiteSpace(Model.ChannelListMessage))
         {
-            <p class="text-muted">@Model.ChannelListMessage</p>
+            <div class="alert alert-warning mb-0" role="alert">@Model.ChannelListMessage</div>
         }
         else if (Model.Channels.Count == 0)
         {
@@ -118,10 +124,12 @@
                 @foreach (var channel in Model.Channels)
                 {
                     var localPercentage = channel.CapacitySats > 0
-                        ? Math.Clamp(Math.Round((decimal)channel.LocalBalanceSats / channel.CapacitySats * 100m, 1), 0m, 100m)
+                        ? Math.Clamp(Math.Round(channel.LocalBalanceSats / channel.CapacitySats * 100m, 1), 0m, 100m)
                         : 0m;
-                    var remotePercentage = Math.Max(0m, 100m - localPercentage);
-                    var statusBadgeClass = channel.IsPending
+                    var remotePercentage = channel.CapacitySats > 0
+                        ? 100m - localPercentage
+                        : 0m;
+                    var statusBadgeClass = channel.IsPending is true
                         ? "bg-warning text-dark"
                         : channel.IsActive
                             ? "bg-success"
@@ -144,7 +152,7 @@
                         </div>
 
                         <div class="text-muted small mt-3 mb-1">Channel point</div>
-                        <div class="font-monospace small text-break">@channel.ChannelPoint</div>
+                        <div class="font-monospace small text-break">@(channel.ChannelPoint ?? (channel.IsPending is true ? "Pending" : "Unavailable"))</div>
 
                         <div class="d-flex justify-content-between align-items-center small text-muted mt-3 mb-2">
                             <span>Local @localPercentage.ToString("0.#")%</span>

@@ -1,4 +1,3 @@
-#nullable enable
 using System.Collections.Concurrent;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
@@ -8,37 +7,37 @@ public sealed class LightningManagerOperationGuard
     private readonly ConcurrentDictionary<OperationKey, byte> _operations = new();
 
     public bool TryBeginPayment(
-        string backendFingerprint,
+        string backendIdentityFingerprint,
         string cryptoCode,
         string paymentHash,
         out IDisposable? lease)
     {
-        return TryBegin(OperationType.Payment, backendFingerprint, cryptoCode, paymentHash, out lease);
+        return TryBegin(OperationType.Payment, backendIdentityFingerprint, cryptoCode, paymentHash, out lease);
     }
 
     public bool TryBeginChannel(
-        string backendFingerprint,
+        string backendIdentityFingerprint,
         string cryptoCode,
         string remoteNodeId,
         out IDisposable? lease)
     {
-        return TryBegin(OperationType.Channel, backendFingerprint, cryptoCode, remoteNodeId, out lease);
+        return TryBegin(OperationType.Channel, backendIdentityFingerprint, cryptoCode, remoteNodeId, out lease);
     }
 
     private bool TryBegin(
         OperationType type,
-        string backendFingerprint,
+        string backendIdentityFingerprint,
         string cryptoCode,
         string identifier,
         out IDisposable? lease)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(backendFingerprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(backendIdentityFingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(cryptoCode);
         ArgumentException.ThrowIfNullOrWhiteSpace(identifier);
 
         var key = new OperationKey(
             type,
-            backendFingerprint,
+            backendIdentityFingerprint,
             cryptoCode.Trim().ToUpperInvariant(),
             identifier.Trim().ToUpperInvariant());
 
@@ -60,7 +59,7 @@ public sealed class LightningManagerOperationGuard
 
     private sealed record OperationKey(
         OperationType Type,
-        string BackendFingerprint,
+        string BackendIdentityFingerprint,
         string CryptoCode,
         string Identifier);
 

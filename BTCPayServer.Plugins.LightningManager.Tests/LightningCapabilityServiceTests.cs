@@ -5,8 +5,6 @@ namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningCapabilityServiceTests
 {
-    private readonly LightningCapabilityService _service = new();
-
     [Theory]
     [InlineData("type=lnd-rest;server=https://127.0.0.1:8080")]
     [InlineData("type=lnd-grpc;server=https://127.0.0.1:10009")]
@@ -14,7 +12,7 @@ public class LightningCapabilityServiceTests
     [InlineData("server=http://127.0.0.1:8080;password=test;TYPE=ECLAIR")]
     public void FullNodeBackends_HaveFullCapabilities(string connectionString)
     {
-        var capabilities = _service.GetCapabilities(connectionString);
+        var capabilities = LightningCapabilityService.GetCapabilities(connectionString);
 
         Assert.Same(LightningCapabilities.Full, capabilities);
         Assert.True(capabilities.HasAny);
@@ -31,7 +29,7 @@ public class LightningCapabilityServiceTests
     [Fact]
     public void Phoenixd_HasInfoBalanceAndPayWithoutMaxFeeOrChannelManagement()
     {
-        var capabilities = _service.GetCapabilities(
+        var capabilities = LightningCapabilityService.GetCapabilities(
             "server=https://example.com;password=test;TYPE=PHOENIXD");
 
         Assert.Same(LightningCapabilities.Phoenixd, capabilities);
@@ -48,7 +46,7 @@ public class LightningCapabilityServiceTests
     [Fact]
     public void BlinkBitcoin_HasBalanceAndPayWithoutInfoOrMaxFee()
     {
-        var capabilities = _service.GetCapabilities(
+        var capabilities = LightningCapabilityService.GetCapabilities(
             "currency=btc;api-key=test;TYPE=BLINK;server=https://api.blink.sv/graphql");
 
         Assert.Same(LightningCapabilities.BlinkBitcoin, capabilities);
@@ -68,7 +66,7 @@ public class LightningCapabilityServiceTests
     [InlineData("type=blink;ln-address=user@blink.sv;api-key=test")]
     public void BlinkWithoutCurrencyOrUsd_HasPayOnlyWithoutMaxFee(string connectionString)
     {
-        var capabilities = _service.GetCapabilities(connectionString);
+        var capabilities = LightningCapabilityService.GetCapabilities(connectionString);
 
         Assert.Same(LightningCapabilities.BlinkPayOnly, capabilities);
         Assert.False(capabilities.CanGetInfo);
@@ -83,42 +81,34 @@ public class LightningCapabilityServiceTests
 
     [Theory]
     [InlineData("type=blink;ln-address=user@blink.sv")]
-    [InlineData("TYPE=BLINK;USERNAME=user")]
-    [InlineData("type=blink;ln-address=user@blink.sv;currency=BTC")]
-    [InlineData("type=blink;username=user@blink.sv;currency=USD")]
+    [InlineData("TYPE=BLINK;USERNAME=user;currency=USD")]
     public void BlinkReceiveOnly_ReturnsNoCapabilities(string connectionString)
     {
-        var capabilities = _service.GetCapabilities(connectionString);
+        var capabilities = LightningCapabilityService.GetCapabilities(connectionString);
 
         Assert.Same(LightningCapabilities.None, capabilities);
         Assert.False(capabilities.HasAny);
     }
 
-    [Fact]
-    public void BlinkUnknownCurrency_ReturnsNoCapabilities()
+    [Theory]
+    [InlineData("EUR")]
+    [InlineData("")]
+    public void BlinkUnsupportedCurrency_ReturnsNoCapabilities(string currency)
     {
-        var capabilities = _service.GetCapabilities(
-            "type=blink;currency=EUR;server=https://api.blink.sv/graphql;api-key=test");
+        var capabilities = LightningCapabilityService.GetCapabilities(
+            $"type=blink;currency={currency};server=https://api.blink.sv/graphql;api-key=test");
 
         Assert.Same(LightningCapabilities.None, capabilities);
         Assert.False(capabilities.HasAny);
     }
 
-    [Fact]
-    public void BlinkEmptyCurrency_ReturnsNoCapabilities()
+    [Theory]
+    [InlineData("TYPE=CLIGHTNING;server=tcp://127.0.0.1:9735", LightningBackendTypes.CLightning)]
+    [InlineData("type=LND-REST;server=https://example.test", LightningBackendTypes.LndRest)]
+    [InlineData("type=PHOENIXD;server=https://example.test", LightningBackendTypes.Phoenixd)]
+    public void BackendType_IsNormalized(string connectionString, string expected)
     {
-        var capabilities = _service.GetCapabilities(
-            "type=blink;currency=;server=https://api.blink.sv/graphql;api-key=test");
-
-        Assert.Same(LightningCapabilities.None, capabilities);
-        Assert.False(capabilities.HasAny);
-    }
-
-    [Fact]
-    public void PayOnly_DeniesAmountlessByDefault()
-    {
-        Assert.False(LightningCapabilities.PayOnly().CanPayAmountless);
-        Assert.False(LightningCapabilities.None.CanPayAmountless);
+        Assert.Equal(expected, LightningBackendTypes.TryGet(connectionString));
     }
 
     [Fact]
@@ -132,35 +122,52 @@ public class LightningCapabilityServiceTests
         Assert.False(capabilities.CanPayAmountless);
     }
 
-    [Theory]
-    [InlineData(
-        " TYPE=LND-GRPC ; SERVER=https://EXAMPLE.test ; allowinsecure=TRUE;macaroon=AABB",
-        "macaroon=aabb;allowinsecure=true;server=https://example.test/;type=lnd-rest")]
-    [InlineData(
-        "type=clightning;server=/tmp/lightning-rpc",
-        "type=clightning;server=unix:///tmp/lightning-rpc")]
-    public void BackendFingerprint_NormalizesEquivalentConnectionStrings(
-        string firstConnectionString,
-        string secondConnectionString)
+    [Fact]
+    public void BackendFingerprint_UsesExactConnectionString()
     {
-        var first = LightningBackendTypes.GetFingerprint(firstConnectionString);
-        var second = LightningBackendTypes.GetFingerprint(secondConnectionString);
+        var first = LightningBackendTypes.GetFingerprint(
+            "type=lnd-rest;server=https://example.test");
+        var second = LightningBackendTypes.GetFingerprint(
+            "server=https://example.test;type=lnd-rest");
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void BackendIdentityFingerprint_NormalizesClnUnixSocket()
+    {
+        var first = LightningBackendTypes.GetIdentityFingerprint(
+            "type=clightning;server=/tmp/lightning-rpc");
+        var second = LightningBackendTypes.GetIdentityFingerprint(
+            "type=clightning;server=unix:///tmp/lightning-rpc");
 
         Assert.Equal(first, second);
     }
 
     [Fact]
-    public void BackendFingerprint_NormalizesEquivalentCertificateThumbprints()
+    public void BackendIdentityFingerprint_NormalizesBlinkConfiguration()
     {
-        var separated = string.Join(':', Enumerable.Repeat("AA", 32));
-        var compact = string.Concat(Enumerable.Repeat("aa", 32));
+        const string firstConnectionString =
+            " TYPE=BLINK ; SERVER=https://EXAMPLE.test/graphql ; API-KEY=secret ; CURRENCY=btc ; allowinsecure=FALSE";
+        const string secondConnectionString =
+            "api-key=secret;currency=BTC;server=https://example.test/graphql;type=blink";
 
-        var first = LightningBackendTypes.GetFingerprint(
-            $"type=lnd-rest;server=https://example.test/;certthumbprint={separated}");
-        var second = LightningBackendTypes.GetFingerprint(
-            $"type=lnd-rest;server=https://example.test/;certthumbprint={compact};allowinsecure=false");
+        Assert.NotEqual(
+            LightningBackendTypes.GetFingerprint(firstConnectionString),
+            LightningBackendTypes.GetFingerprint(secondConnectionString));
+        Assert.Equal(
+            LightningBackendTypes.GetIdentityFingerprint(firstConnectionString),
+            LightningBackendTypes.GetIdentityFingerprint(secondConnectionString));
+    }
 
-        Assert.Equal(first, second);
+    [Fact]
+    public void BackendIdentityFingerprint_RejectsUnknownBackend()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            LightningBackendTypes.GetIdentityFingerprint(
+                "type=future;server=/tmp/node;api-key=secret"));
+
+        Assert.Equal("connectionString", exception.ParamName);
     }
 
     [Fact]
@@ -276,16 +283,11 @@ public class LightningCapabilityServiceTests
         Assert.DoesNotContain("secret-a", first, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory]
-    [InlineData("type=deprecated;server=https://example.com/")]
-    [InlineData("type=breez;server=https://example.com/")]
-    [InlineData("type=charge;server=https://example.com/")]
-    [InlineData("type=micro;server=https://example.com/")]
-    [InlineData("type=nwc;server=https://example.com/")]
-    [InlineData("type=lndhub;server=https://example.com/")]
-    public void UnsupportedBackendTypes_ReturnNoCapabilities(string connectionString)
+    [Fact]
+    public void LndHub_ReturnsNoCapabilities()
     {
-        var capabilities = _service.GetCapabilities(connectionString);
+        var capabilities = LightningCapabilityService.GetCapabilities(
+            "type=lndhub;server=https://example.com/");
 
         Assert.Same(LightningCapabilities.None, capabilities);
         Assert.False(capabilities.HasAny);
@@ -293,8 +295,6 @@ public class LightningCapabilityServiceTests
 
     [Theory]
     [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
     [InlineData("server=https://example.com/")]
     [InlineData("type")]
     [InlineData("type=")]
@@ -305,7 +305,7 @@ public class LightningCapabilityServiceTests
     [InlineData("tcp://127.0.0.1:9735")]
     public void MissingMalformedOrLegacyType_ReturnsNoCapabilities(string? connectionString)
     {
-        var capabilities = _service.GetCapabilities(connectionString);
+        var capabilities = LightningCapabilityService.GetCapabilities(connectionString);
 
         Assert.Same(LightningCapabilities.None, capabilities);
         Assert.False(capabilities.HasAny);

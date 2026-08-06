@@ -1,10 +1,8 @@
-#nullable enable
 using System.Globalization;
 using System.Diagnostics;
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using NBitcoin;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
@@ -15,35 +13,10 @@ public class SendExecutionResult
     public SendResultDetailsViewModel? Payment { get; init; }
 }
 
-public interface ILightningManagerService
-{
-    LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage);
-    Task PopulateOverviewAsync(OverviewViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
-    bool TryCreateSendPreview(StoreLightningManagerContext context, string? bolt11, string? amountSats, string? maxFeeSats, out SendPreviewViewModel? preview, out string? error);
-    Task<SendExecutionResult> SendAsync(StoreLightningManagerContext context, string bolt11, string? amountSats, string? maxFeeSats, CancellationToken cancellationToken = default);
-    Task<ActionResultViewModel> ConnectPeerAsync(StoreLightningManagerContext context, string? nodeUri, CancellationToken cancellationToken = default);
-    Task PopulatePeersAsync(PeersViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
-    Task PopulateChannelsAsync(ChannelsViewModel model, StoreLightningManagerContext context, CancellationToken cancellationToken = default);
-    bool TryCreateOpenChannelPreview(
-        StoreLightningManagerContext context,
-        string? nodeUri,
-        string? channelAmountSats,
-        string? feeRateSatsPerByte,
-        out OpenChannelPreviewViewModel? preview,
-        out string? error);
-    Task<ActionResultViewModel> OpenChannelAsync(
-        StoreLightningManagerContext context,
-        string nodeUri,
-        string channelAmountSats,
-        string? feeRateSatsPerByte,
-        CancellationToken cancellationToken = default);
-}
-
-public class LightningManagerService : ILightningManagerService
+public sealed class LightningManagerService
 {
     private const decimal DefaultChannelOpenFeeRate = 1.0m;
     private const long MinimumLndChannelAmountSats = 20_000;
-    private const long MaximumChannelOpenFeeRate = int.MaxValue;
     private const string PhoenixdAdapterAssemblyName = "BTCPayServer.Lightning.Phoenixd";
     private const string UnknownPaymentStatusMessage =
         "Payment status is unknown. Check the Lightning node before retrying.";
@@ -53,28 +26,14 @@ public class LightningManagerService : ILightningManagerService
     private readonly LightningManagerOperationGuard _operationGuard;
 
     public LightningManagerService(
-        ILogger<LightningManagerService>? logger = null,
-        LightningManagerOperationGuard? operationGuard = null)
+        ILogger<LightningManagerService> logger,
+        LightningManagerOperationGuard operationGuard)
     {
-        _logger = logger ?? NullLogger<LightningManagerService>.Instance;
-        _operationGuard = operationGuard ?? new LightningManagerOperationGuard();
+        _logger = logger;
+        _operationGuard = operationGuard;
     }
 
-    public virtual LightningManagerTabsViewModel CreateTabs(StoreLightningManagerContext context, string activePage)
-    {
-        return new LightningManagerTabsViewModel
-        {
-            StoreId = context.StoreId,
-            CryptoCode = context.CryptoCode,
-            ActivePage = activePage,
-            ShowOverview = true,
-            ShowSend = context.Capabilities.CanPayBolt11,
-            ShowPeers = context.Capabilities.CanConnectPeer,
-            ShowChannels = context.Capabilities.CanListChannels || context.Capabilities.CanOpenChannel
-        };
-    }
-
-    public virtual async Task PopulateOverviewAsync(
+    public async Task PopulateOverviewAsync(
         OverviewViewModel model,
         StoreLightningManagerContext context,
         CancellationToken cancellationToken = default)
@@ -84,35 +43,45 @@ public class LightningManagerService : ILightningManagerService
             return;
         }
 
+        var nodeDisplayName = context.DisplayName;
+        var nodeHost = context.NodeHost;
+        string? version = null;
+        int? blockHeight = null;
+        long? peersCount = null;
+        long? activeChannelsCount = null;
+        long? inactiveChannelsCount = null;
+        long? pendingChannelsCount = null;
+        var phoenixdNetworkValidated = context.BackendType != LightningBackendTypes.Phoenixd;
+
         if (context.Capabilities.CanGetInfo)
         {
             var stopwatch = Stopwatch.StartNew();
             try
             {
                 var info = await context.Client.GetInfo(cancellationToken);
-                model.Alias = info.Alias;
-                model.NodeDisplayName = string.IsNullOrWhiteSpace(model.NodeDisplayName) ? info.Alias : model.NodeDisplayName;
-                model.Version = info.Version;
-                model.BlockHeight = info.BlockHeight;
-                model.PeersCount = info.PeersCount;
-                model.ActiveChannelsCount = info.ActiveChannelsCount;
-                model.InactiveChannelsCount = info.InactiveChannelsCount;
-                model.PendingChannelsCount = info.PendingChannelsCount;
-                if (LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Phoenixd) &&
+                nodeDisplayName = string.IsNullOrWhiteSpace(nodeDisplayName) ? info.Alias : nodeDisplayName;
+                version = info.Version;
+                blockHeight = info.BlockHeight;
+                peersCount = info.PeersCount;
+                activeChannelsCount = info.ActiveChannelsCount;
+                inactiveChannelsCount = info.InactiveChannelsCount;
+                pendingChannelsCount = info.PendingChannelsCount;
+                if (context.BackendType == LightningBackendTypes.Phoenixd &&
                     IsAffectedPhoenixdAdapter(context.Client) &&
-                    model.InactiveChannelsCount is not null &&
-                    model.PendingChannelsCount > 0 &&
-                    model.InactiveChannelsCount == model.PendingChannelsCount)
+                    inactiveChannelsCount is not null &&
+                    pendingChannelsCount > 0 &&
+                    inactiveChannelsCount == pendingChannelsCount)
                 {
                     // Phoenixd 1.7.1 reports every non-normal channel in both buckets.
                     // Neither classification is reliable, so do not present either bucket.
-                    model.InactiveChannelsCount = null;
-                    model.PendingChannelsCount = null;
+                    inactiveChannelsCount = null;
+                    pendingChannelsCount = null;
                 }
                 foreach (var nodeInfo in info.NodeInfoList)
                 {
                     model.NodeUris.Add(nodeInfo.ToString());
                 }
+                phoenixdNetworkValidated = true;
                 LogOperation(context, "get-info", stopwatch, "success", null);
             }
             catch (NotSupportedException)
@@ -137,14 +106,39 @@ public class LightningManagerService : ILightningManagerService
             try
             {
                 var channels = await context.Client.ListChannels(cancellationToken);
-                var listedPendingChannels = channels.LongCount(channel => channel.ChannelPoint is null);
-                model.PendingChannelsCount = Math.Max(
-                    model.PendingChannelsCount ?? 0,
-                    listedPendingChannels);
-                model.ActiveChannelsCount = channels.LongCount(channel =>
-                    channel.ChannelPoint is not null && channel.IsActive);
-                model.InactiveChannelsCount = channels.LongCount(channel =>
-                    channel.ChannelPoint is not null && !channel.IsActive);
+                var channelStates = channels
+                    .Select(channel =>
+                    {
+                        var hasPendingState = TryGetExplicitPendingState(channel, out var isPending);
+                        return (Channel: channel, HasPendingState: hasPendingState, IsPending: isPending);
+                    })
+                    .ToArray();
+
+                var hasExplicitStateForEveryChannel =
+                    channelStates.All(channel => channel.HasPendingState);
+                if (context.BackendType == LightningBackendTypes.CLightning &&
+                    hasExplicitStateForEveryChannel)
+                {
+                    pendingChannelsCount = channelStates.LongCount(channel => channel.IsPending is true);
+                    activeChannelsCount = channelStates.LongCount(channel =>
+                        channel.IsPending is false && channel.Channel.IsActive);
+                    inactiveChannelsCount = channelStates.LongCount(channel =>
+                        channel.IsPending is false && !channel.Channel.IsActive);
+                }
+                else if (activeChannelsCount is null &&
+                         inactiveChannelsCount is null &&
+                         pendingChannelsCount is null)
+                {
+                    // No backend snapshot is available. Older adapters can still provide
+                    // active rows. Only adapters with explicit per-row state can safely
+                    // distinguish inactive rows from pending ones.
+                    activeChannelsCount = channels.LongCount(channel => channel.IsActive);
+                    if (hasExplicitStateForEveryChannel)
+                    {
+                        inactiveChannelsCount = channelStates.LongCount(channel =>
+                            channel.IsPending is false && !channel.Channel.IsActive);
+                    }
+                }
                 LogOperation(context, "list-channels-summary", stopwatch, "success", null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -154,11 +148,12 @@ public class LightningManagerService : ILightningManagerService
             catch (Exception exception)
             {
                 // Keep GetInfo channel counts when ListChannels is unavailable for a backend.
+                model.Notices.Add("Could not load channels.");
                 LogOperation(context, "list-channels-summary", stopwatch, "failed", exception.GetType().Name);
             }
         }
 
-        if (context.Capabilities.CanGetBalance)
+        if (context.Capabilities.CanGetBalance && phoenixdNetworkValidated)
         {
             var stopwatch = Stopwatch.StartNew();
             try
@@ -196,14 +191,14 @@ public class LightningManagerService : ILightningManagerService
             }
         }
 
-        AddSummaryRow(model.SummaryRows, "Node", model.NodeDisplayName);
-        AddSummaryRow(model.SummaryRows, "Host", model.NodeHost);
-        AddSummaryRow(model.SummaryRows, "Version", model.Version);
-        AddSummaryRow(model.SummaryRows, "Block height", model.BlockHeight?.ToString());
-        AddSummaryRow(model.SummaryRows, "Peers", model.PeersCount?.ToString());
-        AddSummaryRow(model.SummaryRows, "Active channels", model.ActiveChannelsCount?.ToString());
-        AddSummaryRow(model.SummaryRows, "Inactive channels", model.InactiveChannelsCount?.ToString());
-        AddSummaryRow(model.SummaryRows, "Pending channels", model.PendingChannelsCount?.ToString());
+        AddSummaryRow(model.SummaryRows, "Node", nodeDisplayName);
+        AddSummaryRow(model.SummaryRows, "Host", nodeHost);
+        AddSummaryRow(model.SummaryRows, "Version", version);
+        AddSummaryRow(model.SummaryRows, "Block height", blockHeight?.ToString());
+        AddSummaryRow(model.SummaryRows, "Peers", peersCount?.ToString());
+        AddSummaryRow(model.SummaryRows, "Active channels", activeChannelsCount?.ToString());
+        AddSummaryRow(model.SummaryRows, "Inactive channels", inactiveChannelsCount?.ToString());
+        AddSummaryRow(model.SummaryRows, "Pending channels", pendingChannelsCount?.ToString());
     }
 
     internal static bool IsAffectedPhoenixdAdapter(ILightningClient? client)
@@ -221,7 +216,7 @@ public class LightningManagerService : ILightningManagerService
                version == AffectedPhoenixdAdapterVersion;
     }
 
-    public virtual bool TryCreateSendPreview(
+    public bool TryCreateSendPreview(
         StoreLightningManagerContext context,
         string? bolt11,
         string? amountSats,
@@ -309,7 +304,6 @@ public class LightningManagerService : ILightningManagerService
             Bolt11 = bolt11.Trim(),
             PaymentAmount = paymentAmount,
             UserAmountSats = userAmountSats,
-            IsAmountless = isAmountless,
             AmountDisplay = FormatLightMoney(paymentAmount),
             MaxFeeSats = maxFee,
             MaxFeeDisplay = maxFee is long fee ? FormatMoney(Money.Satoshis(fee)) : null,
@@ -321,7 +315,7 @@ public class LightningManagerService : ILightningManagerService
         return true;
     }
 
-    public virtual async Task<SendExecutionResult> SendAsync(
+    public async Task<SendExecutionResult> SendAsync(
         StoreLightningManagerContext context,
         string bolt11,
         string? amountSats,
@@ -333,11 +327,7 @@ public class LightningManagerService : ILightningManagerService
         {
             return CompleteSend(context, stopwatch, "invalid", new SendExecutionResult
             {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = false,
-                    Message = validationError ?? "The invoice is invalid."
-                }
+                Result = Failure(validationError ?? "The invoice is invalid.")
             });
         }
 
@@ -372,18 +362,26 @@ public class LightningManagerService : ILightningManagerService
                 preview.Bolt11,
                 payParams,
                 cancellationToken);
-            using var paymentLookupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            paymentLookupTimeout.CancelAfter(PaymentLookupTimeout);
-            var knownPayment = await TryLoadPaymentAsync(
-                context.Client,
-                preview.PaymentHash,
-                paymentLookupTimeout.Token);
-            if (payResponse.Result != PayResult.Ok && cancellationToken.IsCancellationRequested)
+            LightningPayment? knownPayment = null;
+            if (payResponse.Result != PayResult.Ok || payResponse.Details is null)
             {
-                throw new OperationCanceledException(cancellationToken);
+                using var paymentLookupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                paymentLookupTimeout.CancelAfter(PaymentLookupTimeout);
+                knownPayment = await TryLoadPaymentAsync(
+                    context.Client,
+                    preview.PaymentHash,
+                    paymentLookupTimeout.Token);
+                if (payResponse.Result != PayResult.Ok && cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
             }
 
-            var details = CreatePaymentDetails(preview.PaymentHash, knownPayment, payResponse);
+            var details = CreatePaymentDetails(
+                preview.PaymentHash,
+                knownPayment,
+                payResponse,
+                preview.PaymentAmount);
             if (payResponse.Result != PayResult.Ok)
             {
                 var knownResult = ResolveKnownPaymentResult(
@@ -405,38 +403,21 @@ public class LightningManagerService : ILightningManagerService
             {
                 PayResult.Ok => new SendExecutionResult
                 {
-                    Result = new ActionResultViewModel
-                    {
-                        IsSuccess = true,
-                        Message = "Payment sent successfully."
-                    },
+                    Result = Success("Payment sent successfully."),
                     Payment = details
                 },
                 PayResult.Unknown => new SendExecutionResult
                 {
-                    Result = new ActionResultViewModel
-                    {
-                        IsSuccess = false,
-                        Message = UnknownPaymentStatusMessage
-                    },
+                    Result = Failure(UnknownPaymentStatusMessage),
                     Payment = details
                 },
                 PayResult.CouldNotFindRoute => new SendExecutionResult
                 {
-                    Result = new ActionResultViewModel
-                    {
-                        IsSuccess = false,
-                        Message = "No route to the invoice destination was found."
-                    }
+                    Result = Failure("No route to the invoice destination was found.")
                 },
                 PayResult.Error when details.Status == LightningPaymentStatus.Failed => new SendExecutionResult
                 {
                     Result = Failure("Lightning payment failed."),
-                    Payment = details
-                },
-                PayResult.Error => new SendExecutionResult
-                {
-                    Result = Failure(UnknownPaymentStatusMessage),
                     Payment = details
                 },
                 _ => new SendExecutionResult
@@ -455,22 +436,8 @@ public class LightningManagerService : ILightningManagerService
         {
             return CompleteSend(context, stopwatch, "unsupported", new SendExecutionResult
             {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = false,
-                    Message = "This backend does not support sending payments."
-                }
+                Result = Failure("This backend does not support sending payments.")
             });
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            var result = await ReconcileAmbiguousPaymentAsync(context, preview.PaymentHash);
-            return CompleteSend(
-                context,
-                stopwatch,
-                result.Result.IsSuccess ? "success" : GetPaymentOutcome(result.Payment),
-                result,
-                nameof(OperationCanceledException));
         }
         catch (Exception exception)
         {
@@ -484,7 +451,7 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    public virtual async Task<ActionResultViewModel> ConnectPeerAsync(
+    public async Task<ActionResultViewModel> ConnectPeerAsync(
         StoreLightningManagerContext context,
         string? nodeUri,
         CancellationToken cancellationToken = default)
@@ -509,12 +476,9 @@ public class LightningManagerService : ILightningManagerService
         try
         {
             var result = await context.Client.ConnectTo(nodeInfo, cancellationToken);
-            var actionResult = result switch
-            {
-                ConnectionResult.Ok => Success("Connected to peer successfully."),
-                ConnectionResult.CouldNotConnect => Failure("Could not connect to the remote peer."),
-                _ => Failure("Could not connect to the remote peer.")
-            };
+            var actionResult = result == ConnectionResult.Ok
+                ? Success("Connected to peer successfully.")
+                : Failure("Could not connect to the remote peer.");
             return CompleteAction(
                 context,
                 "connect-peer",
@@ -553,35 +517,18 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    public virtual Task PopulatePeersAsync(
-        PeersViewModel model,
-        StoreLightningManagerContext context,
-        CancellationToken cancellationToken = default)
-    {
-        if (!context.IsConfigured || context.Client is null)
-        {
-            model.PeerListMessage = "Lightning is not available for this store.";
-            return Task.CompletedTask;
-        }
-
-        model.PeerListMessage = "Peer listing is not available for this backend.";
-        return Task.CompletedTask;
-    }
-
-    public virtual async Task PopulateChannelsAsync(
+    public async Task PopulateChannelsAsync(
         ChannelsViewModel model,
         StoreLightningManagerContext context,
         CancellationToken cancellationToken = default)
     {
         if (!context.IsConfigured || context.Client is null)
         {
-            model.ChannelListMessage = "Lightning is not available for this store.";
             return;
         }
 
         if (!context.Capabilities.CanListChannels)
         {
-            model.ChannelListMessage = "Channel listing is not supported by this backend.";
             return;
         }
 
@@ -596,14 +543,13 @@ public class LightningManagerService : ILightningManagerService
                 var capacity = new LightMoney(Math.Max(0, channel.Capacity.MilliSatoshi));
                 var localBalance = new LightMoney(Math.Clamp(channel.LocalBalance.MilliSatoshi, 0, capacity.MilliSatoshi));
                 var remoteBalance = capacity - localBalance;
-                var isPending = channel.ChannelPoint is null;
+                TryGetExplicitPendingState(channel, out var isPending);
                 model.Channels.Add(new LightningChannelItemViewModel
                 {
                     RemoteNode = channel.RemoteNode?.ToString() ?? "Unknown",
-                    ChannelPoint = channel.ChannelPoint?.ToString() ?? "Pending",
+                    ChannelPoint = channel.ChannelPoint?.ToString(),
                     CapacitySats = capacity.ToUnit(LightMoneyUnit.Satoshi),
                     LocalBalanceSats = localBalance.ToUnit(LightMoneyUnit.Satoshi),
-                    RemoteBalanceSats = remoteBalance.ToUnit(LightMoneyUnit.Satoshi),
                     CapacityDisplay = FormatLightMoney(capacity),
                     LocalBalanceDisplay = FormatLightMoney(localBalance),
                     RemoteBalanceDisplay = FormatLightMoney(remoteBalance),
@@ -613,10 +559,6 @@ public class LightningManagerService : ILightningManagerService
                 });
             }
 
-            if (model.Channels.Count == 0)
-            {
-                model.ChannelListMessage = "No channels found.";
-            }
             LogOperation(context, "list-channels", stopwatch, "success", null);
         }
         catch (NotSupportedException)
@@ -635,7 +577,30 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    public virtual bool TryCreateOpenChannelPreview(
+    internal static bool TryGetExplicitPendingState(LightningChannel channel, out bool? isPending)
+    {
+        // IsPending is being added upstream. Reflection keeps the plugin compatible with
+        // BTCPay 2.4.1 while allowing the new adapter state to flow through once released.
+        var property = channel.GetType().GetProperty("IsPending");
+        if (property is null ||
+            !property.CanRead ||
+            (property.PropertyType != typeof(bool) && property.PropertyType != typeof(bool?)))
+        {
+            isPending = null;
+            return false;
+        }
+
+        if (property.GetValue(channel) is bool value)
+        {
+            isPending = value;
+            return true;
+        }
+
+        isPending = null;
+        return false;
+    }
+
+    public bool TryCreateOpenChannelPreview(
         StoreLightningManagerContext context,
         string? nodeUri,
         string? channelAmountSats,
@@ -660,7 +625,7 @@ public class LightningManagerService : ILightningManagerService
         return true;
     }
 
-    public virtual async Task<ActionResultViewModel> OpenChannelAsync(
+    public async Task<ActionResultViewModel> OpenChannelAsync(
         StoreLightningManagerContext context,
         string nodeUri,
         string channelAmountSats,
@@ -718,16 +683,6 @@ public class LightningManagerService : ILightningManagerService
                 "unsupported",
                 Failure("Channel opening is not supported by this backend."));
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return CompleteAction(
-                context,
-                "open-channel",
-                stopwatch,
-                "unknown",
-                Failure("Channel opening status is unknown. Check the Lightning node before retrying."),
-                nameof(OperationCanceledException));
-        }
         catch (Exception exception)
         {
             return CompleteAction(
@@ -740,7 +695,7 @@ public class LightningManagerService : ILightningManagerService
         }
     }
 
-    protected virtual bool TryBuildOpenChannelRequest(
+    private static bool TryBuildOpenChannelRequest(
         StoreLightningManagerContext context,
         string? nodeUri,
         string? channelAmountSats,
@@ -783,7 +738,7 @@ public class LightningManagerService : ILightningManagerService
 
         if (!TryParseFeeRate(feeRateSatsPerByte, out var feeRate))
         {
-            error = $"Fee rate must be a whole number between 1 and {MaximumChannelOpenFeeRate} sat/vB.";
+            error = $"Fee rate must be a whole number between 1 and {int.MaxValue} sat/vB.";
             return false;
         }
 
@@ -809,21 +764,13 @@ public class LightningManagerService : ILightningManagerService
                 NumberStyles.None,
                 CultureInfo.InvariantCulture,
                 out sats) ||
-            sats <= 0)
+            sats <= 0 ||
+            sats > long.MaxValue / 1_000)
         {
             return false;
         }
 
-        try
-        {
-            Money.Satoshis(sats);
-            return true;
-        }
-        catch
-        {
-            sats = 0;
-            return false;
-        }
+        return true;
     }
 
     private static bool TryParsePaymentAmount(
@@ -842,17 +789,14 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
-        try
+        if (sats > long.MaxValue / 1_000)
         {
-            amount = LightMoney.Satoshis(sats);
-            return true;
-        }
-        catch
-        {
-            amount = LightMoney.Zero;
             sats = 0;
             return false;
         }
+
+        amount = LightMoney.Satoshis(sats);
+        return true;
     }
 
     private static bool TryParseChannelAmount(string? channelAmountSats, out Money channelAmount)
@@ -868,16 +812,8 @@ public class LightningManagerService : ILightningManagerService
             return false;
         }
 
-        try
-        {
-            channelAmount = Money.Satoshis(sats);
-            return true;
-        }
-        catch
-        {
-            channelAmount = Money.Zero;
-            return false;
-        }
+        channelAmount = Money.Satoshis(sats);
+        return true;
     }
 
     private static bool TryParseFeeRate(string? feeRateSatsPerByte, out FeeRate feeRate)
@@ -888,25 +824,19 @@ public class LightningManagerService : ILightningManagerService
             return true;
         }
 
-        if (long.TryParse(
+        if (!int.TryParse(
                 feeRateSatsPerByte.Trim(),
                 NumberStyles.None,
                 CultureInfo.InvariantCulture,
-                out var satPerByte) &&
-            satPerByte is > 0 and <= MaximumChannelOpenFeeRate)
+                out var satPerByte) ||
+            satPerByte <= 0)
         {
-            try
-            {
-                feeRate = new FeeRate((decimal)satPerByte);
-                return true;
-            }
-            catch
-            {
-            }
+            feeRate = new FeeRate(DefaultChannelOpenFeeRate);
+            return false;
         }
 
-        feeRate = new FeeRate(DefaultChannelOpenFeeRate);
-        return false;
+        feeRate = new FeeRate((decimal)satPerByte);
+        return true;
     }
 
     private static async Task<LightningPayment?> TryLoadPaymentAsync(
@@ -945,10 +875,16 @@ public class LightningManagerService : ILightningManagerService
         string paymentHash,
         LightningPayment? payment,
         PayResponse? response = null,
+        LightMoney? canonicalPaymentAmount = null,
         LightningPaymentStatus? statusOverride = null)
     {
         var responseDetails = response?.Details;
-        var totalAmount = payment?.AmountSent ?? responseDetails?.TotalAmount;
+        var totalAmount = payment?.AmountSent ??
+                          (response?.Result == PayResult.Ok &&
+                           canonicalPaymentAmount is not null &&
+                           responseDetails?.FeeAmount is { } responseFee
+                              ? canonicalPaymentAmount + responseFee
+                              : responseDetails?.TotalAmount);
         var feeAmount = payment?.Fee ?? responseDetails?.FeeAmount;
         return new SendResultDetailsViewModel
         {
@@ -979,11 +915,9 @@ public class LightningManagerService : ILightningManagerService
         LightningPayment? payment,
         PayResponse? response = null)
     {
-        var isBlink = LightningBackendTypes.Is(
-            context.ConnectionString,
-            LightningBackendTypes.Blink);
+        var isBlink = context.BackendType == LightningBackendTypes.Blink;
         if (payment?.Status == LightningPaymentStatus.Failed &&
-            (LightningBackendTypes.Is(context.ConnectionString, LightningBackendTypes.Eclair) ||
+            (context.BackendType == LightningBackendTypes.Eclair ||
              (isBlink &&
               (response?.Result != PayResult.Error ||
                response.Details?.Status != LightningPaymentStatus.Failed))))
@@ -1008,29 +942,17 @@ public class LightningManagerService : ILightningManagerService
         {
             LightningPaymentStatus.Complete => new SendExecutionResult
             {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = true,
-                    Message = "Payment sent successfully."
-                },
+                Result = Success("Payment sent successfully."),
                 Payment = CreatePaymentDetails(paymentHash, payment)
             },
             LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown => new SendExecutionResult
             {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = false,
-                    Message = UnknownPaymentStatusMessage
-                },
+                Result = Failure(UnknownPaymentStatusMessage),
                 Payment = CreatePaymentDetails(paymentHash, payment)
             },
             LightningPaymentStatus.Failed => new SendExecutionResult
             {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = false,
-                    Message = "Lightning payment failed."
-                },
+                Result = Failure("Lightning payment failed."),
                 Payment = CreatePaymentDetails(paymentHash, payment)
             },
             _ => null
@@ -1078,7 +1000,7 @@ public class LightningManagerService : ILightningManagerService
         string? exceptionType)
     {
         stopwatch.Stop();
-        var backend = LightningBackendTypes.TryGet(context.ConnectionString) ?? "unknown";
+        var backend = context.BackendType ?? "unknown";
         if (outcome == "success")
         {
             _logger.LogInformation(
@@ -1105,20 +1027,14 @@ public class LightningManagerService : ILightningManagerService
 
     private static string GetPaymentOutcome(SendResultDetailsViewModel? payment)
     {
-        return payment?.Status switch
-        {
-            LightningPaymentStatus.Failed => "failed",
-            LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown => "unknown",
-            _ => "failed"
-        };
+        return payment?.Status is LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown
+            ? "unknown"
+            : "failed";
     }
 
     private static bool IsLndBackend(StoreLightningManagerContext context)
     {
-        return LightningBackendTypes.IsAny(
-            context.ConnectionString,
-            LightningBackendTypes.LndRest,
-            LightningBackendTypes.LndGrpc);
+        return context.BackendType is LightningBackendTypes.LndRest or LightningBackendTypes.LndGrpc;
     }
 
     private static void AddSummaryRow(List<ValueRowViewModel> rows, string label, string? value)

@@ -33,10 +33,17 @@ public class LightningManagerChannelConfirmationStoreTests
         var store = new LightningManagerChannelConfirmationStore(cache);
         var token = store.Create("user-1", "store-1", "BTC", BackendFingerprint, "node-a", "100000", null);
 
-        var results = await Task.WhenAll(
-            Enumerable.Range(0, 20)
-                .Select(_ => Task.Run(() =>
-                    store.TryConsume(token, "user-1", "store-1", "BTC", BackendFingerprint, "node-a", "100000", null))));
+        var results = await ConcurrentTestRunner.RunAsync(
+            20,
+            () => store.TryConsume(
+                token,
+                "user-1",
+                "store-1",
+                "BTC",
+                BackendFingerprint,
+                "node-a",
+                "100000",
+                null));
 
         Assert.Single(results, consumed => consumed);
     }

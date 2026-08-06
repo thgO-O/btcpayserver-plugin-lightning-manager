@@ -1,7 +1,5 @@
 @model PeersViewModel
 
-<partial name="LightningManager/_SectionTabs" model="Model.Tabs" />
-
 <div class="sticky-header">
     <h2>Connect Lightning Peer</h2>
 </div>
@@ -12,37 +10,27 @@
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>
 }
-
-@if (Model.Result is not null)
-    {
-        <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")">
-            <div>@Model.Result.Message</div>
-        </div>
-    }
-
-@foreach (var notice in Model.Notices)
+else if (!Model.Capabilities.CanConnectPeer)
 {
-    <div class="alert alert-info">@notice</div>
+    <div class="alert alert-info">Peer connections are not supported by this Lightning backend.</div>
 }
-
-<div class="card">
-    <div class="card-body">
-        <h3 class="h5">Peer Connection</h3>
-        <form asp-controller="LightningManager"
-              asp-action="ConnectPeer"
-              asp-route-storeId="@Model.StoreId"
-              asp-route-cryptoCode="@Model.CryptoCode"
-              method="post">
-            <div class="mb-3">
-                <label class="form-label" for="nodeUri">Node URI</label>
-                <input class="form-control" id="nodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" />
-                <div class="form-text">Use the format <code>pubkey@host[:port]</code>.</div>
-            </div>
-            <button type="submit" class="btn btn-primary" disabled="@(!Model.IsConfigured || !Model.Capabilities.CanConnectPeer)">Connect peer</button>
-        </form>
-        @if (!string.IsNullOrWhiteSpace(Model.PeerListMessage))
-        {
-            <p class="text-muted mt-3 mb-0">@Model.PeerListMessage</p>
-        }
+else
+{
+    <div class="card">
+        <div class="card-body">
+            <h3 class="h5">Peer Connection</h3>
+            <form asp-controller="LightningManager"
+                  asp-action="ConnectPeer"
+                  asp-route-storeId="@Model.StoreId"
+                  asp-route-cryptoCode="@Model.CryptoCode"
+                  method="post">
+                <div class="mb-3">
+                    <label class="form-label" for="nodeUri">Node URI</label>
+                    <input class="form-control" id="nodeUri" name="nodeUri" placeholder="pubkey@host:9735" required />
+                    <div class="form-text">Use the format <code>pubkey@host[:port]</code>.</div>
+                </div>
+                <button type="submit" class="btn btn-primary">Connect peer</button>
+            </form>
+        </div>
     </div>
-</div>
+}

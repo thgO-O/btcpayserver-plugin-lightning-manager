@@ -1,10 +1,8 @@
-#nullable enable
 using BTCPayServer;
 using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
-using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.AspNetCore.Authorization;
@@ -17,14 +15,14 @@ namespace BTCPayServer.Plugins.LightningManager.Controllers;
 public class LightningManagerController : Controller
 {
     private readonly IStoreLightningManagerContextFactory _contextFactory;
-    private readonly ILightningManagerService _lightningManagerService;
+    private readonly LightningManagerService _lightningManagerService;
     private readonly LightningManagerResultStore _resultStore;
     private readonly LightningManagerChannelConfirmationStore _channelConfirmationStore;
     private readonly LightningManagerPaymentConfirmationStore _paymentConfirmationStore;
 
     public LightningManagerController(
         IStoreLightningManagerContextFactory contextFactory,
-        ILightningManagerService lightningManagerService,
+        LightningManagerService lightningManagerService,
         LightningManagerResultStore resultStore,
         LightningManagerChannelConfirmationStore channelConfirmationStore,
         LightningManagerPaymentConfirmationStore paymentConfirmationStore)
@@ -45,19 +43,18 @@ public class LightningManagerController : Controller
     [HttpGet("overview")]
     public async Task<IActionResult> Overview([FromRoute] string cryptoCode, CancellationToken cancellationToken)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var model = CreatePageModel<OverviewViewModel>(context, "Overview", LightningManagerNavPages.Overview);
         await _lightningManagerService.PopulateOverviewAsync(model, context, cancellationToken);
         return View(model);
     }
 
     [HttpGet("send")]
-    public async Task<IActionResult> Send(
+    public IActionResult Send(
         [FromRoute] string cryptoCode,
-        CancellationToken cancellationToken,
         [FromQuery] string? resultId = null)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var userId = User.GetId();
         var model = CreatePageModel<SendViewModel>(context, "Pay", LightningManagerNavPages.Send);
         if (_resultStore.TryGetPayment(
@@ -80,24 +77,19 @@ public class LightningManagerController : Controller
         }
         else if (!string.IsNullOrWhiteSpace(resultId))
         {
-            model.Result = new ActionResultViewModel
-            {
-                IsSuccess = false,
-                Message = "Payment result is no longer available. Check the Lightning node before retrying."
-            };
+            model.Result = Failure("Payment result is no longer available. Check the Lightning node before retrying.");
         }
         return View(model);
     }
 
     [HttpPost("send/preview")]
-    public async Task<IActionResult> PreviewSend(
+    public IActionResult PreviewSend(
         [FromRoute] string cryptoCode,
         [FromForm] string? bolt11,
         [FromForm] string? amountSats,
-        [FromForm] string? maxFeeSats,
-        CancellationToken cancellationToken)
+        [FromForm] string? maxFeeSats)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var model = CreatePageModel<SendViewModel>(context, "Pay", LightningManagerNavPages.Send);
         model.Bolt11 = bolt11;
         model.AmountSats = amountSats;
@@ -117,11 +109,7 @@ public class LightningManagerController : Controller
         }
         else
         {
-            model.Result = new ActionResultViewModel
-            {
-                IsSuccess = false,
-                Message = error ?? "The invoice is invalid."
-            };
+            model.Result = Failure(error ?? "The invoice is invalid.");
         }
 
         return View("Send", model);
@@ -136,7 +124,7 @@ public class LightningManagerController : Controller
         CancellationToken cancellationToken,
         [FromForm] string? confirmationToken = null)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var userId = User.GetId();
         SendExecutionResult result;
         if (!_paymentConfirmationStore.TryConsume(
@@ -151,11 +139,7 @@ public class LightningManagerController : Controller
         {
             result = new SendExecutionResult
             {
-                Result = new ActionResultViewModel
-                {
-                    IsSuccess = false,
-                    Message = "This payment confirmation is invalid, expired, or already used. If it may already have been submitted, check the Lightning node before previewing again."
-                }
+                Result = Failure("This payment confirmation is invalid, expired, or already used. If it may already have been submitted, check the Lightning node before previewing again.")
             };
         }
         else
@@ -178,20 +162,19 @@ public class LightningManagerController : Controller
     }
 
     [HttpGet("peers")]
-    public async Task<IActionResult> Peers([FromRoute] string cryptoCode, CancellationToken cancellationToken)
+    public IActionResult Peers([FromRoute] string cryptoCode)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var model = CreatePageModel<PeersViewModel>(context, "Peers", LightningManagerNavPages.Peers);
-        await _lightningManagerService.PopulatePeersAsync(model, context, cancellationToken);
         return View(model);
     }
 
     [HttpPost("peers")]
     public async Task<IActionResult> ConnectPeer([FromRoute] string cryptoCode, [FromForm] string? nodeUri, CancellationToken cancellationToken)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var result = await _lightningManagerService.ConnectPeerAsync(context, nodeUri, cancellationToken);
-        SetStatusMessage(result);
+        TempData[result.IsSuccess ? WellKnownTempData.SuccessMessage : WellKnownTempData.ErrorMessage] = result.Message;
         return RedirectToAction(nameof(Peers), new { storeId = context.StoreId, cryptoCode = context.CryptoCode });
     }
 
@@ -201,7 +184,7 @@ public class LightningManagerController : Controller
         CancellationToken cancellationToken,
         [FromQuery] string? resultId = null)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var userId = User.GetId();
         var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningManagerNavPages.Channels);
         if (_resultStore.TryGetChannel(
@@ -223,11 +206,7 @@ public class LightningManagerController : Controller
         }
         else if (!string.IsNullOrWhiteSpace(resultId))
         {
-            model.Result = new ActionResultViewModel
-            {
-                IsSuccess = false,
-                Message = "Channel result is no longer available. Check the Lightning node before retrying."
-            };
+            model.Result = Failure("Channel result is no longer available. Check the Lightning node before retrying.");
         }
         await _lightningManagerService.PopulateChannelsAsync(model, context, cancellationToken);
         return View(model);
@@ -241,7 +220,7 @@ public class LightningManagerController : Controller
         [FromForm] string? feeRateSatsPerByte,
         CancellationToken cancellationToken)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var model = CreatePageModel<ChannelsViewModel>(context, "Channels", LightningManagerNavPages.Channels);
         model.NodeUri = nodeUri;
         model.ChannelAmountSats = channelAmountSats;
@@ -267,11 +246,7 @@ public class LightningManagerController : Controller
         }
         else
         {
-            model.Result = new ActionResultViewModel
-            {
-                IsSuccess = false,
-                Message = error ?? "The channel request is invalid."
-            };
+            model.Result = Failure(error ?? "The channel request is invalid.");
         }
 
         await _lightningManagerService.PopulateChannelsAsync(model, context, cancellationToken);
@@ -287,7 +262,7 @@ public class LightningManagerController : Controller
         CancellationToken cancellationToken,
         [FromForm] string? confirmationToken = null)
     {
-        var context = await GetContextAsync(cryptoCode, cancellationToken);
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
         var userId = User.GetId();
         ActionResultViewModel result;
         if (!_channelConfirmationStore.TryConsume(
@@ -300,11 +275,7 @@ public class LightningManagerController : Controller
                 channelAmountSats,
                 feeRateSatsPerByte))
         {
-            result = new ActionResultViewModel
-            {
-                IsSuccess = false,
-                Message = "This channel confirmation is invalid, expired, or already used. Check the Lightning node before previewing again."
-            };
+            result = Failure("This channel confirmation is invalid, expired, or already used. Check the Lightning node before previewing again.");
         }
         else
         {
@@ -325,22 +296,13 @@ public class LightningManagerController : Controller
         return RedirectToAction(nameof(Channels), new { storeId = context.StoreId, cryptoCode = context.CryptoCode, resultId });
     }
 
-    protected virtual async Task<StoreLightningManagerContext> GetContextAsync(string cryptoCode, CancellationToken cancellationToken)
+    private static ActionResultViewModel Failure(string message)
     {
-        return await _contextFactory.CreateAsync(
-            HttpContext.GetStoreData(),
-            cryptoCode,
-            cancellationToken);
-    }
-
-    private void SetStatusMessage(ActionResultViewModel? result)
-    {
-        if (result is null || string.IsNullOrWhiteSpace(result.Message))
+        return new ActionResultViewModel
         {
-            return;
-        }
-
-        TempData[result.IsSuccess ? WellKnownTempData.SuccessMessage : WellKnownTempData.ErrorMessage] = result.Message;
+            IsSuccess = false,
+            Message = message
+        };
     }
 
     private T CreatePageModel<T>(StoreLightningManagerContext context, string title, string activePage)
@@ -353,13 +315,9 @@ public class LightningManagerController : Controller
         {
             StoreId = context.StoreId,
             CryptoCode = context.CryptoCode,
-            Title = title,
             Capabilities = context.Capabilities,
-            Tabs = _lightningManagerService.CreateTabs(context, activePage),
             IsConfigured = context.IsConfigured,
-            ConfigurationMessage = context.ConfigurationError,
-            NodeDisplayName = context.DisplayName,
-            NodeHost = context.NodeHost
+            ConfigurationMessage = context.ConfigurationError
         };
         return model;
     }

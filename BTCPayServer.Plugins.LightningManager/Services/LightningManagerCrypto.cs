@@ -1,5 +1,3 @@
-#nullable enable
-
 namespace BTCPayServer.Plugins.LightningManager.Services;
 
 internal static class LightningManagerCrypto
@@ -10,18 +8,6 @@ internal static class LightningManagerCrypto
     public static bool IsSupported(string? cryptoCode)
     {
         return string.Equals(cryptoCode?.Trim(), Bitcoin, StringComparison.OrdinalIgnoreCase);
-    }
-
-    public static bool TryNormalizeSupported(string? cryptoCode, out string normalized)
-    {
-        normalized = string.Empty;
-        if (!IsSupported(cryptoCode))
-        {
-            return false;
-        }
-
-        normalized = Bitcoin;
-        return true;
     }
 }
 

@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Extensions.Caching.Memory;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
