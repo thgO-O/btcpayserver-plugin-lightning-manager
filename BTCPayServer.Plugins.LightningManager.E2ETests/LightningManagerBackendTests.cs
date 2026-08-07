@@ -15,6 +15,7 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
 {
     private const long PaymentAmountSats = 500;
     private const long MaxFeeSats = 100;
+    private const long ChannelCapacitySats = 100_000;
     private const long LiquidityBootstrapSats = 10_000;
     private const long RequiredOutboundLiquiditySats = 2 * (PaymentAmountSats + MaxFeeSats);
 
@@ -25,7 +26,6 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
     {
         using var tester = CreateServerTester();
         tester.ActivateLightning();
-        await tester.EnsureChannelsSetup();
 
         var cln = tester.CustomerLightningD;
         var lnd = tester.MerchantLnd.Client;
@@ -43,6 +43,14 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
             new LightningManagerOperationGuard());
         var clnContext = CreateContext(tester, cln, "clightning");
         var lndContext = CreateContext(tester, lnd, "lnd-rest");
+
+        await EnsureDirectChannelAsync(
+            tester,
+            cln,
+            lnd,
+            clnNode,
+            lndNode,
+            timeout.Token);
 
         var clnConnect = await service.ConnectPeerAsync(clnContext, lndNode.ToString(), timeout.Token);
         var lndConnect = await service.ConnectPeerAsync(lndContext, clnNode.ToString(), timeout.Token);
@@ -93,6 +101,84 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
         Assert.Empty(lndOverview.Notices);
         Assert.Empty(lndOverview.Warnings);
         AssertPositivePeerCount(lndOverview);
+    }
+
+    private static async Task EnsureDirectChannelAsync(
+        ServerTester tester,
+        ILightningClient cln,
+        ILightningClient lnd,
+        NodeInfo clnNode,
+        NodeInfo lndNode,
+        CancellationToken cancellationToken)
+    {
+        var depositAddress = await cln.GetDepositAddress(cancellationToken);
+        await tester.ExplorerNode.SendToAddressAsync(
+            depositAddress,
+            Money.Coins(0.01m),
+            cancellationToken);
+        await tester.ExplorerNode.GenerateAsync(6, cancellationToken);
+        await WaitForChainSyncAsync(tester, cln, lnd, cancellationToken);
+
+        var connection = await cln.ConnectTo(lndNode, cancellationToken);
+        Assert.Equal(ConnectionResult.Ok, connection);
+
+        var opened = await cln.OpenChannel(
+            new OpenChannelRequest
+            {
+                NodeInfo = lndNode,
+                ChannelAmount = Money.Satoshis(ChannelCapacitySats),
+                FeeRate = new FeeRate(1m)
+            },
+            cancellationToken);
+        Assert.Contains(
+            opened.Result,
+            new[]
+            {
+                OpenChannelResult.Ok,
+                OpenChannelResult.NeedMoreConf,
+                OpenChannelResult.AlreadyExists
+            });
+
+        await tester.ExplorerNode.GenerateAsync(6, cancellationToken);
+        await WaitForChainSyncAsync(tester, cln, lnd, cancellationToken);
+
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            var clnActive = (await cln.ListChannels(cancellationToken))
+                .Any(channel => channel.IsActive && channel.RemoteNode == lndNode.NodeId);
+            var lndActive = (await lnd.ListChannels(cancellationToken))
+                .Any(channel => channel.IsActive && channel.RemoteNode == clnNode.NodeId);
+            if (clnActive && lndActive)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+
+        Assert.Fail("The direct CLN to LND fixture channel did not become active.");
+    }
+
+    private static async Task WaitForChainSyncAsync(
+        ServerTester tester,
+        ILightningClient cln,
+        ILightningClient lnd,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            var blockCount = await tester.ExplorerNode.GetBlockCountAsync();
+            var clnInfo = await cln.GetInfo(cancellationToken);
+            var lndInfo = await lnd.GetInfo(cancellationToken);
+            if (clnInfo.BlockHeight == blockCount && lndInfo.BlockHeight == blockCount)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+
+        Assert.Fail("CLN or LND did not synchronize to the Bitcoin tip.");
     }
 
     private static StoreLightningManagerContext CreateContext(

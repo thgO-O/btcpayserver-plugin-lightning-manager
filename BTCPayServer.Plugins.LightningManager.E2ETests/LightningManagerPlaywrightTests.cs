@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BTCPayServer.Lightning;
+using BTCPayServer.Services;
 using BTCPayServer.Tests;
 using BTCPayServer.Tests.Lnd;
 using Microsoft.Playwright;
@@ -28,11 +29,14 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         "http://lnd:lnd@127.0.0.1:35532/";
     private const string PendingChannelMessage =
         "Channel opening may already be pending. Check the Lightning node before retrying.";
+    private const string InternalNodeNotice =
+        "You are managing BTCPay Server's shared internal Lightning node. Its balance, payments, peers, and channels are server-wide and are not isolated to this store.";
 
     [Theory(Timeout = 360_000)]
     [InlineData(ManagedBackend.Cln)]
     [InlineData(ManagedBackend.Lnd)]
     [InlineData(ManagedBackend.Eclair)]
+    [InlineData(ManagedBackend.InternalCln)]
     public async Task CanManageBackendThroughPluginUi(ManagedBackend backend)
     {
         var previousDebugPlugins = Environment.GetEnvironmentVariable("DEBUG_PLUGINS");
@@ -87,13 +91,27 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             await FundNodeAsync(tester, scenario, timeout.Token);
             await tester.StartAsync();
             tester.Page.SetDefaultNavigationTimeout(NavigationTimeoutMilliseconds);
-            await tester.RegisterNewUser(true);
+
+            var adminEmail = await tester.RegisterNewUser(true);
             var (_, storeId) = await tester.CreateNewStore();
 
+            string? nonAdminOwner = null;
+            if (scenario.IsInternalNode)
+            {
+                await tester.Logout();
+                await tester.GoToRegister();
+                nonAdminOwner = await tester.RegisterNewUser();
+                await tester.SkipWizard();
+                await tester.Logout();
+                await tester.GoToLogin();
+                await tester.LogIn(adminEmail);
+                await tester.AddUserToStore(storeId, nonAdminOwner, "Owner");
+            }
+
             await ConfigureBackendAsync(tester, storeId, scenario);
-            await AssertOverviewAsync(tester, storeId, scenario.ExpectedVersionPrefix);
-            await ConnectPeerAsync(tester, storeId, recipientNode);
-            await OpenChannelAsync(tester, storeId, recipientNode);
+            await AssertOverviewAsync(tester, storeId, scenario);
+            await ConnectPeerAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
+            await OpenChannelAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
 
             await tester.Server.ExplorerNode.GenerateAsync(6, timeout.Token);
             await WaitForChainSyncAsync(tester, scenario, timeout.Token);
@@ -115,6 +133,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 scenario.Recipient,
                 $"{scenario.Name} fixed",
                 amountless: false,
+                scenario.IsInternalNode,
                 timeout.Token);
             await PayThroughUiAsync(
                 tester,
@@ -122,9 +141,16 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 scenario.Recipient,
                 $"{scenario.Name} amountless",
                 amountless: true,
+                scenario.IsInternalNode,
                 timeout.Token);
 
             await tester.Page.AssertNoError();
+            if (nonAdminOwner is not null)
+            {
+                tester.Server.PayTester.GetService<PoliciesSettings>()
+                    .AllowLightningInternalNodeForAll = true;
+                await AssertInternalNodeDeniedForNonAdminOwnerAsync(tester, storeId, nonAdminOwner);
+            }
         }
         finally
         {
@@ -164,6 +190,13 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 tester.Server.CustomerLightningD,
                 null,
                 "0.8"),
+            ManagedBackend.InternalCln => new BackendScenario(
+                "Internal CLN",
+                tester.Server.MerchantLightningD,
+                tester.Server.MerchantLnd.Client,
+                LightningTestImplementation.Internal,
+                null,
+                true),
             _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, null)
         };
     }
@@ -220,9 +253,10 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
     private static async Task AssertOverviewAsync(
         PlaywrightTester tester,
         string storeId,
-        string? expectedVersionPrefix)
+        BackendScenario scenario)
     {
         await tester.GoToUrl(ManagerUrl(storeId, "overview"));
+        await AssertInternalNodeNoticeAsync(tester, scenario.IsInternalNode);
         await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "BTC Lightning Manager" }))
             .ToBeVisibleAsync();
 
@@ -238,13 +272,22 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
 
         var version = tester.Page.Locator("dt:has-text(\"Version\") + dd");
         await Expect(version).ToHaveTextAsync(new Regex("\\S+"));
-        if (expectedVersionPrefix is not null)
+        if (scenario.ExpectedVersionPrefix is not null)
         {
-            await Expect(version).ToContainTextAsync(expectedVersionPrefix);
+            await Expect(version).ToContainTextAsync(scenario.ExpectedVersionPrefix);
+        }
+
+        await Expect(tester.Page.Locator(
+                ".card:has(h3:has-text(\"Onchain Balance\")) dt:text-is(\"Confirmed\") + dd"))
+            .ToHaveTextAsync(new Regex("^[1-9][0-9,]* sats \\("));
+        if (scenario.IsInternalNode)
+        {
+            await Expect(tester.Page.Locator("dt:has-text(\"Node\") + dd"))
+                .ToHaveTextAsync("Core Lightning · Internal");
         }
 
         await Expect(tester.Page.Locator(".alert-warning"))
-            .ToHaveCountAsync(0);
+            .ToHaveCountAsync(scenario.IsInternalNode ? 1 : 0);
 
         foreach (var page in new[] { "send", "peers", "channels" })
         {
@@ -255,17 +298,27 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await tester.Page.AssertNoError();
     }
 
-    private static async Task ConnectPeerAsync(PlaywrightTester tester, string storeId, NodeInfo remoteNode)
+    private static async Task ConnectPeerAsync(
+        PlaywrightTester tester,
+        string storeId,
+        NodeInfo remoteNode,
+        bool isInternalNode)
     {
         await tester.GoToUrl(ManagerUrl(storeId, "peers"));
+        await AssertInternalNodeNoticeAsync(tester, isInternalNode);
         await tester.Page.Locator("#nodeUri").FillAsync(remoteNode.ToString());
         await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Connect peer" }).ClickAsync();
         await tester.FindAlertMessage(partialText: "Connected to peer successfully.");
     }
 
-    private static async Task OpenChannelAsync(PlaywrightTester tester, string storeId, NodeInfo remoteNode)
+    private static async Task OpenChannelAsync(
+        PlaywrightTester tester,
+        string storeId,
+        NodeInfo remoteNode,
+        bool isInternalNode)
     {
         await tester.GoToUrl(ManagerUrl(storeId, "channels"));
+        await AssertInternalNodeNoticeAsync(tester, isInternalNode);
         await tester.Page.Locator("#channelNodeUri").FillAsync(remoteNode.ToString());
         await tester.Page.Locator("#channelAmountSats")
             .FillAsync(ChannelAmountSats.ToString(CultureInfo.InvariantCulture));
@@ -295,6 +348,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         ILightningClient recipient,
         string description,
         bool amountless,
+        bool isInternalNode,
         CancellationToken cancellationToken)
     {
         var expectedAmount = LightMoney.Satoshis(PaymentAmountSats);
@@ -306,6 +360,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         var parsedInvoice = BOLT11PaymentRequest.Parse(invoice.BOLT11, Network.RegTest);
 
         await tester.GoToUrl(ManagerUrl(storeId, "send"));
+        await AssertInternalNodeNoticeAsync(tester, isInternalNode);
         await Expect(tester.Page.Locator("[aria-label='Payment progress'] [aria-current='step'] > span:last-child"))
             .ToHaveTextAsync("Invoice");
         await tester.Page.Locator("#bolt11").FillAsync(invoice.BOLT11);
@@ -370,6 +425,33 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             },
             "The destination did not receive the expected payment amount.",
             cancellationToken);
+    }
+
+    private static async Task AssertInternalNodeDeniedForNonAdminOwnerAsync(
+        PlaywrightTester tester,
+        string storeId,
+        string ownerEmail)
+    {
+        await tester.GoToUrl(ManagerUrl(storeId, "overview"));
+        await tester.Logout();
+        await tester.LogIn(ownerEmail);
+        await tester.GoToUrl($"/stores/{storeId}");
+
+        await Expect(tester.Page.Locator($"a[href$=\"{ManagerUrl(storeId, "overview")}\"]"))
+            .ToHaveCountAsync(0);
+        await tester.AssertPageAccess(false, ManagerUrl(storeId, "overview"));
+    }
+
+    private static async Task AssertInternalNodeNoticeAsync(
+        PlaywrightTester tester,
+        bool isInternalNode)
+    {
+        var notice = tester.Page.GetByText(InternalNodeNotice, new() { Exact = true });
+        await Expect(notice).ToHaveCountAsync(isInternalNode ? 1 : 0);
+        if (isInternalNode)
+        {
+            await Expect(notice).ToBeVisibleAsync();
+        }
     }
 
     private static async Task WaitForChainSyncAsync(
@@ -498,7 +580,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
     {
         Cln,
         Lnd,
-        Eclair
+        Eclair,
+        InternalCln
     }
 
     private sealed record BackendScenario(
@@ -506,5 +589,6 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         ILightningClient Managed,
         ILightningClient Recipient,
         LightningTestImplementation? ConnectionType,
-        string? ExpectedVersionPrefix);
+        string? ExpectedVersionPrefix,
+        bool IsInternalNode = false);
 }
