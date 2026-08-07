@@ -4,11 +4,11 @@ Use this checklist against the final Plugin Builder artifact selected for
 release. Record the BTCPay Server version, backend version and result for every
 row. Never copy credentials or the full connection string into the report.
 
-CLN and LND have automated service-level and browser coverage. Eclair 0.8 also
-has browser coverage through BTCPay Server's native Playwright harness. Those
-tests build the plugin from source; this checklist verifies the final artifact
-and records backend sign-off. Do not interpret an exposed capability preset as
-a successful sign-off.
+CLN and LND have automated service-level and browser coverage. Internal CLN and
+Eclair 0.8 also have browser coverage through BTCPay Server's native Playwright
+harness. Those tests build the plugin from source; this checklist verifies the
+final artifact and records backend sign-off. Do not interpret an exposed
+capability preset as a successful sign-off.
 
 The CLightning adapter currently selected by BTCPay Server 2.4.1 does not map
 CLN's reported peer count. The automated CLN sign-off therefore excludes that
@@ -31,6 +31,21 @@ capability. Record unsupported checks as `N/A` in the sign-off notes.
 - [ ] Refreshing the result page does not submit the operation again.
 - [ ] Backend errors and application logs contain no credentials, BOLT11,
       preimage or full payment hash.
+
+## Shared internal node
+
+- [ ] A Server Admin with `Use the lightning nodes associated with your stores`
+      can open Lightning Manager for a store configured with `Internal Node`.
+- [ ] The backend name includes `Internal` and the shared-node warning appears
+      on Overview, Pay, Peers, and Channels.
+- [ ] The displayed balance, payments, peers, and channels match the server's
+      internal node and are clearly described as server-wide, not store-owned.
+- [ ] A store Owner who is not a Server Admin sees no Lightning Manager menu
+      item and receives a forbidden response from a direct URL.
+- [ ] Enabling BTCPay's `AllowLightningInternalNodeForAll` setting does not
+      grant that Owner access through Lightning Manager.
+- [ ] Logs and rendered pages do not expose the internal connection string or
+      credentials.
 
 ## Eclair
 
@@ -75,6 +90,7 @@ capability. Record unsupported checks as `N/A` in the sign-off notes.
 | Backend | BTCPay version | Backend version | Date | Result | Notes |
 | --- | --- | --- | --- | --- | --- |
 | CLN | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
+| Internal CLN | — | — | — | Not run | Native E2E exists; final artifact and authorization smoke pending. |
 | LND | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
 | Eclair | — | — | — | Not run | Native E2E exists; final artifact smoke pending. |
 | Phoenixd | — | — | — | Not run | Release sign-off pending. |

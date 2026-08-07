@@ -12,7 +12,7 @@
 
   <PropertyGroup>
     <Product>Lightning Manager</Product>
-    <Description>BTC Lightning management UI for stores using external Lightning backends.</Description>
+    <Description>BTC Lightning management UI for stores using external backends or BTCPay Server's shared internal node.</Description>
     <Version>0.1.0</Version>
   </PropertyGroup>
 

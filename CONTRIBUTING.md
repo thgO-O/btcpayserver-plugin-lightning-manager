@@ -65,7 +65,7 @@ cd ../../..
 
 ## Native end-to-end tests
 
-The required service test and all three browser cases live in the xUnit v3 E2E
+The required service test and all four browser cases live in the xUnit v3 E2E
 project. Run the complete project without a filter so a renamed trait cannot
 silently remove a release test. Its native xUnit configuration also treats
 skips as failures:
@@ -82,10 +82,10 @@ dotnet test \
   -c Debug --no-build
 ```
 
-The CLN/LND service test uses `ServerTester.EnsureChannelsSetup()` rather than
-a shell channel-setup wrapper. It:
+The CLN/LND service test prepares its direct channel through the native test
+clients instead of relying on a shell channel-setup wrapper. It:
 
-- prepares the fixture channels through BTCPay's test helper;
+- funds CLN, connects it directly to LND, opens the channel, and mines it active;
 - reconnects the peers idempotently;
 - lists their existing channels through `LightningManagerService`;
 - validates channel-opening previews without funding another channel; and
@@ -93,15 +93,21 @@ a shell channel-setup wrapper. It:
 
 ## Backend Playwright tests
 
-The CLN, LND, and Eclair browser cases use BTCPay Server's `UnitTestBase`,
-`ServerTester`, and `PlaywrightTester` instead of maintaining a second
-application host or browser harness.
+The external CLN, LND, and Eclair browser cases plus the internal CLN case use
+BTCPay Server's `UnitTestBase`, `ServerTester`, and `PlaywrightTester` instead
+of maintaining a second application host or browser harness.
 
 Each case creates its BTCPay user and store through the native harness, then
-uses the browser to configure the external backend, navigate Lightning
-Manager, connect a peer, open and confirm a real regtest channel, and settle
-fixed and amountless payments. Bitcoin RPC and the Lightning clients are used
-only to prepare and verify external state.
+uses the browser to configure its backend, navigate Lightning Manager, connect
+a peer, open and confirm a real regtest channel, and settle fixed and
+amountless payments. Bitcoin RPC and the Lightning clients are used only to
+prepare and verify backend state.
+
+The internal CLN case configures the store with BTCPay Server's shared
+`Internal` Lightning option and runs as a Server Admin with store Lightning
+access. It also verifies the shared-node warning and confirms that a store
+Owner who is not a Server Admin sees no menu item and is forbidden from direct
+access.
 
 Stop the test stack when finished:
 
@@ -118,8 +124,8 @@ cd ../../..
 
 Repository validation consists of the Release build, deterministic tests,
 the CLN/LND service integration test, and native Playwright cases for CLN, LND,
-and Eclair. A test that needs its Lightning fixture must fail when that fixture
-is unavailable; it must not be silently skipped.
+Eclair, and internal CLN. A test that needs its Lightning fixture must fail when
+that fixture is unavailable; it must not be silently skipped.
 
 The published CLightning adapter used by BTCPay Server 2.4.1 does not yet map
 CLN's `num_peers`, so the CLN Overview peer count is excluded from automated
@@ -135,8 +141,15 @@ BTCPay Server version.
 
 Use [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) as the
 canonical checklist and sign-off record. It retains a final installation smoke
-for Eclair and records the currently manual Phoenixd and Blink validation.
-Never copy credentials into the record.
+for internal CLN and Eclair and records the currently manual Phoenixd and Blink
+validation. Never copy credentials into the record.
+
+For an internal-node artifact smoke, verify both authorization boundaries: a
+Server Admin with the store Lightning permission can manage the node, while a
+non-admin store Owner cannot see Lightning Manager and receives a forbidden
+response from a direct URL. Confirm that the page identifies the backend as
+internal and warns that balances, payments, peers, and channels are shared
+server-wide rather than isolated to the store.
 
 ## Manual channel-opening sign-off
 

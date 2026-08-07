@@ -1,14 +1,17 @@
 # Lightning Manager for BTCPay Server
 
-Lightning Manager adds BTC Lightning tools to BTCPay Server stores that use
-their own external Lightning node or wallet.
+Lightning Manager adds BTC Lightning tools to BTCPay Server stores with a
+configured Lightning node or wallet. It supports both store-specific external
+connections and BTCPay Server's shared internal node.
 
 From inside BTCPay Server, store operators can inspect the configured backend,
 pay supported BOLT11 invoices, connect peers, and list or open channels when
 the backend supports those actions.
 
-> Lightning Manager works with external BTC Lightning connections only. It
-> does not manage BTCPay's shared internal Lightning node.
+> Managing the shared internal node is restricted to Server Admins who also
+> have permission to use the Lightning node associated with that store. Store
+> owners who are not Server Admins cannot see or open Lightning Manager for an
+> internal-node store.
 
 ## What You Can Do
 
@@ -19,18 +22,20 @@ the backend supports those actions.
 - `Peers`: connect to Lightning peers.
 - `Channels`: list existing channels and open new channels.
 
-The actions shown come from a capability preset selected from the external
-connection string. For Blink, payment actions require `api-key=` and
-`currency=` determines whether Balance is available. The credentials
-configured in BTCPay Server still determine whether the backend authorizes
-each request.
+The actions shown come from a capability preset selected from the configured
+backend. For Blink, payment actions require `api-key=` and `currency=`
+determines whether Balance is available. The credentials configured in BTCPay
+Server still determine whether the backend authorizes each request.
 
 ## Requirements
 
 - BTCPay Server `2.4.1` or newer.
-- A BTCPay store with an external BTC Lightning node or wallet already
-  configured.
+- A BTCPay store with an external BTC Lightning node or wallet, or the shared
+  internal BTC Lightning node, already configured.
 - The `Use the lightning nodes associated with your stores` permission.
+- For the shared internal node, the user must also be a Server Admin. BTCPay's
+  `AllowLightningInternalNodeForAll` setting does not grant access through
+  Lightning Manager.
 - Lightning or on-chain funds for the actions you intend to perform.
 - For LND management, an admin macaroon or a custom macaroon authorized for the
   required operations. The checkout-oriented `invoice.macaroon` is not enough
@@ -45,7 +50,9 @@ each request.
 
 ## Quick Start
 
-1. Open a store that already has external BTC Lightning configured.
+1. Open a store that already has BTC Lightning configured. For an internal-node
+   store, sign in as a Server Admin who also has access to the store's
+   Lightning node.
 2. In the store sidebar, open `Plugins` and select `Lightning Manager`. This
    opens the BTC `Overview` page.
 3. Confirm that Lightning Manager detected the expected node or wallet and
@@ -58,10 +65,10 @@ each request.
 
 | Setup | Info | Balance | Pay | Amountless BOLT11 | Maximum fee | Connect peer | Open channel | List channels | Validation status |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
-| LND REST / BTCPay `lnd-grpc` value | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Automated service + Playwright E2E |
-| Core Lightning (CLN) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Automated service + Playwright E2E; peer count blocked upstream |
-| Eclair | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Automated Playwright E2E (0.8) |
-| Phoenixd | Yes | Yes | Yes | Yes | No | No | No | No | Manual sign-off pending |
+| LND REST / BTCPay `lnd-grpc` value / internal LND | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External Playwright E2E; internal factory coverage |
+| Core Lightning (CLN), external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External + internal Playwright E2E; peer count blocked upstream |
+| Eclair, external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External Playwright E2E (0.8); internal factory coverage |
+| Phoenixd, external or internal | Yes | Yes | Yes | Yes | No | No | No | No | Manual sign-off pending |
 | Blink custodial with `api-key=` and `currency=BTC` | No | Yes | Yes | No | No | No | No | No | Manual sign-off pending |
 | Blink custodial USD or legacy `api-key=` without `currency=` | No | No | Yes | No | No | No | No | No | Manual sign-off pending |
 | Blink receive-only with `ln-address=` or `username=`, without `api-key=` | No | No | No | No | No | No | No | No | Manual sign-off pending |
@@ -70,12 +77,14 @@ LND connections use the REST client provided by BTCPay Server. The historical
 `type=lnd-grpc` connection-string value is an alias for that REST client; it
 does not select a separate gRPC transport.
 
-The Yes/No columns describe actions exposed by each connection-string preset;
-they are not compatibility or release sign-off claims. Repository validation
-uses the standard BTCPay test stack for real service-level CLN/LND integration
-and Playwright channel/payment flows for CLN, LND, and Eclair 0.8. Packaging
-and distribution are handled separately through the Plugin Builder. Phoenixd
-and Blink remain unvalidated until their manual records in
+The Yes/No columns describe actions exposed by each backend preset; they are
+not compatibility or release sign-off claims. Internal nodes reuse the preset
+for their actual backend; an unknown internal backend is rejected. Repository
+validation uses the standard BTCPay test stack for real service-level CLN/LND
+integration and Playwright channel/payment flows for external CLN, internal
+CLN, external LND, and external Eclair 0.8. Packaging and distribution are
+handled separately through the Plugin Builder. Phoenixd and Blink remain
+unvalidated until their manual records in
 [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) contain real
 backend evidence.
 
@@ -97,6 +106,9 @@ payment. Backends without amountless support accept fixed-amount invoices only.
 - Payments and channel operations are sent directly to the configured
   Lightning node or wallet.
 - Lightning Manager does not hold funds or maintain a separate balance ledger.
+- The internal node is shared by the server. Its balance, payments, peers, and
+  channels are server-wide and are not isolated to the store used to open
+  Lightning Manager.
 - A payment or channel action is shown for confirmation before submission.
 - If the result of a submitted action is unknown, check the Lightning node or
   wallet before retrying.
@@ -110,8 +122,8 @@ payment. Backends without amountless support accept fixed-amount invoices only.
 Lightning Manager:
 
 - supports BTC Lightning only;
-- requires an explicit, supported `type=` in the external Lightning connection
-  string;
+- requires either an explicit, supported `type=` in an external Lightning
+  connection string or a supported internal Lightning backend;
 - does not create a wallet, receive payments, create invoices, or change
   checkout behavior;
 - does not support BOLT12, keysend, spontaneous payments, or LNURL checkout
@@ -126,12 +138,28 @@ Lightning Manager:
 ### Lightning Manager does not appear
 
 Look for `Lightning Manager` under `Plugins` in the store sidebar. Confirm that
-the store uses a supported external BTC Lightning connection and that your user
-has the Lightning node access permission. The plugin is
-intentionally hidden for BTCPay's shared internal node, non-BTC Lightning
-configurations, unknown backends, and connection strings without a recognized
-`type=`. It is also hidden for Blink receive-only connections without
-`api-key=` because Lightning Manager does not provide receiving tools.
+the store uses a supported BTC Lightning connection and that your user has the
+Lightning node access permission. For the shared internal node, the user must
+also be a Server Admin; enabling BTCPay's
+`AllowLightningInternalNodeForAll` setting does not relax this requirement.
+The plugin is hidden for non-BTC Lightning configurations, unknown backends,
+external connection strings without a recognized `type=`, and Blink
+receive-only connections without `api-key=`.
+
+### The internal node is unavailable
+
+Confirm that BTCPay Server has an internal BTC Lightning node configured and
+that its backend is supported by the capability table above. Lightning Manager
+does not expose the internal connection string or its credentials. If the
+backend is not recognized, the plugin fails closed instead of attempting node
+operations.
+
+### Values are shared between stores
+
+This is expected when stores select BTCPay Server's internal node. Lightning
+Manager operates the node itself, so its balance, payments, peers, and channels
+are server-wide. The plugin does not create a virtual balance or accounting
+ledger for each store.
 
 ### A page or action is missing
 
