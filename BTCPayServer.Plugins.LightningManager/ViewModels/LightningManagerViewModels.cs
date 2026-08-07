@@ -1,3 +1,4 @@
+using System.Globalization;
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.Services;
 
@@ -27,6 +28,7 @@ public abstract class LightningManagerPageViewModel
 {
     public string StoreId { get; init; } = string.Empty;
     public string CryptoCode { get; init; } = string.Empty;
+    public string? BackendDisplayName { get; init; }
     public LightningCapabilities Capabilities { get; init; } = LightningCapabilities.None;
     public bool IsConfigured { get; init; }
     public string? ConfigurationMessage { get; init; }
@@ -49,6 +51,8 @@ public class SendPreviewViewModel
     public long? UserAmountSats { get; init; }
     public bool IsAmountless => UserAmountSats is not null;
     public string AmountDisplay { get; init; } = string.Empty;
+    public string AmountBtcDisplay =>
+        $"{PaymentAmount.ToUnit(LightMoneyUnit.BTC).ToString("0.00000000###", CultureInfo.InvariantCulture)} BTC";
     public long? MaxFeeSats { get; init; }
     public string? MaxFeeDisplay { get; init; }
     public bool UsesBackendFeePolicy => MaxFeeSats is null;
@@ -61,8 +65,11 @@ public class SendPreviewViewModel
 public class SendResultDetailsViewModel
 {
     public LightningPaymentStatus Status { get; init; }
+    public string? PaymentAmountDisplay { get; init; }
     public string? TotalAmountDisplay { get; init; }
     public string? FeeAmountDisplay { get; init; }
+    public string? PrimaryAmountDisplay => TotalAmountDisplay ?? PaymentAmountDisplay;
+    public string? Payee { get; init; }
     public string? PaymentHash { get; init; }
     public string? Preimage { get; init; }
 }
@@ -76,6 +83,7 @@ public class SendViewModel : LightningManagerPageViewModel
     public string? PaymentConfirmationToken { get; set; }
     public SendResultDetailsViewModel? Payment { get; set; }
     public ActionResultViewModel? Result { get; set; }
+    public bool HasPaymentResult { get; set; }
 }
 
 public class PeersViewModel : LightningManagerPageViewModel;

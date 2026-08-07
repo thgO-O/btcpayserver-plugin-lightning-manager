@@ -306,6 +306,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         var parsedInvoice = BOLT11PaymentRequest.Parse(invoice.BOLT11, Network.RegTest);
 
         await tester.GoToUrl(ManagerUrl(storeId, "send"));
+        await Expect(tester.Page.Locator("[aria-label='Payment progress'] [aria-current='step'] > span:last-child"))
+            .ToHaveTextAsync("Invoice");
         await tester.Page.Locator("#bolt11").FillAsync(invoice.BOLT11);
         var amountInput = tester.Page.Locator("#amountSats");
         await Expect(amountInput).ToHaveCountAsync(1);
@@ -319,28 +321,45 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         }
 
         await tester.Page.Locator("#maxFeeSats").FillAsync(MaxFeeSats.ToString(CultureInfo.InvariantCulture));
-        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Preview payment" }).ClickAsync();
-        await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Confirm Payment" }))
+        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Review payment" }).ClickAsync();
+        await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Review payment" }))
             .ToBeVisibleAsync();
+        await Expect(tester.Page.Locator("[aria-label='Payment progress'] [aria-current='step'] > span:last-child"))
+            .ToHaveTextAsync("Review");
         await Expect(tester.Page.Locator("#execute-payment-form input[name=confirmationToken]"))
             .ToHaveValueAsync(new Regex("^[0-9a-f]{32}$"));
-        await Expect(tester.Page.Locator(".payment-box"))
-            .ToContainTextAsync($"{PaymentAmountSats.ToString("N0", CultureInfo.InvariantCulture)} sats");
+        await Expect(tester.Page.Locator("#payment-amount"))
+            .ToHaveTextAsync($"{PaymentAmountSats.ToString("N0", CultureInfo.InvariantCulture)} sats");
+        await Expect(tester.Page.GetByText(
+                amountless
+                    ? "You set the amount for this amountless invoice."
+                    : "The invoice amount is signed and cannot be changed.",
+                new() { Exact = true }))
+            .ToBeVisibleAsync();
 
-        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Pay invoice" }).ClickAsync();
+        await tester.Page.GetByRole(
+                AriaRole.Button,
+                new()
+                {
+                    Name = $"Pay {PaymentAmountSats.ToString("N0", CultureInfo.InvariantCulture)} sats",
+                    Exact = true
+                })
+            .ClickAsync();
         Assert.Matches("[?&]resultId=[0-9a-f]{32}(?:&|$)", tester.Page.Url);
-        await tester.FindAlertMessage(partialText: "Payment sent successfully.");
+        await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Payment sent" }))
+            .ToBeVisibleAsync();
+        await Expect(tester.Page.Locator("[aria-label='Payment progress'] [aria-current='step'] > span:last-child"))
+            .ToHaveTextAsync("Done");
+        await Expect(tester.Page.Locator("#payment-status")).ToHaveTextAsync("Settled");
 
-        var result = tester.Page.Locator(".payment-box");
-        await Expect(result.GetByRole(AriaRole.Heading, new() { Name = "Payment Result" })).ToBeVisibleAsync();
-        await Expect(result.Locator("dt:has-text(\"Status\") + dd")).ToHaveTextAsync("Complete");
-        await Expect(result.Locator("dt:has-text(\"Payment hash\") + dd code"))
+        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Show technical details" }).ClickAsync();
+        await Expect(tester.Page.Locator("#payment-hash code"))
             .ToHaveTextAsync(parsedInvoice.PaymentHash!.ToString());
-        await Expect(result.Locator("dt:has-text(\"Preimage\") + dd code"))
+        await Expect(tester.Page.Locator("#payment-preimage code"))
             .ToHaveTextAsync(new Regex("^[0-9a-f]{64}$"));
 
-        var totalAmountSats = ParseSats(await VisibleTextAsync(result.Locator("p.h2")));
-        var feeAmountSats = ParseSats(await VisibleTextAsync(result.Locator("dt:has-text(\"Fee\") + dd")));
+        var totalAmountSats = ParseSats(await VisibleTextAsync(tester.Page.Locator("#payment-total")));
+        var feeAmountSats = ParseSats(await VisibleTextAsync(tester.Page.Locator("#payment-fee")));
         Assert.Equal(PaymentAmountSats + feeAmountSats, totalAmountSats);
 
         await WaitUntilAsync(

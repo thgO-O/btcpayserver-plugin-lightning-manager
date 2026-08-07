@@ -16,6 +16,10 @@ public class LightningManagerServiceTests
         "lnbcrt20u1psd66dppp5m4ughz9keyptj80qcn35cx9w52p7gc8eyx4m6y5456jlhm04wfvsdqqcqzpgxqyz5vqsp5pdsxhsnrs69n940373fnec2zxw5yzlksnev40ejcq39lnju5lt3s9qyyssqpq760qvf46y3cch948wau8e5ym0zungnqfvdx5wruy6f0hru2pp9txtc9up2lfc439a2xuz6nvgjw40vsddhywjpc5qmm0q3dj4m3dcqxzjjeg";
     private static readonly string FixedAmountPaymentHash =
         BOLT11PaymentRequest.Parse(TestInvoiceData.FixedAmountBolt11, Network.RegTest).PaymentHash!.ToString();
+    private static readonly string FixedAmountPayee =
+        BOLT11PaymentRequest.Parse(TestInvoiceData.FixedAmountBolt11, Network.RegTest).GetPayeePubKey().ToString();
+    private static readonly string AmountlessPayee =
+        BOLT11PaymentRequest.Parse(TestInvoiceData.AmountlessBolt11, Network.RegTest).GetPayeePubKey().ToString();
 
     private readonly LightningManagerService _service = TestLightningManagerServiceFactory.Create();
 
@@ -235,6 +239,8 @@ public class LightningManagerServiceTests
         Assert.True(preview.IsAmountless);
         Assert.Equal(123, preview.UserAmountSats);
         Assert.Equal(LightMoney.Satoshis(123), preview.PaymentAmount);
+        Assert.Equal("0.00000123 BTC", preview.AmountBtcDisplay);
+        Assert.Equal(AmountlessPayee, preview.Payee);
     }
 
     [Fact]
@@ -311,6 +317,8 @@ public class LightningManagerServiceTests
         Assert.False(preview.IsAmountless);
         Assert.Null(preview.UserAmountSats);
         Assert.Equal(LightMoney.Satoshis(2), preview.PaymentAmount);
+        Assert.Equal("0.00000002 BTC", preview.AmountBtcDisplay);
+        Assert.Equal(FixedAmountPayee, preview.Payee);
     }
 
     [Fact]
@@ -333,6 +341,9 @@ public class LightningManagerServiceTests
         Assert.NotNull(capturedParams);
         Assert.Equal(LightMoney.Satoshis(321), capturedParams.Amount);
         Assert.Equal(9, capturedParams.MaxFeeFlat!.Satoshi);
+        Assert.Equal("321 sats", result.Payment!.PaymentAmountDisplay);
+        Assert.Equal("321 sats", result.Payment.PrimaryAmountDisplay);
+        Assert.Equal(AmountlessPayee, result.Payment.Payee);
     }
 
     [Fact]
@@ -586,8 +597,11 @@ public class LightningManagerServiceTests
 
         Assert.True(result.Result.IsSuccess);
         Assert.Equal(0, getPaymentCalls);
+        Assert.Equal("2 sats", result.Payment!.PaymentAmountDisplay);
         Assert.Equal("3 sats", result.Payment!.TotalAmountDisplay);
+        Assert.Equal("3 sats", result.Payment.PrimaryAmountDisplay);
         Assert.Equal("1 sats", result.Payment.FeeAmountDisplay);
+        Assert.Equal(FixedAmountPayee, result.Payment.Payee);
     }
 
     [Fact]
@@ -698,8 +712,10 @@ public class LightningManagerServiceTests
         Assert.Equal("Payment sent successfully.", result.Result.Message);
         Assert.NotNull(result.Payment);
         Assert.Equal(LightningPaymentStatus.Complete, result.Payment.Status);
+        Assert.Equal("2 sats", result.Payment.PaymentAmountDisplay);
         Assert.Equal("2 sats", result.Payment.TotalAmountDisplay);
         Assert.Equal("0.1 sats", result.Payment.FeeAmountDisplay);
+        Assert.Equal(FixedAmountPayee, result.Payment.Payee);
         Assert.Equal("test-hash", result.Payment.PaymentHash);
         Assert.Equal("preimage", result.Payment.Preimage);
     }

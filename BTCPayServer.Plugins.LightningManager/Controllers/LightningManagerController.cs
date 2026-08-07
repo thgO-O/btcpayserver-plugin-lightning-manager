@@ -72,11 +72,13 @@ public class LightningManagerController : Controller
                  context.BackendFingerprint,
                  out executionResult)))
         {
+            model.HasPaymentResult = true;
             model.Result = executionResult!.Result;
             model.Payment = executionResult.Payment;
         }
         else if (!string.IsNullOrWhiteSpace(resultId))
         {
+            model.HasPaymentResult = true;
             model.Result = Failure("Payment result is no longer available. Check the Lightning node before retrying.");
         }
         return View(model);
@@ -315,6 +317,7 @@ public class LightningManagerController : Controller
         {
             StoreId = context.StoreId,
             CryptoCode = context.CryptoCode,
+            BackendDisplayName = context.DisplayName,
             Capabilities = context.Capabilities,
             IsConfigured = context.IsConfigured,
             ConfigurationMessage = context.ConfigurationError

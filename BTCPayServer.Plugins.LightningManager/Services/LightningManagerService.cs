@@ -394,15 +394,14 @@ public sealed class LightningManagerService
             }
 
             var details = CreatePaymentDetails(
-                preview.PaymentHash,
+                preview,
                 knownPayment,
-                payResponse,
-                preview.PaymentAmount);
+                payResponse);
             if (payResponse.Result != PayResult.Ok)
             {
                 var knownResult = ResolveKnownPaymentResult(
                     context,
-                    preview.PaymentHash,
+                    preview,
                     knownPayment,
                     payResponse);
                 if (knownResult is not null)
@@ -457,7 +456,7 @@ public sealed class LightningManagerService
         }
         catch (Exception exception)
         {
-            var result = await ReconcileAmbiguousPaymentAsync(context, preview.PaymentHash);
+            var result = await ReconcileAmbiguousPaymentAsync(context, preview);
             return CompleteSend(
                 context,
                 stopwatch,
@@ -887,34 +886,32 @@ public sealed class LightningManagerService
 
     private static async Task<SendExecutionResult> ReconcileAmbiguousPaymentAsync(
         StoreLightningManagerContext context,
-        string paymentHash)
+        SendPreviewViewModel preview)
     {
         using var reconciliationTimeout = new CancellationTokenSource(PaymentLookupTimeout);
         var payment = await TryLoadPaymentAsync(
             context.Client!,
-            paymentHash,
+            preview.PaymentHash,
             reconciliationTimeout.Token);
-        return ResolveKnownPaymentResult(context, paymentHash, payment) ??
+        return ResolveKnownPaymentResult(context, preview, payment) ??
                new SendExecutionResult
                {
                    Result = Failure(UnknownPaymentStatusMessage),
-                   Payment = CreatePaymentDetails(paymentHash, payment)
+                   Payment = CreatePaymentDetails(preview, payment)
                };
     }
 
     private static SendResultDetailsViewModel CreatePaymentDetails(
-        string paymentHash,
+        SendPreviewViewModel preview,
         LightningPayment? payment,
         PayResponse? response = null,
-        LightMoney? canonicalPaymentAmount = null,
         LightningPaymentStatus? statusOverride = null)
     {
         var responseDetails = response?.Details;
         var totalAmount = payment?.AmountSent ??
                           (response?.Result == PayResult.Ok &&
-                           canonicalPaymentAmount is not null &&
                            responseDetails?.FeeAmount is { } responseFee
-                              ? canonicalPaymentAmount + responseFee
+                              ? preview.PaymentAmount + responseFee
                               : responseDetails?.TotalAmount);
         var feeAmount = payment?.Fee ?? responseDetails?.FeeAmount;
         return new SendResultDetailsViewModel
@@ -933,16 +930,18 @@ public sealed class LightningManagerService
                                    LightningPaymentStatus.Pending,
                                _ => LightningPaymentStatus.Unknown
                            }),
+            PaymentAmountDisplay = FormatLightMoney(preview.PaymentAmount),
             TotalAmountDisplay = totalAmount is null ? null : FormatLightMoney(totalAmount),
             FeeAmountDisplay = feeAmount is null ? null : FormatLightMoney(feeAmount),
-            PaymentHash = payment?.PaymentHash ?? responseDetails?.PaymentHash?.ToString() ?? paymentHash,
+            Payee = preview.Payee,
+            PaymentHash = payment?.PaymentHash ?? responseDetails?.PaymentHash?.ToString() ?? preview.PaymentHash,
             Preimage = payment?.Preimage ?? responseDetails?.Preimage?.ToString()
         };
     }
 
     private static SendExecutionResult? ResolveKnownPaymentResult(
         StoreLightningManagerContext context,
-        string paymentHash,
+        SendPreviewViewModel preview,
         LightningPayment? payment,
         PayResponse? response = null)
     {
@@ -963,7 +962,7 @@ public sealed class LightningManagerService
             {
                 Result = Failure(UnknownPaymentStatusMessage),
                 Payment = CreatePaymentDetails(
-                    paymentHash,
+                    preview,
                     payment,
                     statusOverride: reconciledStatus)
             };
@@ -974,17 +973,17 @@ public sealed class LightningManagerService
             LightningPaymentStatus.Complete => new SendExecutionResult
             {
                 Result = Success("Payment sent successfully."),
-                Payment = CreatePaymentDetails(paymentHash, payment)
+                Payment = CreatePaymentDetails(preview, payment)
             },
             LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown => new SendExecutionResult
             {
                 Result = Failure(UnknownPaymentStatusMessage),
-                Payment = CreatePaymentDetails(paymentHash, payment)
+                Payment = CreatePaymentDetails(preview, payment)
             },
             LightningPaymentStatus.Failed => new SendExecutionResult
             {
                 Result = Failure("Lightning payment failed."),
-                Payment = CreatePaymentDetails(paymentHash, payment)
+                Payment = CreatePaymentDetails(preview, payment)
             },
             _ => null
         };

@@ -28,6 +28,8 @@ public class LightningManagerControllerTests
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<SendViewModel>(view.Model);
         Assert.Same(LightningCapabilities.BlinkPayOnly, model.Capabilities);
+        Assert.Equal("Test Node", model.BackendDisplayName);
+        Assert.False(model.HasPaymentResult);
     }
 
     [Fact]
@@ -84,6 +86,7 @@ public class LightningManagerControllerTests
         Assert.False(model.Result!.IsSuccess);
         Assert.Equal("The BOLT11 invoice is invalid.", model.Result.Message);
         Assert.Null(model.PaymentConfirmationToken);
+        Assert.False(model.HasPaymentResult);
     }
 
     [Fact]
@@ -351,13 +354,21 @@ public class LightningManagerControllerTests
         Assert.NotNull(model.Result);
         Assert.True(model.Result!.IsSuccess);
         Assert.NotNull(model.Payment);
+        Assert.True(model.HasPaymentResult);
         Assert.Equal(LightningPaymentStatus.Complete, model.Payment!.Status);
+        Assert.Equal("2 sats", model.Payment.PaymentAmountDisplay);
+        Assert.Equal(
+            BOLT11PaymentRequest.Parse(TestInvoiceData.FixedAmountBolt11, Network.RegTest)
+                .GetPayeePubKey()
+                .ToString(),
+            model.Payment.Payee);
         Assert.False(string.IsNullOrWhiteSpace(model.Payment.PaymentHash));
         Assert.Equal("preimage", model.Payment.Preimage);
 
         var refreshResult = controller.Send("BTC", resultId);
         var refreshView = Assert.IsType<ViewResult>(refreshResult);
         var refreshModel = Assert.IsType<SendViewModel>(refreshView.Model);
+        Assert.True(refreshModel.HasPaymentResult);
         Assert.True(refreshModel.Result!.IsSuccess);
         Assert.Equal(LightningPaymentStatus.Complete, refreshModel.Payment!.Status);
     }
@@ -381,12 +392,14 @@ public class LightningManagerControllerTests
         var recoveredResult = controller.Send("BTC");
         var recoveredView = Assert.IsType<ViewResult>(recoveredResult);
         var recoveredModel = Assert.IsType<SendViewModel>(recoveredView.Model);
+        Assert.True(recoveredModel.HasPaymentResult);
         Assert.True(recoveredModel.Result!.IsSuccess);
         Assert.Equal(LightningPaymentStatus.Complete, recoveredModel.Payment!.Status);
 
         var nextResult = controller.Send("BTC");
         var nextView = Assert.IsType<ViewResult>(nextResult);
         var nextModel = Assert.IsType<SendViewModel>(nextView.Model);
+        Assert.False(nextModel.HasPaymentResult);
         Assert.Null(nextModel.Result);
         Assert.Null(nextModel.Payment);
     }
@@ -402,6 +415,7 @@ public class LightningManagerControllerTests
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<SendViewModel>(view.Model);
         Assert.NotNull(model.Result);
+        Assert.True(model.HasPaymentResult);
         Assert.False(model.Result!.IsSuccess);
         Assert.Equal(
             "Payment result is no longer available. Check the Lightning node before retrying.",
@@ -717,6 +731,8 @@ public class LightningManagerControllerTests
         var view = Assert.IsType<ViewResult>(previewResult);
         var model = Assert.IsType<SendViewModel>(view.Model);
         Assert.NotNull(model.Preview);
+        Assert.Equal("Test Node", model.BackendDisplayName);
+        Assert.False(model.HasPaymentResult);
         return Assert.IsType<string>(model.PaymentConfirmationToken);
     }
 

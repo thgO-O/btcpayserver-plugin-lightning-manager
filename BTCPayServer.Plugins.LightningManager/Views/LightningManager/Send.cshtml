@@ -1,7 +1,37 @@
+@using BTCPayServer.Lightning
 @model SendViewModel
 @{
     Layout = "_LayoutWizard";
-    ViewData.SetTitle($"Pay {Model.CryptoCode}");
+    ViewData.SetTitle($"Send {Model.CryptoCode} payment");
+
+    var currentStep = Model.HasPaymentResult ? 3 : Model.Preview is not null ? 2 : 1;
+    var payment = Model.Payment;
+    var isSuccessfulPayment = Model.HasPaymentResult &&
+                              Model.Result?.IsSuccess is true &&
+                              payment?.Status == LightningPaymentStatus.Complete;
+    var paymentStatus = payment?.Status switch
+    {
+        LightningPaymentStatus.Complete => "Settled",
+        LightningPaymentStatus.Pending => "Pending",
+        LightningPaymentStatus.Failed => "Failed",
+        _ => "Unknown"
+    };
+    var paymentStatusClass = payment?.Status switch
+    {
+        LightningPaymentStatus.Complete => "text-bg-success",
+        LightningPaymentStatus.Pending => "text-bg-warning",
+        LightningPaymentStatus.Failed => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+    var resultHeading = isSuccessfulPayment
+        ? "Payment sent"
+        : payment?.Status == LightningPaymentStatus.Pending
+            ? "Payment pending"
+                : payment?.Status == LightningPaymentStatus.Failed
+                    ? "Payment failed"
+                    : payment is not null
+                        ? "Payment status unknown"
+                        : "Payment could not be confirmed";
 }
 
 @section Navbar {
@@ -16,8 +46,288 @@
     </a>
 }
 
-@section PageFootContent
-{
+@section PageHeadContent {
+    <style>
+        #SendPayment {
+            --lm-step-size: 1.75rem;
+            max-width: 36rem;
+            margin: 0 auto var(--btcpay-space-l);
+        }
+
+        #SendPayment .card-header {
+            flex-wrap: wrap;
+            color: var(--btcpay-body-text);
+            background: var(--btcpay-body-bg-light);
+        }
+
+        #SendPayment .lm-brand-icon {
+            --icon-size: 1.75rem;
+            color: var(--btcpay-primary);
+        }
+
+        #SendPayment .lm-backend {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--btcpay-space-s);
+            max-width: 14rem;
+            padding: .4rem .65rem;
+            color: var(--btcpay-body-text);
+            background: var(--btcpay-body-bg);
+            border: 1px solid var(--btcpay-body-border-light);
+            border-radius: var(--btcpay-border-radius);
+            font-size: var(--btcpay-font-size-s);
+        }
+
+        #SendPayment .lm-backend-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #SendPayment .lm-backend-dot {
+            width: .5rem;
+            height: .5rem;
+            flex: 0 0 .5rem;
+            background: var(--btcpay-primary);
+            border-radius: 50%;
+        }
+
+        #SendPayment .lm-steps {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: var(--btcpay-space-s);
+            margin: 0 0 var(--btcpay-space-xl);
+            padding: 0;
+            list-style: none;
+        }
+
+        #SendPayment .lm-step {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+            gap: var(--btcpay-space-s);
+            color: var(--btcpay-body-text-muted);
+            white-space: nowrap;
+        }
+
+        #SendPayment .lm-step:not(:last-child)::after {
+            content: "";
+            flex: 1;
+            min-width: var(--btcpay-space-s);
+            height: 1px;
+            background: var(--btcpay-body-border-medium);
+        }
+
+        #SendPayment .lm-step-marker {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: var(--lm-step-size);
+            height: var(--lm-step-size);
+            flex: 0 0 var(--lm-step-size);
+            border: 1px solid var(--btcpay-body-border-medium);
+            border-radius: 50%;
+        }
+
+        #SendPayment .lm-step.is-complete,
+        #SendPayment .lm-step.is-current {
+            color: var(--btcpay-primary);
+        }
+
+        #SendPayment .lm-step.is-complete .lm-step-marker {
+            border-color: var(--btcpay-primary);
+        }
+
+        #SendPayment .lm-step.is-current .lm-step-marker {
+            color: var(--btcpay-primary-text);
+            border-color: var(--btcpay-primary);
+            background: var(--btcpay-primary);
+        }
+
+        #SendPayment .lm-invoice {
+            overflow: hidden;
+            color: var(--btcpay-form-text);
+            background: var(--btcpay-form-bg);
+            border: 1px solid var(--btcpay-form-border);
+            border-radius: var(--btcpay-border-radius);
+        }
+
+        #SendPayment .lm-invoice:focus-within {
+            border-color: var(--btcpay-form-border-focus);
+            box-shadow: 0 0 0 1px var(--btcpay-form-border-focus) inset;
+        }
+
+        #SendPayment .lm-invoice textarea {
+            min-height: 10rem;
+            resize: vertical;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+        }
+
+        #SendPayment .lm-invoice-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--btcpay-space-s);
+            padding: 0 var(--btcpay-space-s) var(--btcpay-space-s);
+        }
+
+        #SendPayment .lm-invoice-actions .icon,
+        #SendPayment .lm-inline-notice .icon,
+        #SendPayment .lm-technical-toggle .icon {
+            --icon-size: 1rem;
+        }
+
+        #SendPayment .lm-options {
+            overflow: hidden;
+            border: 1px solid var(--btcpay-body-border-light);
+            border-radius: var(--btcpay-border-radius);
+        }
+
+        #SendPayment .lm-options .accordion-item {
+            border: 0;
+        }
+
+        #SendPayment .lm-options .accordion-button {
+            padding: var(--btcpay-space-m);
+            background: var(--btcpay-body-bg-light);
+            font-weight: var(--btcpay-font-weight-semibold);
+        }
+
+        #SendPayment .lm-options .accordion-button:not(.collapsed) {
+            border-bottom: 1px solid var(--btcpay-body-border-light);
+            box-shadow: none;
+        }
+
+        #SendPayment .lm-options .accordion-body {
+            padding: var(--btcpay-space-m);
+        }
+
+        #SendPayment .lm-fee-input {
+            max-width: 12rem;
+        }
+
+        #SendPayment .lm-amount {
+            color: var(--btcpay-primary);
+            font-size: clamp(2rem, 8vw, 2.75rem);
+            font-weight: var(--btcpay-font-weight-bold);
+            line-height: 1.15;
+        }
+
+        #SendPayment .lm-summary > div {
+            display: grid;
+            grid-template-columns: minmax(7rem, 1fr) minmax(0, 1.5fr);
+            gap: var(--btcpay-space-m);
+            padding: var(--btcpay-space-m) 0;
+        }
+
+        #SendPayment .lm-summary > div + div {
+            border-top: 1px solid var(--btcpay-body-border-light);
+        }
+
+        #SendPayment .lm-summary dt {
+            font-weight: var(--btcpay-font-weight-normal);
+        }
+
+        #SendPayment .lm-summary dd {
+            margin: 0;
+            text-align: end;
+            overflow-wrap: anywhere;
+        }
+
+        #SendPayment .lm-summary dd .truncate-center {
+            justify-content: flex-end;
+        }
+
+        #SendPayment .lm-inline-notice {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: var(--btcpay-space-s);
+        }
+
+        #SendPayment .lm-result-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 5rem;
+            height: 5rem;
+            border-radius: 50%;
+        }
+
+        #SendPayment .lm-result-icon .icon {
+            --icon-size: 3rem;
+        }
+
+        #SendPayment .lm-result-icon.is-success {
+            color: var(--btcpay-success-dim-text);
+            background: var(--btcpay-success-dim-bg);
+        }
+
+        #SendPayment .lm-result-icon.is-warning {
+            color: var(--btcpay-warning-dim-text);
+            background: var(--btcpay-warning-dim-bg);
+        }
+
+        #SendPayment .lm-result-icon.is-danger {
+            color: var(--btcpay-danger-dim-text);
+            background: var(--btcpay-danger-dim-bg);
+        }
+
+        #SendPayment .lm-technical-toggle:not(.collapsed) .icon {
+            transform: rotate(180deg);
+        }
+
+        @@media (max-width: 575.98px) {
+            #SendPayment .card-header,
+            #SendPayment .card-body {
+                padding-left: var(--btcpay-space-m) !important;
+                padding-right: var(--btcpay-space-m) !important;
+            }
+
+            #SendPayment .lm-step {
+                gap: var(--btcpay-space-xs);
+                font-size: var(--btcpay-font-size-s);
+            }
+
+            #SendPayment .lm-backend {
+                width: 100%;
+                max-width: none;
+                margin-left: 0 !important;
+            }
+
+            #SendPayment .lm-step:not(:last-child)::after {
+                min-width: var(--btcpay-space-xs);
+            }
+
+            #SendPayment .lm-summary > div {
+                grid-template-columns: minmax(5.5rem, .8fr) minmax(0, 1.2fr);
+                gap: var(--btcpay-space-s);
+            }
+        }
+
+        @@media (max-width: 359.98px) {
+            #SendPayment {
+                --lm-step-size: 1.5rem;
+            }
+
+            #SendPayment .lm-steps {
+                gap: 0;
+            }
+
+            #SendPayment .lm-step {
+                font-size: .75rem;
+            }
+        }
+    </style>
+    <noscript>
+        <style>
+            #TechnicalDetails.collapse { display: block !important; }
+        </style>
+    </noscript>
+}
+
+@section PageFootContent {
     <script>
         const executePaymentForm = document.getElementById('execute-payment-form')
         executePaymentForm?.addEventListener('submit', event => {
@@ -29,160 +339,428 @@
             executePaymentForm.dataset.submitting = 'true'
             executePaymentForm.querySelector('button[type="submit"]')?.setAttribute('disabled', 'disabled')
         })
+
+        const invoice = document.getElementById('bolt11')
+        const pasteInvoice = document.getElementById('PasteInvoice')
+        const clearInvoice = document.getElementById('ClearInvoice')
+
+        pasteInvoice?.addEventListener('click', async () => {
+            try {
+                const value = await navigator.clipboard.readText()
+                if (value && invoice) {
+                    invoice.value = value.trim()
+                    invoice.dispatchEvent(new Event('input', { bubbles: true }))
+                    invoice.focus()
+                }
+            } catch {
+                invoice?.focus()
+            }
+        })
+
+        clearInvoice?.addEventListener('click', () => {
+            if (invoice) {
+                invoice.value = ''
+                invoice.dispatchEvent(new Event('input', { bubbles: true }))
+                invoice.focus()
+            }
+        })
     </script>
 }
 
-<header class="text-center">
-    <h1>@ViewData["Title"]</h1>
-</header>
-
-@if (!Model.IsConfigured)
-{
-    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
-}
-
-@if (Model.Result is not null)
-{
-    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
-        @Model.Result.Message
-    </div>
-}
-
-@if (Model.Payment is not null)
-{
-    <div class="payment-box">
-        <h2 class="h4 mb-4 text-center">Payment Result</h2>
-        @if (!string.IsNullOrWhiteSpace(Model.Payment.TotalAmountDisplay))
+<div id="SendPayment" class="card shadow-sm overflow-hidden">
+    <header class="card-header d-flex align-items-center gap-3 py-3 px-4">
+        <vc:icon symbol="lightning" css-class="lm-brand-icon" />
+        <h1 class="h4 mb-0">Send payment</h1>
+        @if (Model.IsConfigured && !string.IsNullOrWhiteSpace(Model.BackendDisplayName))
         {
-            <div class="text-center border-bottom pb-4 mb-4">
-                <div class="small fw-semibold text-uppercase text-muted mb-2">Total paid</div>
-                <p class="h2 mb-0">@Model.Payment.TotalAmountDisplay</p>
-            </div>
+            <span class="lm-backend ms-auto" title="Configured Lightning backend">
+                <span class="lm-backend-dot" aria-hidden="true"></span>
+                <span class="lm-backend-label">@Model.BackendDisplayName · Configured</span>
+            </span>
         }
-        <dl class="row mb-0">
-            <dt class="col-sm-4">Status</dt>
-            <dd class="col-sm-8">@Model.Payment.Status</dd>
-            @if (!string.IsNullOrWhiteSpace(Model.Payment.FeeAmountDisplay))
-            {
-                <dt class="col-sm-4">Fee</dt>
-                <dd class="col-sm-8">@Model.Payment.FeeAmountDisplay</dd>
-            }
-            @if (!string.IsNullOrWhiteSpace(Model.Payment.PaymentHash))
-            {
-                <dt class="col-sm-4">Payment hash</dt>
-                <dd class="col-sm-8"><code class="text-break">@Model.Payment.PaymentHash</code></dd>
-            }
-            @if (!string.IsNullOrWhiteSpace(Model.Payment.Preimage))
-            {
-                <dt class="col-sm-4">Preimage</dt>
-                <dd class="col-sm-8"><code class="text-break">@Model.Payment.Preimage</code></dd>
-            }
-        </dl>
-        <div class="mt-4">
-            <a asp-controller="LightningManager"
-               asp-action="Send"
-               asp-route-storeId="@Model.StoreId"
-               asp-route-cryptoCode="@Model.CryptoCode"
-               class="btn btn-primary w-100">
-                Pay another invoice
-            </a>
-        </div>
+    </header>
+
+    <div class="card-body p-4 p-sm-5">
+        <ol class="lm-steps" aria-label="Payment progress">
+            <li class="lm-step @(currentStep == 1 ? "is-current" : "is-complete")"
+                aria-current="@(currentStep == 1 ? "step" : null)">
+                <span class="lm-step-marker">1</span>
+                <span>Invoice</span>
+            </li>
+            <li class="lm-step @(currentStep == 2 ? "is-current" : currentStep > 2 ? "is-complete" : null)"
+                aria-current="@(currentStep == 2 ? "step" : null)">
+                <span class="lm-step-marker">2</span>
+                <span>Review</span>
+            </li>
+            <li class="lm-step @(currentStep == 3 ? "is-current" : null)"
+                aria-current="@(currentStep == 3 ? "step" : null)">
+                <span class="lm-step-marker">3</span>
+                <span>Done</span>
+            </li>
+        </ol>
+
+        @if (Model.HasPaymentResult)
+        {
+            <section aria-labelledby="PaymentResultTitle">
+                <div class="text-center mb-4">
+                    @if (isSuccessfulPayment)
+                    {
+                        <span class="lm-result-icon is-success mb-3" aria-hidden="true">
+                            <vc:icon symbol="checkout-complete" />
+                        </span>
+                    }
+                    else if (payment is null ||
+                             payment.Status is LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown)
+                    {
+                        <span class="lm-result-icon is-warning mb-3" aria-hidden="true">
+                            <vc:icon symbol="warning" />
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="lm-result-icon is-danger mb-3" aria-hidden="true">
+                            <vc:icon symbol="cross" />
+                        </span>
+                    }
+
+                    <h2 id="PaymentResultTitle" class="h3 mb-2">@resultHeading</h2>
+                    @if (isSuccessfulPayment)
+                    {
+                        <p class="text-secondary mb-0">The invoice was paid successfully.</p>
+                    }
+                </div>
+
+                @if (!isSuccessfulPayment && Model.Result is not null)
+                {
+                    <div class="alert @(payment is null || payment.Status is LightningPaymentStatus.Pending or LightningPaymentStatus.Unknown ? "alert-warning" : "alert-danger")"
+                         role="alert">
+                        @Model.Result.Message
+                    </div>
+                }
+
+                @if (payment is not null)
+                {
+                    @if (!string.IsNullOrWhiteSpace(payment.PrimaryAmountDisplay))
+                    {
+                        <div class="text-center mb-4">
+                            <div id="payment-total" class="lm-amount">@payment.PrimaryAmountDisplay</div>
+                            @if (!string.IsNullOrWhiteSpace(payment.TotalAmountDisplay) &&
+                                 !string.IsNullOrWhiteSpace(payment.PaymentAmountDisplay) &&
+                                 !string.IsNullOrWhiteSpace(payment.FeeAmountDisplay))
+                            {
+                                <div class="text-secondary mt-2">
+                                    <span id="payment-base-amount">@payment.PaymentAmountDisplay</span>
+                                    +
+                                    <span id="payment-fee">@payment.FeeAmountDisplay</span> routing fee
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <dl class="lm-summary border rounded px-3 mb-3">
+                        <div>
+                            <dt>Status</dt>
+                            <dd><span id="payment-status" class="badge @paymentStatusClass">@paymentStatus</span></dd>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(payment.Payee))
+                        {
+                            <div>
+                                <dt>To</dt>
+                                <dd>
+                                    <vc:truncate-center text="@payment.Payee" padding="8" classes="truncate-center-id" />
+                                </dd>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(payment.PaymentHash))
+                        {
+                            <div>
+                                <dt>Payment hash</dt>
+                                <dd>
+                                    <vc:truncate-center text="@payment.PaymentHash" padding="8" classes="truncate-center-id" />
+                                </dd>
+                            </div>
+                        }
+                    </dl>
+
+                    @if (!string.IsNullOrWhiteSpace(payment.PaymentHash) || !string.IsNullOrWhiteSpace(payment.Preimage))
+                    {
+                        <div class="text-center mb-4">
+                            <button class="btn btn-link lm-technical-toggle collapsed only-for-js"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#TechnicalDetails"
+                                    aria-expanded="false"
+                                    aria-controls="TechnicalDetails">
+                                Show technical details
+                                <vc:icon symbol="caret-down" />
+                            </button>
+                        </div>
+                        <div id="TechnicalDetails" class="collapse border rounded p-3 mb-4">
+                            <dl class="mb-0">
+                                @if (!string.IsNullOrWhiteSpace(payment.PaymentHash))
+                                {
+                                    <dt>Payment hash</dt>
+                                    <dd id="payment-hash"><code class="text-break">@payment.PaymentHash</code></dd>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(payment.Preimage))
+                                {
+                                    <dt>Preimage</dt>
+                                    <dd id="payment-preimage" class="mb-0"><code class="text-break">@payment.Preimage</code></dd>
+                                }
+                            </dl>
+                        </div>
+                    }
+                }
+
+                <div class="d-grid gap-3">
+                    @if (isSuccessfulPayment)
+                    {
+                        <a asp-controller="LightningManager"
+                           asp-action="Send"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-primary btn-lg">
+                            Pay another invoice
+                        </a>
+                        <a asp-controller="LightningManager"
+                           asp-action="Overview"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-link">
+                            Back to Lightning Manager
+                        </a>
+                    }
+                    else
+                    {
+                        <a asp-controller="LightningManager"
+                           asp-action="Overview"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-primary btn-lg">
+                            Back to Lightning Manager
+                        </a>
+                    }
+                </div>
+            </section>
+        }
+        else if (Model.Preview is { } preview)
+        {
+            <section aria-labelledby="PaymentReviewTitle">
+                <div class="text-center mb-4">
+                    <h2 id="PaymentReviewTitle" class="h3 mb-3">Review payment</h2>
+                    <div id="payment-amount" class="lm-amount">@preview.AmountDisplay</div>
+                    <div class="text-secondary mt-2">@preview.AmountBtcDisplay</div>
+                </div>
+
+                <dl class="lm-summary border rounded px-3 mb-4">
+                    <div>
+                        <dt>To</dt>
+                        <dd>
+                            <vc:truncate-center text="@preview.Payee" padding="8" classes="truncate-center-id" />
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Description</dt>
+                        <dd>@preview.Description</dd>
+                    </div>
+                    <div>
+                        <dt>Expires in</dt>
+                        <dd>
+                            <time datetime="@preview.ExpiresAt.ToString("O")"
+                                  data-timeago-unixms="@preview.ExpiresAt.ToUnixTimeMilliseconds()">
+                                @preview.ExpiresAt.ToString("u")
+                            </time>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>Maximum fee</dt>
+                        <dd>@(preview.UsesBackendFeePolicy ? "Backend policy" : preview.MaxFeeDisplay)</dd>
+                    </div>
+                </dl>
+
+                <div class="alert alert-success d-flex align-items-center gap-2" role="status">
+                    <vc:icon symbol="checkmark" />
+                    <span>
+                        @(preview.IsAmountless
+                            ? "You set the amount for this amountless invoice."
+                            : "The invoice amount is signed and cannot be changed.")
+                    </span>
+                </div>
+
+                @if (preview.UsesBackendFeePolicy)
+                {
+                    <div class="alert alert-info">
+                        The routing fee is controlled by this Lightning backend.
+                    </div>
+                }
+
+                <div class="lm-inline-notice text-secondary my-4">
+                    <vc:icon symbol="warning" />
+                    <span>Lightning payments are final.</span>
+                </div>
+
+                <form asp-controller="LightningManager"
+                      asp-action="ExecuteSend"
+                      asp-route-storeId="@Model.StoreId"
+                      asp-route-cryptoCode="@Model.CryptoCode"
+                      method="post"
+                      id="execute-payment-form">
+                    <input type="hidden" name="bolt11" value="@preview.Bolt11" />
+                    <input type="hidden" name="amountSats" value="@preview.UserAmountSats" />
+                    <input type="hidden" name="confirmationToken" value="@Model.PaymentConfirmationToken" />
+                    @if (!preview.UsesBackendFeePolicy)
+                    {
+                        <input type="hidden" name="maxFeeSats" value="@preview.MaxFeeSats" />
+                    }
+                    <div class="d-grid gap-3">
+                        <button type="submit" class="btn btn-primary btn-lg">Pay @preview.AmountDisplay</button>
+                        <a asp-controller="LightningManager"
+                           asp-action="Send"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-secondary btn-lg">
+                            Start over
+                        </a>
+                    </div>
+                </form>
+            </section>
+        }
+        else
+        {
+            <section aria-labelledby="InvoiceEntryTitle">
+                <h2 id="InvoiceEntryTitle" class="h3 mb-2">Paste a Lightning invoice</h2>
+                <p class="text-secondary mb-4">Review every detail before funds leave your node.</p>
+
+                @if (Model.Result is not null)
+                {
+                    <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+                        @Model.Result.Message
+                    </div>
+                }
+
+                @if (!Model.IsConfigured)
+                {
+                    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+                }
+                else if (!Model.Capabilities.CanPayBolt11)
+                {
+                    <div class="alert alert-info">BOLT11 payments are not supported by this Lightning backend.</div>
+                }
+                else
+                {
+                    <form asp-controller="LightningManager"
+                          asp-action="PreviewSend"
+                          asp-route-storeId="@Model.StoreId"
+                          asp-route-cryptoCode="@Model.CryptoCode"
+                          method="post">
+                        <div class="form-group mb-0">
+                            <label class="form-label" for="bolt11">BOLT11 invoice</label>
+                            <div class="lm-invoice">
+                                <textarea class="form-control font-monospace"
+                                          id="bolt11"
+                                          name="bolt11"
+                                          rows="6"
+                                          placeholder="lnbc..."
+                                          aria-describedby="Bolt11Help"
+                                          required>@Model.Bolt11</textarea>
+                                <div class="lm-invoice-actions only-for-js">
+                                    <button type="button" id="PasteInvoice" class="btn btn-link d-inline-flex align-items-center gap-2">
+                                        <vc:icon symbol="actions-copy" />
+                                        Paste
+                                    </button>
+                                    <button type="button" id="ClearInvoice" class="btn btn-link text-secondary d-inline-flex align-items-center gap-2">
+                                        <vc:icon symbol="actions-trash" />
+                                        Clear
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="Bolt11Help" class="form-text">Paste the full invoice exactly as received.</div>
+                        </div>
+
+                        @if (Model.Capabilities.CanPayAmountless || Model.Capabilities.CanSetMaxFee)
+                        {
+                            <div class="accordion lm-options mt-4" id="PaymentOptions">
+                                <div class="accordion-item">
+                                    <h3 class="accordion-header" id="PaymentOptionsHeading">
+                                        <button class="accordion-button"
+                                                type="button"
+                                                data-bs-toggle="collapse"
+                                                data-bs-target="#PaymentOptionsContent"
+                                                aria-expanded="true"
+                                                aria-controls="PaymentOptionsContent">
+                                            Payment options
+                                        </button>
+                                    </h3>
+                                    <div id="PaymentOptionsContent"
+                                         class="accordion-collapse collapse show"
+                                         aria-labelledby="PaymentOptionsHeading">
+                                        <div class="accordion-body">
+                                            @if (Model.Capabilities.CanPayAmountless)
+                                            {
+                                                <div class="form-group mb-3">
+                                                    <label class="form-label" for="amountSats">Amount for amountless invoice</label>
+                                                    <div class="input-group lm-fee-input">
+                                                        <input class="form-control"
+                                                               id="amountSats"
+                                                               name="amountSats"
+                                                               value="@Model.AmountSats"
+                                                               type="number"
+                                                               inputmode="numeric"
+                                                               min="1"
+                                                               step="1" />
+                                                        <span class="input-group-text">sats</span>
+                                                    </div>
+                                                    <div class="form-text">Leave blank when the invoice already specifies an amount.</div>
+                                                </div>
+                                            }
+                                            @if (Model.Capabilities.CanSetMaxFee)
+                                            {
+                                                <div class="form-group mb-0">
+                                                    <label class="form-label" for="maxFeeSats">Maximum routing fee</label>
+                                                    <div class="input-group lm-fee-input">
+                                                        <input class="form-control"
+                                                               id="maxFeeSats"
+                                                               name="maxFeeSats"
+                                                               value="@(Model.MaxFeeSats ?? LightningManagerDefaults.SendMaxFeeSats.ToString())"
+                                                               type="number"
+                                                               inputmode="numeric"
+                                                               min="1"
+                                                               step="1" />
+                                                        <span class="input-group-text">sats</span>
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="alert alert-info mb-0">
+                                                    The routing fee is controlled by this Lightning backend.
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="form-text mt-3">
+                                Amount is read from the signed invoice. The routing fee is controlled by this backend.
+                            </div>
+                        }
+
+                        <div class="d-grid mt-5">
+                            <button type="submit" class="btn btn-primary btn-lg">Review payment</button>
+                        </div>
+                        <a asp-controller="LightningManager"
+                           asp-action="Overview"
+                           asp-route-storeId="@Model.StoreId"
+                           asp-route-cryptoCode="@Model.CryptoCode"
+                           class="btn btn-link w-100 mt-3">
+                            Cancel
+                        </a>
+                    </form>
+                }
+            </section>
+        }
     </div>
-}
-else if (Model.Preview is not null)
-{
-    <div class="payment-box">
-        <h2 class="h4 mb-4 text-center">Confirm Payment</h2>
-        <div class="text-center border-bottom pb-4 mb-4">
-            <div class="small fw-semibold text-uppercase text-muted mb-2">Amount</div>
-            <p class="h2 mb-0">@Model.Preview.AmountDisplay</p>
-        </div>
-        <dl class="row mb-0">
-            <dt class="col-sm-4">Description</dt>
-            <dd class="col-sm-8 text-break">@Model.Preview.Description</dd>
-            @if (!Model.Preview.UsesBackendFeePolicy)
-            {
-                <dt class="col-sm-4">Maximum fee</dt>
-                <dd class="col-sm-8">@Model.Preview.MaxFeeDisplay</dd>
-            }
-            <dt class="col-sm-4">Payee</dt>
-            <dd class="col-sm-8"><code class="text-break">@Model.Preview.Payee</code></dd>
-            <dt class="col-sm-4">Payment hash</dt>
-            <dd class="col-sm-8"><code class="text-break">@Model.Preview.PaymentHash</code></dd>
-            <dt class="col-sm-4">Expires</dt>
-            <dd class="col-sm-8">@Model.Preview.ExpiresAt.ToString("u")</dd>
-        </dl>
-        <form asp-controller="LightningManager"
-              asp-action="ExecuteSend"
-              asp-route-storeId="@Model.StoreId"
-              asp-route-cryptoCode="@Model.CryptoCode"
-              method="post"
-              class="mt-4"
-              id="execute-payment-form">
-            <input type="hidden" name="bolt11" value="@Model.Preview.Bolt11" />
-            <input type="hidden" name="amountSats" value="@Model.Preview.UserAmountSats" />
-            <input type="hidden" name="confirmationToken" value="@Model.PaymentConfirmationToken" />
-            @if (!Model.Preview.UsesBackendFeePolicy)
-            {
-                <input type="hidden" name="maxFeeSats" value="@Model.Preview.MaxFeeSats" />
-            }
-            else
-            {
-                <div class="alert alert-info">
-                    The routing fee is controlled by this Lightning backend.
-                </div>
-            }
-            <div class="d-grid gap-3">
-                <button type="submit" class="btn btn-primary">Pay invoice</button>
-                <a asp-controller="LightningManager"
-                   asp-action="Send"
-                   asp-route-storeId="@Model.StoreId"
-                   asp-route-cryptoCode="@Model.CryptoCode"
-                   class="btn btn-secondary">
-                    Start over
-                </a>
-            </div>
-        </form>
-    </div>
-}
-else if (Model.IsConfigured && Model.Capabilities.CanPayBolt11)
-{
-    <form asp-controller="LightningManager"
-          asp-action="PreviewSend"
-          asp-route-storeId="@Model.StoreId"
-          asp-route-cryptoCode="@Model.CryptoCode"
-          method="post"
-          class="my-5">
-        <div class="payment-box">
-            <div class="form-group mb-0">
-                <label class="form-label" for="bolt11">BOLT11 invoice</label>
-                <textarea class="form-control font-monospace" id="bolt11" name="bolt11" rows="6" placeholder="lnbc..." required>@Model.Bolt11</textarea>
-                <div class="form-text">Paste the full invoice exactly as received.</div>
-            </div>
-            @if (Model.Capabilities.CanPayAmountless)
-            {
-                <div class="form-group mt-3 mb-0">
-                    <label class="form-label" for="amountSats">Amount for amountless invoice (sats)</label>
-                    <input class="form-control" id="amountSats" name="amountSats" value="@Model.AmountSats" type="number" inputmode="numeric" min="1" step="1" />
-                    <div class="form-text">Leave blank when the invoice already specifies an amount.</div>
-                </div>
-            }
-            @if (Model.Capabilities.CanSetMaxFee)
-            {
-                <div class="form-group mt-3 mb-0">
-                    <label class="form-label" for="maxFeeSats">Maximum fee sats</label>
-                    <input class="form-control" id="maxFeeSats" name="maxFeeSats" value="@(Model.MaxFeeSats ?? LightningManagerDefaults.SendMaxFeeSats.ToString())" type="number" inputmode="numeric" min="1" step="1" />
-                </div>
-            }
-            else
-            {
-                <div class="alert alert-info mt-3 mb-0">
-                    The routing fee is controlled by this Lightning backend.
-                </div>
-            }
-            <div class="mt-4">
-                <button type="submit" class="btn btn-primary w-100">Preview payment</button>
-            </div>
-        </div>
-    </form>
-}
+</div>
