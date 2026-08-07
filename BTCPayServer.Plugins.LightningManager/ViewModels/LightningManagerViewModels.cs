@@ -30,6 +30,7 @@ public abstract class LightningManagerPageViewModel
     public string CryptoCode { get; init; } = string.Empty;
     public string? BackendDisplayName { get; init; }
     public LightningCapabilities Capabilities { get; init; } = LightningCapabilities.None;
+    public bool IsInternalNode { get; init; }
     public bool IsConfigured { get; init; }
     public string? ConfigurationMessage { get; init; }
 }

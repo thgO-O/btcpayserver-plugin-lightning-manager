@@ -1,5 +1,7 @@
 @using BTCPayServer.Client
+@using BTCPayServer.Security
 @model BTCPayServer.Components.MainNav.MainNavViewModel
+@inject Microsoft.AspNetCore.Authorization.IAuthorizationService AuthorizationService
 @inject IStoreLightningManagerContextFactory ContextFactory
 @{
     const string cryptoCode = LightningManagerCrypto.Bitcoin;
@@ -12,9 +14,17 @@
         LightningManagerNavPages.Send or
         LightningManagerNavPages.Peers or
         LightningManagerNavPages.Channels;
+    var canUseManager = managerContext?.IsConfigured is true;
+    if (canUseManager && managerContext?.IsInternalNode is true)
+    {
+        canUseManager = (await AuthorizationService.AuthorizeAsync(
+            User,
+            null,
+            new[] { new PolicyRequirement(Policies.CanUseInternalLightningNode) })).Succeeded;
+    }
 }
 
-@if (managerContext is { IsConfigured: true })
+@if (canUseManager && managerContext is not null)
 {
     <li class="nav-item"
         permission="@Policies.CanUseLightningNodeInStore"

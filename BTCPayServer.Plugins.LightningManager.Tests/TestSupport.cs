@@ -121,6 +121,14 @@ internal class FakeLightningClient : ILightningClient
         ListChannelsHandler is null ? throw new NotSupportedException() : ListChannelsHandler(cancellation);
 }
 
+internal sealed class ConnectionStringLightningClient(string connectionString) : FakeLightningClient
+{
+    public override string ToString()
+    {
+        return connectionString;
+    }
+}
+
 internal sealed class FakeHttpClientFactory : IHttpClientFactory
 {
     public HttpClient CreateClient(string name)

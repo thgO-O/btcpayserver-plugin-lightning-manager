@@ -1,0 +1,8 @@
+@model LightningManagerPageViewModel
+
+@if (Model.IsInternalNode)
+{
+    <div class="alert alert-warning" role="alert">
+        You are managing BTCPay Server's shared internal Lightning node. Its balance, payments, peers, and channels are server-wide and are not isolated to this store.
+    </div>
+}

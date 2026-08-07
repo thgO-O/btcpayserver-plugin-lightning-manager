@@ -7,6 +7,7 @@ using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
+using Microsoft.Extensions.Options;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
 
@@ -22,6 +23,7 @@ public sealed class StoreLightningManagerContext
     public required LightningCapabilities Capabilities { get; init; }
     public string? DisplayName { get; init; }
     public string? NodeHost { get; init; }
+    public bool IsInternalNode { get; init; }
     public string? ConfigurationError { get; init; }
     public bool IsConfigured =>
         Client is not null &&
@@ -41,15 +43,18 @@ public sealed class StoreLightningManagerContextFactory : IStoreLightningManager
     private readonly BTCPayNetworkProvider _networkProvider;
     private readonly PaymentMethodHandlerDictionary _handlers;
     private readonly LightningClientFactoryService _lightningClientFactory;
+    private readonly IOptions<LightningNetworkOptions> _lightningNetworkOptions;
 
     public StoreLightningManagerContextFactory(
         BTCPayNetworkProvider networkProvider,
         PaymentMethodHandlerDictionary handlers,
-        LightningClientFactoryService lightningClientFactory)
+        LightningClientFactoryService lightningClientFactory,
+        IOptions<LightningNetworkOptions> lightningNetworkOptions)
     {
         _networkProvider = networkProvider;
         _handlers = handlers;
         _lightningClientFactory = lightningClientFactory;
+        _lightningNetworkOptions = lightningNetworkOptions;
     }
 
     public StoreLightningManagerContext Create(StoreData store, string cryptoCode)
@@ -116,16 +121,66 @@ public sealed class StoreLightningManagerContextFactory : IStoreLightningManager
             return CreateUnavailableContext(store, cryptoCode, "Lightning configuration is invalid.");
         }
 
-        return CreateUnavailableContext(
-            store,
-            cryptoCode,
-            "Lightning Manager supports external BTC Lightning backends only.");
+        if (!_lightningNetworkOptions.Value.InternalLightningByCryptoCode.TryGetValue(
+                cryptoCode,
+                out var internalClient))
+        {
+            return CreateUnavailableContext(
+                store,
+                cryptoCode,
+                "BTCPay Server's internal BTC Lightning node is not configured.",
+                isInternalNode: true);
+        }
+
+        try
+        {
+            var canonicalConnection = internalClient.ToString();
+            if (string.IsNullOrWhiteSpace(canonicalConnection))
+            {
+                throw new InvalidOperationException("Internal Lightning client has no canonical connection string.");
+            }
+
+            var capabilities = LightningCapabilityService.GetCapabilities(canonicalConnection);
+            var backendType = LightningBackendTypes.TryGet(canonicalConnection);
+            if (!capabilities.HasAny || string.IsNullOrEmpty(backendType))
+            {
+                return CreateUnavailableContext(
+                    store,
+                    cryptoCode,
+                    "BTCPay Server's internal Lightning backend is not supported by Lightning Manager.",
+                    isInternalNode: true);
+            }
+
+            return new StoreLightningManagerContext
+            {
+                StoreId = store.Id,
+                CryptoCode = cryptoCode,
+                Network = network,
+                Client = internalClient,
+                BackendType = backendType,
+                BackendFingerprint = LightningBackendTypes.GetFingerprint($"internal:{canonicalConnection}"),
+                BackendIdentityFingerprint = LightningBackendTypes.GetIdentityFingerprint(canonicalConnection),
+                Capabilities = capabilities,
+                DisplayName = $"{internalClient.GetDisplayName(canonicalConnection)} · Internal",
+                NodeHost = internalClient.GetServerUri(canonicalConnection)?.Host,
+                IsInternalNode = true
+            };
+        }
+        catch (Exception)
+        {
+            return CreateUnavailableContext(
+                store,
+                cryptoCode,
+                "BTCPay Server's internal Lightning backend is not supported by Lightning Manager.",
+                isInternalNode: true);
+        }
     }
 
     private static StoreLightningManagerContext CreateUnavailableContext(
         StoreData store,
         string cryptoCode,
-        string configurationError)
+        string configurationError,
+        bool isInternalNode = false)
     {
         return new StoreLightningManagerContext
         {
@@ -134,6 +189,7 @@ public sealed class StoreLightningManagerContextFactory : IStoreLightningManager
             BackendFingerprint = string.Empty,
             BackendIdentityFingerprint = string.Empty,
             Capabilities = LightningCapabilities.None,
+            IsInternalNode = isInternalNode,
             ConfigurationError = configurationError
         };
     }

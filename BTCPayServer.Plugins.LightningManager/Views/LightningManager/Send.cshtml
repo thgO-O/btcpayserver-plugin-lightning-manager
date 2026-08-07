@@ -381,6 +381,8 @@
     </header>
 
     <div class="card-body p-4 p-sm-5">
+        <partial name="LightningManager/_InternalNodeNotice" model="Model" />
+
         <ol class="lm-steps" aria-label="Payment progress">
             <li class="lm-step @(currentStep == 1 ? "is-current" : "is-complete")"
                 aria-current="@(currentStep == 1 ? "step" : null)">

@@ -3,6 +3,7 @@ using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Client;
+using BTCPayServer.Plugins.LightningManager.Filters;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.AspNetCore.Authorization;
@@ -12,6 +13,7 @@ namespace BTCPayServer.Plugins.LightningManager.Controllers;
 
 [Route("stores/{storeId}/lightning/{cryptoCode}/manager")]
 [Authorize(Policy = Policies.CanUseLightningNodeInStore, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+[ServiceFilter(typeof(LightningManagerInternalNodeAuthorizationFilter))]
 public class LightningManagerController : Controller
 {
     private readonly IStoreLightningManagerContextFactory _contextFactory;
@@ -319,6 +321,7 @@ public class LightningManagerController : Controller
             CryptoCode = context.CryptoCode,
             BackendDisplayName = context.DisplayName,
             Capabilities = context.Capabilities,
+            IsInternalNode = context.IsInternalNode,
             IsConfigured = context.IsConfigured,
             ConfigurationMessage = context.ConfigurationError
         };

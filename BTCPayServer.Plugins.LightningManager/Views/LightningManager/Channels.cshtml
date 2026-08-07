@@ -20,6 +20,8 @@
     <h2>Channels</h2>
 </div>
 
+<partial name="LightningManager/_InternalNodeNotice" model="Model" />
+
 @if (!Model.IsConfigured)
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>

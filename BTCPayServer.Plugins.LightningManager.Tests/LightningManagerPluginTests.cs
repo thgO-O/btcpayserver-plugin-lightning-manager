@@ -1,5 +1,6 @@
 using System.Reflection;
 using BTCPayServer.Abstractions.Contracts;
+using BTCPayServer.Plugins.LightningManager.Filters;
 using Microsoft.AspNetCore.Razor.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -13,6 +14,12 @@ public class LightningManagerPluginTests
     {
         var services = new ServiceCollection();
         new LightningManagerPlugin().Execute(services);
+
+        Assert.Contains(
+            services,
+            descriptor =>
+                descriptor.ServiceType == typeof(LightningManagerInternalNodeAuthorizationFilter) &&
+                descriptor.Lifetime == ServiceLifetime.Scoped);
 
         using var provider = services.BuildServiceProvider();
         var extensions = provider.GetServices<IUIExtension>()
@@ -37,6 +44,7 @@ public class LightningManagerPluginTests
             "/Views/LightningManager/Overview.cshtml",
             "/Views/LightningManager/Peers.cshtml",
             "/Views/LightningManager/Send.cshtml",
+            "/Views/Shared/LightningManager/_InternalNodeNotice.cshtml",
             $"/Views/Shared/{extensions[0].Partial}.cshtml"
         ];
         Assert.All(expectedViews, view => Assert.Contains(view, compiledViews));
