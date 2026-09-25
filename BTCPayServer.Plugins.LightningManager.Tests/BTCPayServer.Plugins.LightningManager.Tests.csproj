@@ -4,8 +4,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- The release gate allowlists the two known BTCPay Server 2.4.1 AngleSharp conflicts. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1608</WarningsNotAsErrors>
+    <!-- Match the plugin's BTCPay 2.4.1 dependency warning policy; see CONTRIBUTING.md. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1608;NU1903</WarningsNotAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

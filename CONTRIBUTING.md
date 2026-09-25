@@ -32,6 +32,24 @@ dotnet test \
   BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
 ```
 
+## Dependency audit limitation
+
+The pinned BTCPay Server 2.4.1 project references SSH.NET 2025.1.0, which is
+flagged by NuGet audit with `NU1903` for
+[GHSA-mggc-4xg6-vcxf](https://github.com/advisories/GHSA-mggc-4xg6-vcxf) and
+[GHSA-q939-rpr3-3284](https://github.com/advisories/GHSA-q939-rpr3-3284).
+The plugin and test projects retain these audit messages as warnings instead
+of failing restore. NuGet audit remains enabled and other warnings still
+follow the existing warnings-as-errors policy.
+
+This exception applies to the `NU1903` diagnostic, not just these two
+advisories: review new high-severity findings in every build log. It does not
+fix or suppress the vulnerable dependency. The plugin does not use
+`ScpClient` or bundle SSH.NET; the installed BTCPay Server supplies its own
+runtime dependencies. SSH.NET 2026.0.0 addresses both advisories. Updating
+BTCPay's dependency and revalidating the host is separate from building this
+plugin. Remove this exception when the pinned host no longer requires it.
+
 ## BTCPay Server test stack
 
 The end-to-end tests use the standard BTCPay Server regtest stack. The only
