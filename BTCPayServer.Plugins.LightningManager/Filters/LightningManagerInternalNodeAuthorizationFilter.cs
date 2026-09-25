@@ -3,6 +3,7 @@ using BTCPayServer.Client;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
+using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Security;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
@@ -18,14 +19,14 @@ public sealed class LightningManagerInternalNodeAuthorizationFilter(
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        var cryptoCode = context.RouteData.Values["cryptoCode"]?.ToString()?.ToUpperInvariant();
-        if (string.IsNullOrEmpty(cryptoCode))
+        var cryptoCode = context.RouteData.Values["cryptoCode"]?.ToString();
+        if (!LightningManagerCrypto.IsSupported(cryptoCode))
         {
             await next();
             return;
         }
 
-        var paymentMethodId = PaymentTypes.LN.GetPaymentMethodId(cryptoCode);
+        var paymentMethodId = PaymentTypes.LN.GetPaymentMethodId(LightningManagerCrypto.Bitcoin);
         var config = context.HttpContext.GetStoreData()
             .GetPaymentMethodConfig<LightningPaymentMethodConfig>(paymentMethodId, handlers);
         if (config?.IsInternalNode is not true)

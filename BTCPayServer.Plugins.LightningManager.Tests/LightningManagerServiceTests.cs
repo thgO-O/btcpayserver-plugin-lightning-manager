@@ -6,6 +6,7 @@ using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.Extensions.Logging;
 using NBitcoin;
+using NBitcoin.DataEncoders;
 using Xunit;
 
 namespace BTCPayServer.Plugins.LightningManager.Tests;
@@ -32,6 +33,39 @@ public class LightningManagerServiceTests
 
         Assert.False(ok);
         Assert.Equal("The BOLT11 invoice is invalid.", error);
+    }
+
+    [Fact]
+    public async Task Send_WithUnrecoverablePayee_ReturnsFriendlyErrorWithoutDispatch()
+    {
+        const string alphabet = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+        var original = TestInvoiceData.FixedAmountBolt11;
+        var separator = original.LastIndexOf('1');
+        var data = original[(separator + 1)..^6].Select(c => (byte)alphabet.IndexOf(c)).ToArray();
+        // The final word contains the recovery id (valid range: 0–3). Keep the checksum valid.
+        data[^1] = 4;
+        var encoder = new Bech32Encoder(Encoding.ASCII.GetBytes(original[..separator])) { StrictLength = false };
+        var bolt11 = encoder.EncodeRaw(data, Bech32EncodingType.BECH32);
+        var payCalls = 0;
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) =>
+            {
+                payCalls++;
+                return Task.FromResult(new PayResponse(PayResult.Ok));
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var ok = _service.TryCreateSendPreview(context, bolt11, null, null, out var preview, out var error);
+        var result = await _service.SendAsync(context, bolt11, null, null);
+
+        Assert.False(ok);
+        Assert.Null(preview);
+        Assert.Equal("The BOLT11 invoice is invalid.", error);
+        Assert.False(result.Result.IsSuccess);
+        Assert.Equal("The BOLT11 invoice is invalid.", result.Result.Message);
+        Assert.Equal(0, payCalls);
     }
 
     [Fact]
@@ -1049,6 +1083,32 @@ public class LightningManagerServiceTests
         Assert.Equal("Payment status is unknown. Check the Lightning node before retrying.", result.Result.Message);
         Assert.NotNull(result.Payment);
         Assert.Equal(LightningPaymentStatus.Pending, result.Payment.Status);
+    }
+
+    [Fact]
+    public async Task OpenChannelAsync_WithExplicitFeeRate_PreviewsAndDispatchesChosenFee()
+    {
+        const string nodeUri = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798@127.0.0.1:9735";
+        OpenChannelRequest? capturedRequest = null;
+        var client = new FakeLightningClient
+        {
+            OpenChannelHandler = (request, _) =>
+            {
+                capturedRequest = request;
+                return Task.FromResult(new OpenChannelResponse(OpenChannelResult.Ok));
+            }
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
+
+        var ok = _service.TryCreateOpenChannelPreview(context, nodeUri, "25000", "5", out var preview, out var error);
+        var result = await _service.OpenChannelAsync(context, nodeUri, "25000", "5");
+
+        Assert.True(ok, error);
+        Assert.NotNull(preview);
+        Assert.Equal("5 sat/vB", preview.FeeRateDisplay);
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal(5m, capturedRequest.FeeRate.SatoshiPerByte);
     }
 
     [Fact]

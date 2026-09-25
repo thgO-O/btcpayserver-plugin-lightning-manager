@@ -315,6 +315,17 @@ public sealed class LightningManagerService
             return false;
         }
 
+        PubKey payee;
+        try
+        {
+            payee = paymentRequest.GetPayeePubKey();
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            error = "The BOLT11 invoice is invalid.";
+            return false;
+        }
+
         preview = new SendPreviewViewModel
         {
             Bolt11 = bolt11.Trim(),
@@ -325,7 +336,7 @@ public sealed class LightningManagerService
             MaxFeeDisplay = maxFee is long fee ? FormatMoney(Money.Satoshis(fee)) : null,
             Description = paymentRequest.ShortDescription ?? "No description",
             PaymentHash = paymentRequest.PaymentHash.ToString(),
-            Payee = paymentRequest.GetPayeePubKey().ToString(),
+            Payee = payee.ToString(),
             ExpiresAt = paymentRequest.ExpiryDate
         };
         return true;
@@ -372,6 +383,11 @@ public sealed class LightningManagerService
             if (preview.MaxFeeSats is long maxFee)
             {
                 payParams.MaxFeeFlat = Money.Satoshis(maxFee);
+                if (context.BackendType == LightningBackendTypes.Eclair)
+                {
+                    // Eclair accepts the larger of the flat and proportional fee limits.
+                    payParams.MaxFeePercent = 0;
+                }
             }
 
             var payResponse = await context.Client!.Pay(

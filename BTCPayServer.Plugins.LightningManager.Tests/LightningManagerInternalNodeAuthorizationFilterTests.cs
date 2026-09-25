@@ -23,11 +23,17 @@ namespace BTCPayServer.Plugins.LightningManager.Tests;
 
 public class LightningManagerInternalNodeAuthorizationFilterTests
 {
-    [Fact]
-    public async Task InternalNode_WithServerPermission_ExecutesAction()
+    [Theory]
+    [InlineData("BTC")]
+    [InlineData("btc")]
+    [InlineData("bTc")]
+    [InlineData(" BTC")]
+    [InlineData("BTC ")]
+    [InlineData(" BTC ")]
+    public async Task InternalNode_WithServerPermission_ExecutesAction(string cryptoCode)
     {
         var authorizationService = new RecordingAuthorizationService(succeeds: true);
-        var (filter, context) = CreateFilterContext(isInternalNode: true, authorizationService);
+        var (filter, context) = CreateFilterContext(isInternalNode: true, authorizationService, cryptoCode);
         var nextCalled = false;
 
         await filter.OnActionExecutionAsync(context, Next);
@@ -52,11 +58,17 @@ public class LightningManagerInternalNodeAuthorizationFilterTests
         }
     }
 
-    [Fact]
-    public async Task InternalNode_WithoutServerPermission_ForbidsBeforeAction()
+    [Theory]
+    [InlineData("BTC")]
+    [InlineData("btc")]
+    [InlineData("bTc")]
+    [InlineData(" BTC")]
+    [InlineData("BTC ")]
+    [InlineData(" BTC ")]
+    public async Task InternalNode_WithoutServerPermission_ForbidsBeforeAction(string cryptoCode)
     {
         var authorizationService = new RecordingAuthorizationService(succeeds: false);
-        var (filter, context) = CreateFilterContext(isInternalNode: true, authorizationService);
+        var (filter, context) = CreateFilterContext(isInternalNode: true, authorizationService, cryptoCode);
         var nextCalled = false;
 
         await filter.OnActionExecutionAsync(context, () =>
@@ -73,11 +85,42 @@ public class LightningManagerInternalNodeAuthorizationFilterTests
         Assert.Equal(1, authorizationService.Calls);
     }
 
-    [Fact]
-    public async Task ExternalNode_DoesNotRequireInternalNodePermission()
+    [Theory]
+    [InlineData("BTC")]
+    [InlineData("btc")]
+    [InlineData("bTc")]
+    [InlineData(" BTC")]
+    [InlineData("BTC ")]
+    [InlineData(" BTC ")]
+    public async Task ExternalNode_DoesNotRequireInternalNodePermission(string cryptoCode)
     {
         var authorizationService = new RecordingAuthorizationService(succeeds: false);
-        var (filter, context) = CreateFilterContext(isInternalNode: false, authorizationService);
+        var (filter, context) = CreateFilterContext(isInternalNode: false, authorizationService, cryptoCode);
+        var nextCalled = false;
+
+        await filter.OnActionExecutionAsync(context, () =>
+        {
+            nextCalled = true;
+            return Task.FromResult(new ActionExecutedContext(
+                ToActionContext(context),
+                [],
+                context.Controller));
+        });
+
+        Assert.True(nextCalled);
+        Assert.Null(context.Result);
+        Assert.Equal(0, authorizationService.Calls);
+    }
+
+    [Theory]
+    [InlineData("LTC")]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData(null)]
+    public async Task UnsupportedCrypto_DoesNotUseBitcoinNodePermission(string? cryptoCode)
+    {
+        var authorizationService = new RecordingAuthorizationService(succeeds: false);
+        var (filter, context) = CreateFilterContext(isInternalNode: true, authorizationService, cryptoCode);
         var nextCalled = false;
 
         await filter.OnActionExecutionAsync(context, () =>
@@ -118,7 +161,8 @@ public class LightningManagerInternalNodeAuthorizationFilterTests
         LightningManagerInternalNodeAuthorizationFilter Filter,
         ActionExecutingContext Context) CreateFilterContext(
         bool isInternalNode,
-        RecordingAuthorizationService authorizationService)
+        RecordingAuthorizationService authorizationService,
+        string? cryptoCode)
     {
         var handler = new FakeLightningPaymentMethodHandler();
         var store = new StoreData { Id = "store-1" };
@@ -141,7 +185,7 @@ public class LightningManagerInternalNodeAuthorizationFilterTests
         };
         httpContext.SetStoreData(store);
         var routeData = new RouteData();
-        routeData.Values["cryptoCode"] = "btc";
+        routeData.Values["cryptoCode"] = cryptoCode;
         var actionContext = new ActionContext(
             httpContext,
             routeData,
