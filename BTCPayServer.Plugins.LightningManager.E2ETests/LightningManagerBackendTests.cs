@@ -236,6 +236,24 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
         var settled = await WaitForSettledInvoice(lnd, invoice.Id, cancellationToken);
         Assert.Equal(LightningInvoiceStatus.Paid, settled.Status);
         Assert.Equal(LightMoney.Satoshis(LiquidityBootstrapSats), settled.AmountReceived);
+
+        // Invoice settlement can precede the channel commitment/balance update in LND.
+        // Wait for spendable liquidity before testing payments in the reverse direction.
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            channels = await lnd.ListChannels(cancellationToken);
+            if (channels.Any(channel =>
+                    channel.IsActive &&
+                    channel.RemoteNode == clnNodeId &&
+                    channel.LocalBalance >= LightMoney.Satoshis(RequiredOutboundLiquiditySats)))
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+
+        Assert.Fail($"LND received the bootstrap payment but did not report an active channel to CLN with at least {RequiredOutboundLiquiditySats} sats of outbound liquidity.");
     }
 
     private static void AssertOpenChannelPreview(
