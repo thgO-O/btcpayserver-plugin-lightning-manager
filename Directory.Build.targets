@@ -1,0 +1,7 @@
+<Project>
+  <!-- BTCPay 2.4.4 pins SourceLink 8.0.0 in these Release projects.
+       Override its vulnerable Git build task without modifying the upstream submodule. -->
+  <ItemGroup Condition="'$(Configuration)' == 'Release' and ('$(MSBuildProjectName)' == 'BTCPayServer.Abstractions' or '$(MSBuildProjectName)' == 'BTCPayServer.Client')">
+    <PackageReference Include="Microsoft.Build.Tasks.Git" Version="10.0.303" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

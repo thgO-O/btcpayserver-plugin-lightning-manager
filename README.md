@@ -29,7 +29,7 @@ Server still determine whether the backend authorizes each request.
 
 ## Requirements
 
-- BTCPay Server `2.4.1` or newer.
+- BTCPay Server `2.4.4` or newer.
 - A BTCPay store with an external BTC Lightning node or wallet, or the shared
   internal BTC Lightning node, already configured.
 - The `Use the lightning nodes associated with your stores` permission.
@@ -66,7 +66,7 @@ Server still determine whether the backend authorizes each request.
 | Setup | Info | Balance | Pay | Amountless BOLT11 | Maximum fee | Connect peer | Open channel | List channels | Validation status |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
 | LND REST / BTCPay `lnd-grpc` value / internal LND | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External Playwright E2E; internal factory coverage |
-| Core Lightning (CLN), external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External + internal Playwright E2E; peer count blocked upstream |
+| Core Lightning (CLN), external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External + internal Playwright E2E |
 | Eclair, external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External Playwright E2E (0.8); internal factory coverage |
 | Phoenixd, external or internal | Yes | Yes | Yes | Yes | No | No | No | No | Manual sign-off pending |
 | Blink custodial with `api-key=` and `currency=BTC` | No | Yes | Yes | No | No | No | No | No | Manual sign-off pending |

@@ -4,9 +4,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- Keep BTCPay 2.4.1 dependency conflicts and SSH.NET audit findings visible as warnings.
-         The host supplies SSH.NET at runtime; see CONTRIBUTING.md for the audit limitation. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1608;NU1903</WarningsNotAsErrors>
     <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>

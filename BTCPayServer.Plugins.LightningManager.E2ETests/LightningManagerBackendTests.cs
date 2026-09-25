@@ -29,7 +29,8 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
 
         var cln = tester.CustomerLightningD;
         var lnd = tester.MerchantLnd.Client;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(90));
 
         var clnInfo = await cln.GetInfo(timeout.Token);
         var lndInfo = await lnd.GetInfo(timeout.Token);
@@ -95,6 +96,7 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
         await service.PopulateOverviewAsync(clnOverview, clnContext, timeout.Token);
         Assert.Empty(clnOverview.Notices);
         Assert.Empty(clnOverview.Warnings);
+        AssertPositivePeerCount(clnOverview);
 
         var lndOverview = new OverviewViewModel();
         await service.PopulateOverviewAsync(lndOverview, lndContext, timeout.Token);

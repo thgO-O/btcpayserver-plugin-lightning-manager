@@ -138,11 +138,10 @@ jobs:
       - name: Run E2E tests
         run: |
           results_directory="${RUNNER_TEMP}/lightning-manager-e2e-results"
-          dotnet test \
-            BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj \
-            -c Debug --no-build --nologo -m:1 -nr:false \
-            --logger "trx;LogFileName=e2e.trx" \
-            --results-directory "$results_directory"
+          mkdir -p "$results_directory"
+          dotnet \
+            BTCPayServer.Plugins.LightningManager.E2ETests/bin/Debug/net10.0/BTCPayServer.Plugins.LightningManager.E2ETests.dll \
+            -failSkips -result-trx "$results_directory/e2e.trx"
 
           executed_tests="$(
             sed -n 's/.*<Counters[^>]*executed="\([0-9][0-9]*\)".*/\1/p' \

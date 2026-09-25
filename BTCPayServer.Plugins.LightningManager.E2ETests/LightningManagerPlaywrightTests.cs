@@ -64,7 +64,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 "customer_lnd",
                 Network.RegTest).Client;
             var scenario = CreateScenario(tester, backend, eclair, customerLnd);
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromMinutes(5));
 
             await EnsureSpendableCoinbaseAsync(tester, timeout.Token);
             var managedInfo = await scenario.Managed.GetInfo(timeout.Token);

@@ -32,23 +32,19 @@ dotnet test \
   BTCPayServer.Plugins.LightningManager.Tests/BTCPayServer.Plugins.LightningManager.Tests.csproj
 ```
 
-## Dependency audit limitation
+## Dependency security
 
-The pinned BTCPay Server 2.4.1 project references SSH.NET 2025.1.0, which is
-flagged by NuGet audit with `NU1903` for
-[GHSA-mggc-4xg6-vcxf](https://github.com/advisories/GHSA-mggc-4xg6-vcxf) and
-[GHSA-q939-rpr3-3284](https://github.com/advisories/GHSA-q939-rpr3-3284).
-The plugin and test projects retain these audit messages as warnings instead
-of failing restore. NuGet audit remains enabled and other warnings still
-follow the existing warnings-as-errors policy.
+The submodule is pinned to BTCPay Server 2.4.4, which no longer references
+SSH.NET. The plugin requires BTCPay Server 2.4.4 or newer at runtime as well.
+NuGet audit and warnings-as-errors remain enabled without diagnostic exceptions.
 
-This exception applies to the `NU1903` diagnostic, not just these two
-advisories: review new high-severity findings in every build log. It does not
-fix or suppress the vulnerable dependency. The plugin does not use
-`ScpClient` or bundle SSH.NET; the installed BTCPay Server supplies its own
-runtime dependencies. SSH.NET 2026.0.0 addresses both advisories. Updating
-BTCPay's dependency and revalidating the host is separate from building this
-plugin. Remove this exception when the pinned host no longer requires it.
+BTCPay's Release projects still reference SourceLink 8.0.0. The repository's
+`Directory.Build.targets` upgrades their private `Microsoft.Build.Tasks.Git`
+build dependency to 10.0.303, a patched version for
+[GHSA-23fw-v26w-5fgq](https://github.com/advisories/GHSA-23fw-v26w-5fgq).
+This build-only dependency is not included in the plugin package. Keep the
+build environment's .NET SDK updated too; changing the submodule does not
+update the SDK or a deployed BTCPay Server.
 
 ## BTCPay Server test stack
 
@@ -83,10 +79,11 @@ cd ../../..
 
 ## Native end-to-end tests
 
-The required service test and all four browser cases live in the xUnit v3 E2E
+The required service test and all four browser cases live in the xUnit E2E
 project. Run the complete project without a filter so a renamed trait cannot
 silently remove a release test. Its native xUnit configuration also treats
-skips as failures:
+skips as failures. Run its executable directly to use the xUnit runner without
+changing the unit project's VSTest runner:
 
 ```bash
 dotnet build \
@@ -95,9 +92,9 @@ dotnet build \
 pwsh \
   BTCPayServer.Plugins.LightningManager.E2ETests/bin/Debug/net10.0/playwright.ps1 \
   install chromium
-dotnet test \
-  BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj \
-  -c Debug --no-build
+dotnet \
+  BTCPayServer.Plugins.LightningManager.E2ETests/bin/Debug/net10.0/BTCPayServer.Plugins.LightningManager.E2ETests.dll \
+  -failSkips
 ```
 
 The CLN/LND service test prepares its direct channel through the native test
@@ -145,10 +142,9 @@ the CLN/LND service integration test, and native Playwright cases for CLN, LND,
 Eclair, and internal CLN. A test that needs its Lightning fixture must fail when
 that fixture is unavailable; it must not be silently skipped.
 
-The published CLightning adapter used by BTCPay Server 2.4.1 does not yet map
-CLN's `num_peers`, so the CLN Overview peer count is excluded from automated
-sign-off. All other CLN flows above remain covered. Restore the positive peer
-count assertion when that upstream adapter fix reaches BTCPay Server.
+BTCPay Server 2.4.4 includes CLightning 1.7.7, which maps CLN's reported peer
+and channel counts. Verify these Overview fields against the node during
+manual sign-off.
 
 This validation builds the plugin from source. Creating, installing, and
 publishing the final `.btcpay` artifact stays in the Plugin Builder workflow.

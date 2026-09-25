@@ -10,9 +10,8 @@ harness. Those tests build the plugin from source; this checklist verifies the
 final artifact and records backend sign-off. Do not interpret an exposed
 capability preset as a successful sign-off.
 
-The CLightning adapter currently selected by BTCPay Server 2.4.1 does not map
-CLN's reported peer count. The automated CLN sign-off therefore excludes that
-Overview field until the upstream fix is published and consumed by BTCPay.
+BTCPay Server 2.4.4 includes the CLN peer and channel count mapping fix.
+Include these Overview fields when comparing the plugin with the node.
 
 Run each common check only when the backend exposes the corresponding
 capability. Record unsupported checks as `N/A` in the sign-off notes.
