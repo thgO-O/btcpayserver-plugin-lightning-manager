@@ -182,9 +182,9 @@ Use disposable, funded regtest nodes for the final LND and CLN check:
      On the node, confirm it does not yet have a short channel ID and verify the
      adapter sent `1000perkb` for the `1 sat/vB` input.
    - For LND, confirm that `Pending channels` in `Overview` and the node's
-     pending-channel count each increased by one. Do not expect the channel in
-     `Channels` before confirmation because the LND adapter does not include
-     pending opens in its channel list.
+     pending-channel count each increased by one. In `Channels`, verify a
+     `Pending` row with the peer, capacity, and funding outpoint, without usable
+     liquidity. After confirmation, the same outpoint must appear once as `Active`.
 6. Mine enough blocks for the configured channel confirmation threshold.
 7. Verify exactly one funding transaction and one additional channel with the
    expected peer, capacity, and state.

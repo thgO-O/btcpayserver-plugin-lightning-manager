@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Diagnostics;
 using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.LND;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.Extensions.Logging;
 using NBitcoin;
@@ -597,6 +598,45 @@ public sealed class LightningManagerService
             return;
         }
 
+        // Read pending first, then confirmed channels: a channel that confirms between
+        // the two snapshots must use its confirmed row, identified by its funding outpoint.
+        var pendingChannels = new List<LightningChannelItemViewModel>();
+        if (context.Client is LndClient lnd)
+        {
+            var pendingStopwatch = Stopwatch.StartNew();
+            try
+            {
+                var pending = await lnd.SwaggerClient.PendingChannelsAsync(cancellationToken);
+                foreach (var entry in pending.Pending_open_channels ?? [])
+                {
+                    var channel = entry.Channel;
+                    if (channel is null)
+                        continue;
+                    var capacity = Math.Max(0, channel.Capacity);
+                    pendingChannels.Add(new LightningChannelItemViewModel
+                    {
+                        RemoteNode = channel.Remote_node_pub ?? "Unknown",
+                        ChannelPoint = OutPoint.TryParse(channel.Channel_point ?? string.Empty, out var point)
+                            ? point!.ToString()
+                            : channel.Channel_point,
+                        CapacitySats = capacity,
+                        CapacityDisplay = $"{capacity.ToString("#,0", CultureInfo.InvariantCulture)} sats",
+                        IsPending = true
+                    });
+                }
+                LogOperation(context, "list-pending-channels", pendingStopwatch, "success", null);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                model.PendingChannelListMessage = "Could not load pending channels. The channel list may be incomplete.";
+                LogOperation(context, "list-pending-channels", pendingStopwatch, "failed", exception.GetType().Name);
+            }
+        }
+
         var stopwatch = Stopwatch.StartNew();
         try
         {
@@ -609,6 +649,8 @@ public sealed class LightningManagerService
                 var localBalance = new LightMoney(Math.Clamp(channel.LocalBalance.MilliSatoshi, 0, capacity.MilliSatoshi));
                 var remoteBalance = capacity - localBalance;
                 TryGetExplicitPendingState(channel, out var isPending);
+                if (context.Client is LndClient)
+                    isPending = false;
                 model.Channels.Add(new LightningChannelItemViewModel
                 {
                     RemoteNode = channel.RemoteNode?.ToString() ?? "Unknown",
@@ -640,6 +682,13 @@ public sealed class LightningManagerService
             model.ChannelListMessage = "Could not load channels.";
             LogOperation(context, "list-channels", stopwatch, "failed", exception.GetType().Name);
         }
+
+        var confirmedPoints = model.Channels
+            .Where(channel => !string.IsNullOrEmpty(channel.ChannelPoint))
+            .Select(channel => channel.ChannelPoint!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        model.Channels.InsertRange(0, pendingChannels.Where(channel =>
+            string.IsNullOrEmpty(channel.ChannelPoint) || confirmedPoints.Add(channel.ChannelPoint)));
     }
 
     internal static bool TryGetExplicitPendingState(LightningChannel channel, out bool? isPending)

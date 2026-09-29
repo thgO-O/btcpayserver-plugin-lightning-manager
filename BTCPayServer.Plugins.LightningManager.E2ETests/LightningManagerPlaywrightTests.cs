@@ -129,6 +129,26 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             await FundNodeAsync(tester, storeId, scenario, timeout.Token);
             await AssertOverviewAsync(tester, storeId, scenario);
             await OpenChannelAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
+            string? pendingPoint = null;
+            if (backend is ManagedBackend.Lnd or ManagedBackend.InternalLnd)
+            {
+                await tester.GoToUrl(ManagerUrl(storeId, "channels"));
+                var pendingCard = tester.Page.Locator("div.border.rounded.p-3")
+                    .Filter(new() { HasText = recipientNode.NodeId.ToString() });
+                await Expect(pendingCard).ToHaveCountAsync(1);
+                await Expect(pendingCard.GetByText("Pending", new() { Exact = true })).ToBeVisibleAsync();
+                await Expect(pendingCard.GetByText("100,000 sats", new() { Exact = true })).ToBeVisibleAsync();
+                await Expect(pendingCard.Locator("[role=progressbar]")).ToHaveCountAsync(0);
+                pendingPoint = await VisibleTextAsync(pendingCard.Locator(".font-monospace").Nth(1));
+                Assert.True(OutPoint.TryParse(pendingPoint, out _));
+                var artifacts = Environment.GetEnvironmentVariable("TESTS_ARTIFACTS_DIR");
+                if (!string.IsNullOrEmpty(artifacts))
+                    await tester.Page.ScreenshotAsync(new()
+                    {
+                        Path = Path.Combine(artifacts, $"pending-{scenario.Name.Replace(' ', '-')}.png"),
+                        FullPage = true
+                    });
+            }
             await ConnectPeerAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
 
             await tester.Server.ExplorerNode.GenerateAsync(6, timeout.Token);
@@ -144,6 +164,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 recipientNode.NodeId,
                 scenario.Name,
                 timeout.Token);
+            if (pendingPoint is not null)
+                await Expect(tester.Page.GetByText(pendingPoint, new() { Exact = true })).ToHaveCountAsync(1);
 
             await PayThroughUiAsync(
                 tester,

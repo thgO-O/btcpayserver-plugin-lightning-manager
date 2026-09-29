@@ -107,7 +107,7 @@ public class LightningChannelItemViewModel
     public string RemoteBalanceDisplay { get; init; } = string.Empty;
     public bool? IsPending { get; init; }
     public bool IsActive { get; init; }
-    public bool IsPublic { get; init; }
+    public bool? IsPublic { get; init; }
     public string Status => IsPending is true
         ? "Pending"
         : IsActive
@@ -126,6 +126,7 @@ public class ChannelsViewModel : LightningManagerPageViewModel
     public OpenChannelPreviewViewModel? Preview { get; set; }
     public List<LightningChannelItemViewModel> Channels { get; } = [];
     public string? ChannelListMessage { get; set; }
+    public string? PendingChannelListMessage { get; set; }
     public ActionResultViewModel? Result { get; set; }
 }
 
