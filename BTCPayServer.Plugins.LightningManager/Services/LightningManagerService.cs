@@ -5,6 +5,7 @@ using BTCPayServer.Lightning.LND;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using Microsoft.Extensions.Logging;
 using NBitcoin;
+using Newtonsoft.Json;
 
 namespace BTCPayServer.Plugins.LightningManager.Services;
 
@@ -808,6 +809,15 @@ public sealed class LightningManagerService
                     : "failed";
             return CompleteAction(context, "open-channel", stopwatch, outcome, actionResult);
         }
+        catch (SwaggerException exception) when (channelOpeningStarted && context.Client is LndClient &&
+                                                 IsLndReserveRejection(exception))
+        {
+            return CompleteAction(context, "open-channel", stopwatch, "failed", new ActionResultViewModel
+            {
+                InsufficientOnchainBalance = true,
+                Message = "Insufficient on-chain balance to preserve the node's required reserve. Add funds or reduce the channel amount."
+            }, exception.GetType().Name);
+        }
         catch (NotSupportedException)
         {
             return CompleteAction(
@@ -841,6 +851,24 @@ public sealed class LightningManagerService
             {
                 lease.Dispose();
             }
+        }
+    }
+
+    private static bool IsLndReserveRejection(SwaggerException exception)
+    {
+        // LND's adapter does not map this explicit funding refusal to CannotAffordFunding.
+        // Match the structured backend response, never arbitrary exception text.
+        if (string.IsNullOrWhiteSpace(exception.Response))
+            return false;
+        try
+        {
+            var message = JsonConvert.DeserializeObject<LNDError>(exception.Response)?.Message;
+            return message == "reserved wallet balance invalidated" ||
+                   message?.StartsWith("reserved wallet balance invalidated:", StringComparison.Ordinal) is true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
