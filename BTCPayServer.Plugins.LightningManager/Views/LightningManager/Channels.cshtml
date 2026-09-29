@@ -18,10 +18,13 @@
 
 <div class="sticky-header">
     <h2>Channels</h2>
+    @if (Model.IsConfigured && Model.Capabilities.CanConnectPeer)
+    {
+        <a asp-action="Peers" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="@Model.CryptoCode" class="btn btn-secondary">Manage peers</a>
+    }
 </div>
 
 <partial name="LightningManager/_InternalNodeNotice" model="Model" />
-<partial name="LightningManager/_FundingHelp" model="Model" />
 
 @if (!Model.IsConfigured)
 {
@@ -36,6 +39,12 @@ else if (!Model.Capabilities.CanOpenChannel && !Model.Capabilities.CanListChanne
 {
     <div class="alert @(Model.Result.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
         @Model.Result.Message
+        @if (Model.Result.InsufficientOnchainBalance && Model.IsConfigured && Model.Capabilities.CanGetDepositAddress)
+        {
+            <form asp-action="GenerateDepositAddress" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="@Model.CryptoCode" method="post" class="mt-3">
+                <button type="submit" class="btn btn-secondary">Add funds to node</button>
+            </form>
+        }
     </div>
 }
 
@@ -46,6 +55,7 @@ else if (!Model.Capabilities.CanOpenChannel && !Model.Capabilities.CanListChanne
         <div class="card">
             <div class="card-body">
                 <h3 class="h5">Confirm Channel Open</h3>
+                <p class="text-muted">The node will connect to this peer and request the channel when you confirm.</p>
                 <dl>
                     <dt>Peer</dt>
                     <dd><code>@Model.Preview.NodeUri</code></dd>
@@ -91,6 +101,7 @@ else if (!Model.Capabilities.CanOpenChannel && !Model.Capabilities.CanListChanne
                     <div class="mb-3">
                         <label class="form-label" for="channelNodeUri">Node URI</label>
                         <input class="form-control" id="channelNodeUri" name="nodeUri" value="@Model.NodeUri" placeholder="pubkey@host:9735" required />
+                        <div class="form-text">The node connects automatically when you confirm the channel opening.</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label" for="channelAmountSats">Channel amount (sats)</label>

@@ -1092,6 +1092,7 @@ public class LightningManagerServiceTests
         OpenChannelRequest? capturedRequest = null;
         var client = new FakeLightningClient
         {
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok),
             OpenChannelHandler = (request, _) =>
             {
                 capturedRequest = request;
@@ -1831,6 +1832,7 @@ public class LightningManagerServiceTests
         using var cts = new CancellationTokenSource();
         var client = new FakeLightningClient
         {
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok),
             OpenChannelHandler = (_, token) =>
             {
                 cts.Cancel();
@@ -1855,6 +1857,7 @@ public class LightningManagerServiceTests
     {
         var client = new FakeLightningClient
         {
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok),
             OpenChannelHandler = (_, _) => throw new TimeoutException("The backend response timed out")
         };
         var context = TestContextFactory.CreateConfigured(
@@ -1881,6 +1884,7 @@ public class LightningManagerServiceTests
         var firstCallToken = CancellationToken.None;
         var client = new FakeLightningClient
         {
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok),
             OpenChannelHandler = (_, token) =>
             {
                 if (Interlocked.Increment(ref calls) != 1)
@@ -1931,6 +1935,7 @@ public class LightningManagerServiceTests
     {
         var client = new FakeLightningClient
         {
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok),
             OpenChannelHandler = (_, _) => Task.FromResult(
                 new OpenChannelResponse(OpenChannelResult.NeedMoreConf))
         };
@@ -1956,6 +1961,7 @@ public class LightningManagerServiceTests
         var calls = 0;
         var client = new FakeLightningClient
         {
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok),
             OpenChannelHandler = async (_, _) =>
             {
                 if (Interlocked.Increment(ref calls) == 1)

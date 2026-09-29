@@ -191,7 +191,7 @@ public class LightningManagerController : Controller
     public IActionResult Peers([FromRoute] string cryptoCode)
     {
         var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
-        var model = CreatePageModel<PeersViewModel>(context, "Peers", LightningManagerNavPages.Peers);
+        var model = CreatePageModel<PeersViewModel>(context, "Manage peers", LightningManagerNavPages.Channels);
         return View(model);
     }
 

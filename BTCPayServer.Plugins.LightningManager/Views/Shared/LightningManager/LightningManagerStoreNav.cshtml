@@ -12,7 +12,6 @@
     var isManagerPage = activePage is
         LightningManagerNavPages.Overview or
         LightningManagerNavPages.Send or
-        LightningManagerNavPages.Peers or
         LightningManagerNavPages.Channels;
     var canUseManager = managerContext?.IsConfigured is true;
     if (canUseManager && managerContext?.IsInternalNode is true)
@@ -52,22 +51,6 @@
                asp-route-storeId="@managerContext.StoreId"
                asp-route-cryptoCode="@managerContext.CryptoCode">
                 Pay
-            </a>
-        </li>
-    }
-
-    @if (isManagerPage && managerContext.Capabilities.CanConnectPeer)
-    {
-        <li class="nav-item nav-item-sub"
-            permission="@Policies.CanUseLightningNodeInStore"
-            permission-resource="@managerContext.StoreId">
-            <a layout-menu-item="@LightningManagerNavPages.Peers"
-               asp-area=""
-               asp-controller="LightningManager"
-               asp-action="Peers"
-               asp-route-storeId="@managerContext.StoreId"
-               asp-route-cryptoCode="@managerContext.CryptoCode">
-                Peers
             </a>
         </li>
     }

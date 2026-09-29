@@ -24,8 +24,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
     private const long PaymentAmountSats = 500;
     private const long MaxFeeSats = 100;
     private const float NavigationTimeoutMilliseconds = 60_000;
-    private const string EclairConnection =
-        "type=eclair;server=http://127.0.0.1:4570/;password=lightning-manager-e2e";
+    private static string EclairConnection =>
+        Environment.GetEnvironmentVariable("TEST_ECLAIR") ?? "type=eclair;server=http://127.0.0.1:4570/;password=lightning-manager-e2e";
     private const string CustomerLndConnection =
         "http://lnd:lnd@127.0.0.1:35532/";
     private const string PendingChannelMessage =
@@ -128,8 +128,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             await ConfigureBackendAsync(tester, storeId, scenario);
             await FundNodeAsync(tester, storeId, scenario, timeout.Token);
             await AssertOverviewAsync(tester, storeId, scenario);
-            await ConnectPeerAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
             await OpenChannelAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
+            await ConnectPeerAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
 
             await tester.Server.ExplorerNode.GenerateAsync(6, timeout.Token);
             await WaitForChainSyncAsync(tester, scenario, timeout.Token);
@@ -372,12 +372,13 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await Expect(tester.Page.Locator(".alert-warning"))
             .ToHaveCountAsync(scenario.IsInternalNode ? 1 : 0);
 
-        foreach (var page in new[] { "send", "peers", "channels" })
+        foreach (var page in new[] { "send", "channels" })
         {
             await Expect(tester.Page.Locator($"a[href$=\"/manager/{page}\"]"))
                 .ToHaveCountAsync(1);
         }
 
+        await Expect(tester.Page.Locator("a[href$=\"/manager/peers\"]")).ToHaveCountAsync(0);
         await tester.Page.AssertNoError();
     }
 
@@ -387,7 +388,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         NodeInfo remoteNode,
         bool isInternalNode)
     {
-        await tester.GoToUrl(ManagerUrl(storeId, "peers"));
+        await tester.GoToUrl(ManagerUrl(storeId, "channels"));
+        await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Manage peers", Exact = true }).ClickAsync();
         await AssertInternalNodeNoticeAsync(tester, isInternalNode);
         await tester.Page.Locator("#nodeUri").FillAsync(remoteNode.ToString());
         await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Connect peer" }).ClickAsync();
@@ -417,7 +419,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await Expect(tester.Page.Locator("#open-channel-form input[name=channelAmountSats]"))
             .ToHaveValueAsync(ChannelAmountSats.ToString(CultureInfo.InvariantCulture));
 
-        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Open channel", Exact = true }).ClickAsync();
+        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Open channel", Exact = true })
+            .ClickAsync(new() { Timeout = NavigationTimeoutMilliseconds });
         Assert.Matches("[?&]resultId=[0-9a-f]{32}(?:&|$)", tester.Page.Url);
         var result = await VisibleTextAsync(tester.Page.Locator(".alert-success, .alert-danger").First);
         Assert.True(

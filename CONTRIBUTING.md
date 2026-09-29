@@ -83,7 +83,8 @@ The required service test and all five browser cases live in the xUnit E2E
 project. Run the complete project without a filter so a renamed trait cannot
 silently remove a release test. Its native xUnit configuration also treats
 skips as failures. Run its executable directly to use the xUnit runner without
-changing the unit project's VSTest runner:
+changing the unit project's VSTest runner. Set `TEST_ECLAIR` to an Eclair connection
+string when using a fixture on a different API port:
 
 ```bash
 dotnet build \
@@ -114,8 +115,9 @@ of maintaining a second application host or browser harness.
 
 Each case creates its BTCPay user and store through the native harness, then
 uses the browser to configure its backend, generate a node deposit address,
-fund and confirm its on-chain wallet, navigate Lightning Manager, connect
-a peer, open and confirm a real regtest channel, and settle fixed and
+fund and confirm its on-chain wallet, and open a real regtest channel without
+a separate peer connection. It then checks the secondary Manage peers action,
+confirms the channel, and settles fixed and
 amountless payments. Bitcoin RPC and the Lightning clients are used only to
 prepare and verify backend state.
 
@@ -172,7 +174,7 @@ Use disposable, funded regtest nodes for the final LND and CLN check:
 
 1. Record both nodes' channel lists, pending-channel counts, and on-chain
    balances.
-2. Connect the remote peer through Lightning Manager.
+2. Enter the remote peer URI directly in Channels, without connecting through Manage peers.
 3. Preview a small channel at `1 sat/vB` and verify the peer, amount, and fee.
 4. Submit the confirmation once.
 5. Before mining, validate the backend-specific pending state:

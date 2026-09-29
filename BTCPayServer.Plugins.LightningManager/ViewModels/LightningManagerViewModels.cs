@@ -8,13 +8,13 @@ public static class LightningManagerNavPages
 {
     public const string Overview = "LightningManagerOverview";
     public const string Send = "LightningManagerSend";
-    public const string Peers = "LightningManagerPeers";
     public const string Channels = "LightningManagerChannels";
 }
 
 public class ActionResultViewModel
 {
     public bool IsSuccess { get; init; }
+    public bool InsufficientOnchainBalance { get; init; }
     public string Message { get; init; } = string.Empty;
 }
 

@@ -490,6 +490,36 @@ public class LightningManagerControllerTests
         Assert.Equal("Original channel result", originalChannels.Result!.Message);
     }
 
+    [Theory]
+    [InlineData(OpenChannelResult.CannotAffordFunding, true)]
+    [InlineData(OpenChannelResult.Ok, false)]
+    [InlineData(OpenChannelResult.PeerNotConnected, false)]
+    [InlineData(OpenChannelResult.NeedMoreConf, false)]
+    [InlineData(OpenChannelResult.AlreadyExists, false)]
+    public async Task ChannelsOffersFundingOnlyAfterInsufficientBalance(OpenChannelResult backendResult, bool needsFunding)
+    {
+        var client = new CountingOpenChannelLightningClient
+        {
+            OpenChannelHandler = (_, _) => Task.FromResult(new OpenChannelResponse(backendResult))
+        };
+        var controller = TestControllerFactory.CreateController(
+            TestContextFactory.CreateConfigured(LightningCapabilities.Full, client));
+        var initial = Assert.IsType<ChannelsViewModel>(
+            Assert.IsType<ViewResult>(await controller.Channels("BTC", CancellationToken.None)).Model);
+        Assert.Null(initial.Result);
+
+        var preview = Assert.IsType<ChannelsViewModel>(Assert.IsType<ViewResult>(
+            await controller.PreviewChannel("BTC", ValidNodeUri, "100000", null, CancellationToken.None)).Model);
+        Assert.Null(preview.Result);
+        await controller.OpenChannel("BTC", ValidNodeUri, "100000", null,
+            CancellationToken.None, preview.OpenChannelConfirmationToken);
+
+        var result = Assert.IsType<ChannelsViewModel>(
+            Assert.IsType<ViewResult>(await controller.Channels("BTC", CancellationToken.None)).Model);
+        Assert.NotNull(result.Result);
+        Assert.Equal(needsFunding, result.Result.InsufficientOnchainBalance);
+    }
+
     [Fact]
     public async Task OpenChannel_WhenRedirectIsLost_RecoversResultOnNextChannelsVisit()
     {
@@ -777,6 +807,7 @@ public class LightningManagerControllerTests
         public CountingOpenChannelLightningClient()
         {
             ListChannelsHandler = _ => Task.FromResult(Array.Empty<LightningChannel>());
+            ConnectToHandler = (_, _) => Task.FromResult(ConnectionResult.Ok);
             OpenChannelHandler = (_, _) =>
             {
                 OpenChannelCalls++;

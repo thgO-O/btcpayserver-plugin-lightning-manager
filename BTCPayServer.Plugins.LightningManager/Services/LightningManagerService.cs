@@ -719,18 +719,34 @@ public sealed class LightningManagerService
         }
 
         var lease = operationLease!;
-        Task<OpenChannelResponse>? openChannelTask = null;
+        Task? backendTask = null;
+        var channelOpeningStarted = false;
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(_channelOpenTimeout);
-            openChannelTask = context.Client!.OpenChannel(request, timeout.Token);
+            var connectionTask = context.Client!.ConnectTo(request.NodeInfo, timeout.Token);
+            backendTask = connectionTask;
+            if (await connectionTask.WaitAsync(timeout.Token) != ConnectionResult.Ok)
+            {
+                return CompleteAction(context, "open-channel", stopwatch, "failed",
+                    Failure("Could not connect to the peer. No channel was opened. Check the node URI and try again."));
+            }
+
+            timeout.Token.ThrowIfCancellationRequested();
+            channelOpeningStarted = true;
+            var openChannelTask = context.Client.OpenChannel(request, timeout.Token);
+            backendTask = openChannelTask;
             var response = await openChannelTask.WaitAsync(timeout.Token);
             var actionResult = response.Result switch
             {
                 OpenChannelResult.Ok => Success("Channel opening request submitted."),
                 OpenChannelResult.AlreadyExists => Failure("A channel with that peer already exists."),
-                OpenChannelResult.CannotAffordFunding => Failure("Insufficient balance to fund the channel."),
+                OpenChannelResult.CannotAffordFunding => new ActionResultViewModel
+                {
+                    InsufficientOnchainBalance = true,
+                    Message = "Insufficient on-chain balance to fund the channel and its transaction fees."
+                },
                 OpenChannelResult.NeedMoreConf => Failure(
                     "Channel opening may already be pending. Check the Lightning node before retrying."),
                 OpenChannelResult.PeerNotConnected => Failure("The peer is not connected."),
@@ -750,7 +766,9 @@ public sealed class LightningManagerService
                 "open-channel",
                 stopwatch,
                 "unsupported",
-                Failure("Channel opening is not supported by this backend."));
+                Failure(channelOpeningStarted
+                    ? "Channel opening is not supported by this backend."
+                    : "Peer connections are not supported by this backend. No channel was opened."));
         }
         catch (Exception exception)
         {
@@ -758,15 +776,17 @@ public sealed class LightningManagerService
                 context,
                 "open-channel",
                 stopwatch,
-                "unknown",
-                Failure("Channel opening status is unknown. Check the Lightning node before retrying."),
+                channelOpeningStarted ? "unknown" : "failed",
+                Failure(channelOpeningStarted
+                    ? "Channel opening status is unknown. Check the Lightning node before retrying."
+                    : "Could not connect to the peer. No channel was opened. Check the node URI and try again."),
                 exception.GetType().Name);
         }
         finally
         {
-            if (openChannelTask is { IsCompleted: false })
+            if (backendTask is { IsCompleted: false })
             {
-                _ = ReleaseLeaseWhenCompletedAsync(openChannelTask, lease);
+                _ = ReleaseLeaseWhenCompletedAsync(backendTask, lease);
             }
             else
             {

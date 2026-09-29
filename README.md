@@ -20,8 +20,8 @@ the backend supports those actions.
 - `Add funds to node`: generate an on-chain deposit address with QR code for LND, CLN, or Eclair.
 - `Pay`: preview and pay fixed-amount BOLT11 invoices. Supported backends also
   accept a positive whole-sat amount for amountless invoices.
-- `Peers`: connect to Lightning peers.
-- `Channels`: list existing channels and open new channels.
+- `Channels`: list and open channels, connecting to the peer automatically on confirmation.
+- `Channels → Manage peers`: connect or reconnect peers for troubleshooting.
 
 The actions shown come from a capability preset selected from the configured
 backend. For Blink, payment actions require `api-key=` and `currency=`
@@ -59,13 +59,15 @@ Server still determine whether the backend authorizes each request.
 3. Confirm that Lightning Manager detected the expected node or wallet and
    review the available actions.
 4. Use `Pay` to preview an invoice before sending it.
-5. Use `Peers` or `Channels` only when those menu items are available for your
-   backend.
+5. Use `Channels` to open a channel: enter the peer URI, amount and fee, then
+   review and confirm. The node connects to the peer before requesting the channel.
+   Use `Manage peers` inside Channels for a separate connection or reconnection.
 
 ## Add funds before opening a channel
 
-From Overview or Channels, select **Add funds to node**, then **Generate deposit
-address**. Send an on-chain Bitcoin payment to that address on the displayed
+From Overview, select **Add funds to node** to display the deposit address and
+QR code. Channels also offers this action when an opening attempt fails because
+of insufficient on-chain balance. Send an on-chain Bitcoin payment to that address on the displayed
 network. The address belongs to the configured Lightning node, not the store's
 separate Bitcoin wallet. Wait for confirmations and check **Onchain Balance** in
 Overview before opening a channel. Leave funds for transaction fees and the
