@@ -7,6 +7,7 @@ using BTCPayServer.Tests.Lnd;
 using Microsoft.Playwright;
 using NBitcoin;
 using Xunit;
+using ZXing;
 using static Microsoft.Playwright.Assertions;
 
 namespace BTCPayServer.Plugins.LightningManager.E2ETests;
@@ -246,16 +247,53 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
     {
         var balanceBefore = (await scenario.Managed.GetBalance(cancellationToken)).OnchainBalance.Confirmed;
         await tester.GoToUrl(ManagerUrl(storeId, "overview"));
-        await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Add funds to node", Exact = true }).ClickAsync();
+        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Add funds to node", Exact = true }).ClickAsync();
         await AssertInternalNodeNoticeAsync(tester, scenario.IsInternalNode);
-        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Generate deposit address" }).ClickAsync();
         await Expect(tester.Page.Locator("#node-deposit-address")).ToBeVisibleAsync();
-        var addressText = await tester.Page.Locator("#node-deposit-address").InputValueAsync();
+        var addressText = await tester.Page.Locator("#node-deposit-address").InnerTextAsync();
         var address = BitcoinAddress.Create(addressText, Network.RegTest);
         await Expect(tester.Page.GetByRole(AriaRole.Link, new() { Name = "Open in wallet" }))
             .ToHaveAttributeAsync("href", $"bitcoin:{addressText}");
-        await Expect(tester.Page.GetByRole(AriaRole.Button, new() { Name = "Copy address" })).ToBeVisibleAsync();
-        await Expect(tester.Page.Locator("img.qr-code")).ToBeVisibleAsync();
+        var qrImage = tester.Page.Locator("img.qr-code");
+        await Expect(qrImage).ToBeVisibleAsync();
+        var pixels = await qrImage.EvaluateAsync<QrPixels>("""
+            async image => {
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                const context = canvas.getContext('2d');
+                context.drawImage(image, 0, 0);
+                const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+                return {
+                    Width: canvas.width,
+                    Height: canvas.height,
+                    Data: btoa(Array.from(rgba, value => String.fromCharCode(value)).join(''))
+                };
+            }
+            """);
+        var decodedQr = new BarcodeReaderGeneric().Decode(
+            Convert.FromBase64String(pixels.Data), pixels.Width, pixels.Height,
+            RGBLuminanceSource.BitmapFormat.RGBA32);
+        Assert.NotNull(decodedQr);
+        Assert.Equal($"bitcoin:{addressText}", decodedQr.Text);
+
+        await tester.Page.Context.GrantPermissionsAsync(["clipboard-read", "clipboard-write"],
+            new() { Origin = new Uri(tester.Page.Url).GetLeftPart(UriPartial.Authority) });
+        try
+        {
+            // A no-op copy must fail even if an earlier scenario copied the same address.
+            await tester.Page.EvaluateAsync("() => navigator.clipboard.writeText('not-the-deposit-address')");
+            var copyButton = tester.Page.GetByRole(AriaRole.Button, new() { Name = "Copy address", Exact = true });
+            await copyButton.ClickAsync();
+            await Expect(tester.Page.Locator("[data-clipboard-target='#node-deposit-address']"))
+                .ToHaveTextAsync("Copied");
+            Assert.Equal(addressText, await tester.Page.EvaluateAsync<string>("() => navigator.clipboard.readText()"));
+        }
+        finally
+        {
+            await tester.Page.Context.ClearPermissionsAsync();
+        }
         var artifactsDirectory = Environment.GetEnvironmentVariable("TESTS_ARTIFACTS_DIR");
         if (!string.IsNullOrEmpty(artifactsDirectory))
         {
@@ -629,6 +667,13 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         Eclair,
         InternalCln,
         InternalLnd
+    }
+
+    private sealed class QrPixels
+    {
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public string Data { get; set; } = string.Empty;
     }
 
     private sealed record BackendScenario(

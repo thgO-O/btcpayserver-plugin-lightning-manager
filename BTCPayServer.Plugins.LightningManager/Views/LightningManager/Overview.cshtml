@@ -2,9 +2,9 @@
 @{
     var cards = new[]
     {
-        (Title: "Summary", Rows: Model.SummaryRows, EmptyMessage: "No node summary is available."),
-        (Title: "Offchain Balance", Rows: Model.OffchainBalanceRows, EmptyMessage: "No offchain balances are available."),
-        (Title: "Onchain Balance", Rows: Model.OnchainBalanceRows, EmptyMessage: "No onchain balances are available.")
+        (Title: "Summary", IsOnchain: false, Rows: Model.SummaryRows, EmptyMessage: "No node summary is available."),
+        (Title: "Offchain Balance", IsOnchain: false, Rows: Model.OffchainBalanceRows, EmptyMessage: "No offchain balances are available."),
+        (Title: "Onchain Balance", IsOnchain: true, Rows: Model.OnchainBalanceRows, EmptyMessage: "No onchain balances are available.")
     };
     var capabilityItems = new[]
     {
@@ -24,7 +24,6 @@
 </div>
 
 <partial name="LightningManager/_InternalNodeNotice" model="Model" />
-<partial name="LightningManager/_FundingHelp" model="Model" />
 
 @if (!Model.IsConfigured)
 {
@@ -60,7 +59,28 @@ else
             <div class="col-xl-4">
                 <div class="card h-100">
                     <div class="card-body">
-                        <h3 class="h5">@card.Title</h3>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                            <h3 class="h5 mb-0">@card.Title</h3>
+                            @if (card.IsOnchain && Model.Capabilities.CanGetDepositAddress)
+                            {
+                                <form asp-controller="LightningManager" asp-action="GenerateDepositAddress" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="@Model.CryptoCode" method="post">
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">Add funds to node</button>
+                                </form>
+                            }
+                        </div>
+                        @if (card.IsOnchain)
+                        {
+                            <p class="text-muted small mb-3">
+                                @if (Model.Capabilities.CanGetDepositAddress)
+                                {
+                                    <span>Funds for opening channels and paying network fees. Separate from your store's Bitcoin wallet.</span>
+                                }
+                                else
+                                {
+                                    <span>To add funds, use your Lightning wallet or provider's deposit tools.</span>
+                                }
+                            </p>
+                        }
                         @if (card.Rows.Count == 0)
                         {
                             <p class="text-muted mb-0">@card.EmptyMessage</p>
