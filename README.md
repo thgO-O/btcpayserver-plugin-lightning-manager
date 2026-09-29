@@ -17,6 +17,7 @@ the backend supports those actions.
 
 - `Overview`: view node or wallet information, its address, and available
   balances.
+- `Add funds to node`: generate an on-chain deposit address with QR code for LND, CLN, or Eclair.
 - `Pay`: preview and pay fixed-amount BOLT11 invoices. Supported backends also
   accept a positive whole-sat amount for amountless invoices.
 - `Peers`: connect to Lightning peers.
@@ -61,11 +62,26 @@ Server still determine whether the backend authorizes each request.
 5. Use `Peers` or `Channels` only when those menu items are available for your
    backend.
 
+## Add funds before opening a channel
+
+From Overview or Channels, select **Add funds to node**, then **Generate deposit
+address**. Send an on-chain Bitcoin payment to that address on the displayed
+network. The address belongs to the configured Lightning node, not the store's
+separate Bitcoin wallet. Wait for confirmations and check **Onchain Balance** in
+Overview before opening a channel. Leave funds for transaction fees and the
+node's required reserve.
+
+This works with LND, CLN and Eclair, including supported internal nodes. For an
+internal node, deposits fund the server's shared wallet and require the same
+Server Admin access as the rest of Lightning Manager. Phoenixd and Blink must
+be funded through their wallet or provider's own deposit tools; their adapters
+do not expose an on-chain deposit address here.
+
 ## Capability Presets
 
 | Setup | Info | Balance | Pay | Amountless BOLT11 | Maximum fee | Connect peer | Open channel | List channels | Validation status |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
-| LND REST / BTCPay `lnd-grpc` value / internal LND | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External Playwright E2E; internal factory coverage |
+| LND REST / BTCPay `lnd-grpc` value / internal LND | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External + internal Playwright E2E |
 | Core Lightning (CLN), external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External + internal Playwright E2E |
 | Eclair, external or internal | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | External Playwright E2E (0.8); internal factory coverage |
 | Phoenixd, external or internal | Yes | Yes | Yes | Yes | No | No | No | No | Manual sign-off pending |
@@ -90,7 +106,7 @@ backend evidence.
 
 Blink receive-only connections do not expose Lightning Manager. They are
 intended to receive payments, while this plugin does not create invoices or
-provide receiving tools.
+provide Lightning receiving tools.
 
 Peer and channel actions are available only for LND, CLN, and Eclair. Phoenixd
 and Blink control routing fees through their own backend policy, so Lightning
@@ -124,7 +140,7 @@ Lightning Manager:
 - supports BTC Lightning only;
 - requires either an explicit, supported `type=` in an external Lightning
   connection string or a supported internal Lightning backend;
-- does not create a wallet, receive payments, create invoices, or change
+- does not create a wallet, create Lightning invoices, or change
   checkout behavior;
 - does not support BOLT12, keysend, spontaneous payments, or LNURL checkout
   features;

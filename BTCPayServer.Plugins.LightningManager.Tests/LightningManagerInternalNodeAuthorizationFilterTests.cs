@@ -154,7 +154,7 @@ public class LightningManagerInternalNodeAuthorizationFilterTests
             .Where(method => method.GetCustomAttributes()
                 .Any(attribute => attribute is HttpGetAttribute or HttpPostAttribute))
             .ToArray();
-        Assert.Equal(10, actions.Length);
+        Assert.Equal(12, actions.Length);
     }
 
     private static (

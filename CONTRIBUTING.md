@@ -79,7 +79,7 @@ cd ../../..
 
 ## Native end-to-end tests
 
-The required service test and all four browser cases live in the xUnit E2E
+The required service test and all five browser cases live in the xUnit E2E
 project. Run the complete project without a filter so a renamed trait cannot
 silently remove a release test. Its native xUnit configuration also treats
 skips as failures. Run its executable directly to use the xUnit runner without
@@ -108,19 +108,20 @@ clients instead of relying on a shell channel-setup wrapper. It:
 
 ## Backend Playwright tests
 
-The external CLN, LND, and Eclair browser cases plus the internal CLN case use
+The external CLN, LND, and Eclair browser cases plus the internal CLN and LND cases use
 BTCPay Server's `UnitTestBase`, `ServerTester`, and `PlaywrightTester` instead
 of maintaining a second application host or browser harness.
 
 Each case creates its BTCPay user and store through the native harness, then
-uses the browser to configure its backend, navigate Lightning Manager, connect
+uses the browser to configure its backend, generate a node deposit address,
+fund and confirm its on-chain wallet, navigate Lightning Manager, connect
 a peer, open and confirm a real regtest channel, and settle fixed and
 amountless payments. Bitcoin RPC and the Lightning clients are used only to
 prepare and verify backend state.
 
-The internal CLN case configures the store with BTCPay Server's shared
-`Internal` Lightning option and runs as a Server Admin with store Lightning
-access. It also verifies the shared-node warning and confirms that a store
+The internal CLN and LND cases configure the store with BTCPay Server's shared
+`Internal` Lightning option and run as a Server Admin with store Lightning
+access. They also verify the shared-node warning and confirm that a store
 Owner who is not a Server Admin sees no menu item and is forbidden from direct
 access.
 
@@ -139,7 +140,7 @@ cd ../../..
 
 Repository validation consists of the Release build, deterministic tests,
 the CLN/LND service integration test, and native Playwright cases for CLN, LND,
-Eclair, and internal CLN. A test that needs its Lightning fixture must fail when
+Eclair, internal CLN, and internal LND. A test that needs its Lightning fixture must fail when
 that fixture is unavailable; it must not be silently skipped.
 
 BTCPay Server 2.4.4 includes CLightning 1.7.7, which maps CLN's reported peer

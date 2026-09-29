@@ -37,6 +37,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
     [InlineData(ManagedBackend.Lnd)]
     [InlineData(ManagedBackend.Eclair)]
     [InlineData(ManagedBackend.InternalCln)]
+    [InlineData(ManagedBackend.InternalLnd)]
     public async Task CanManageBackendThroughPluginUi(ManagedBackend backend)
     {
         var previousDebugPlugins = Environment.GetEnvironmentVariable("DEBUG_PLUGINS");
@@ -54,7 +55,22 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         try
         {
             await using var tester = CreatePlaywrightTester($"LightningManager{backend}E2E", newDb: true);
-            tester.Server.ActivateLightning();
+            var previousMerchantLnd = Environment.GetEnvironmentVariable("TEST_MERCHANTLND");
+            try
+            {
+                if (backend == ManagedBackend.InternalLnd)
+                {
+                    // Give internal LND its own peer/channel pair in the shared regtest fixture.
+                    Environment.SetEnvironmentVariable("TEST_MERCHANTLND",
+                        Environment.GetEnvironmentVariable("TEST_CUSTOMERLND") ?? CustomerLndConnection);
+                }
+                tester.Server.ActivateLightning(backend == ManagedBackend.InternalLnd
+                    ? LightningTestImplementation.LND : LightningTestImplementation.CoreLightning);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("TEST_MERCHANTLND", previousMerchantLnd);
+            }
 
             var eclair = new LightningClientFactory(Network.RegTest).Create(EclairConnection);
             var customerLnd = new LndMockTester(
@@ -89,7 +105,6 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 $"The disposable fixture already has a {scenario.Name} channel to the test recipient. " +
                 "Recreate its volumes before rerunning this channel-opening test.");
 
-            await FundNodeAsync(tester, scenario, timeout.Token);
             await tester.StartAsync();
             tester.Page.SetDefaultNavigationTimeout(NavigationTimeoutMilliseconds);
 
@@ -110,6 +125,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             }
 
             await ConfigureBackendAsync(tester, storeId, scenario);
+            await FundNodeAsync(tester, storeId, scenario, timeout.Token);
             await AssertOverviewAsync(tester, storeId, scenario);
             await ConnectPeerAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
             await OpenChannelAsync(tester, storeId, recipientNode, scenario.IsInternalNode);
@@ -198,6 +214,13 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 LightningTestImplementation.Internal,
                 null,
                 true),
+            ManagedBackend.InternalLnd => new BackendScenario(
+                "Internal LND",
+                customerLnd,
+                tester.Server.CustomerLightningD,
+                LightningTestImplementation.Internal,
+                null,
+                true),
             _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, null)
         };
     }
@@ -217,11 +240,32 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
 
     private static async Task FundNodeAsync(
         PlaywrightTester tester,
+        string storeId,
         BackendScenario scenario,
         CancellationToken cancellationToken)
     {
         var balanceBefore = (await scenario.Managed.GetBalance(cancellationToken)).OnchainBalance.Confirmed;
-        var address = await scenario.Managed.GetDepositAddress(cancellationToken);
+        await tester.GoToUrl(ManagerUrl(storeId, "overview"));
+        await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Add funds to node", Exact = true }).ClickAsync();
+        await AssertInternalNodeNoticeAsync(tester, scenario.IsInternalNode);
+        await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Generate deposit address" }).ClickAsync();
+        await Expect(tester.Page.Locator("#node-deposit-address")).ToBeVisibleAsync();
+        var addressText = await tester.Page.Locator("#node-deposit-address").InputValueAsync();
+        var address = BitcoinAddress.Create(addressText, Network.RegTest);
+        await Expect(tester.Page.GetByRole(AriaRole.Link, new() { Name = "Open in wallet" }))
+            .ToHaveAttributeAsync("href", $"bitcoin:{addressText}");
+        await Expect(tester.Page.GetByRole(AriaRole.Button, new() { Name = "Copy address" })).ToBeVisibleAsync();
+        await Expect(tester.Page.Locator("img.qr-code")).ToBeVisibleAsync();
+        var artifactsDirectory = Environment.GetEnvironmentVariable("TESTS_ARTIFACTS_DIR");
+        if (!string.IsNullOrEmpty(artifactsDirectory))
+        {
+            Directory.CreateDirectory(artifactsDirectory);
+            await tester.Page.ScreenshotAsync(new()
+            {
+                Path = Path.Combine(artifactsDirectory, $"funding-{scenario.Name.Replace(' ', '-')}.png"),
+                FullPage = true
+            });
+        }
         await tester.Server.ExplorerNode.SendToAddressAsync(address, Money.Coins(0.01m), cancellationToken);
         await tester.Server.ExplorerNode.GenerateAsync(6, cancellationToken);
         await WaitForChainSyncAsync(tester, scenario, cancellationToken);
@@ -284,7 +328,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         if (scenario.IsInternalNode)
         {
             await Expect(tester.Page.Locator("dt:has-text(\"Node\") + dd"))
-                .ToHaveTextAsync("Core Lightning · Internal");
+                .ToHaveTextAsync(scenario.Name == "Internal LND" ? "LND · Internal" : "Core Lightning · Internal");
         }
 
         await Expect(tester.Page.Locator(".alert-warning"))
@@ -441,6 +485,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await Expect(tester.Page.Locator($"a[href$=\"{ManagerUrl(storeId, "overview")}\"]"))
             .ToHaveCountAsync(0);
         await tester.AssertPageAccess(false, ManagerUrl(storeId, "overview"));
+        await tester.AssertPageAccess(false, ManagerUrl(storeId, "fund"));
     }
 
     private static async Task AssertInternalNodeNoticeAsync(
@@ -582,7 +627,8 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         Cln,
         Lnd,
         Eclair,
-        InternalCln
+        InternalCln,
+        InternalLnd
     }
 
     private sealed record BackendScenario(

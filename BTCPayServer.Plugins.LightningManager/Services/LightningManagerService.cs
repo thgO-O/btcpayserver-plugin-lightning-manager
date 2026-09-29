@@ -50,6 +50,39 @@ public sealed class LightningManagerService
         _channelOpenTimeout = channelOpenTimeout;
     }
 
+    public async Task PopulateDepositAddressAsync(
+        FundViewModel model,
+        StoreLightningManagerContext context,
+        CancellationToken cancellationToken = default)
+    {
+        model.Address = null;
+        if (!context.IsConfigured || context.Client is null || context.Network is null ||
+            !context.Capabilities.CanGetDepositAddress)
+        {
+            model.Error = "On-chain deposits are not available for this Lightning backend.";
+            return;
+        }
+
+        try
+        {
+            var address = await context.Client.GetDepositAddress(cancellationToken);
+            // Reject addresses from a different Bitcoin network before showing a destination.
+            model.Address = BitcoinAddress.Create(address.ToString(), context.Network.NBitcoinNetwork).ToString();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (NotSupportedException)
+        {
+            model.Error = "This backend cannot generate a deposit address. Use your node's wallet manager to fund its on-chain wallet.";
+        }
+        catch (Exception)
+        {
+            model.Error = "Could not generate a valid deposit address for this network. Check the node connection and wallet permissions, then try again.";
+        }
+    }
+
     public async Task PopulateOverviewAsync(
         OverviewViewModel model,
         StoreLightningManagerContext context,

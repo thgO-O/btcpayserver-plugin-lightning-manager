@@ -80,6 +80,7 @@ internal static class TestNetworkFactory
 
 internal class FakeLightningClient : ILightningClient
 {
+    public Func<CancellationToken, Task<BitcoinAddress>>? GetDepositAddressHandler { get; set; }
     public Func<CancellationToken, Task<LightningNodeInformation>>? GetInfoHandler { get; set; }
     public Func<CancellationToken, Task<LightningNodeBalance>>? GetBalanceHandler { get; set; }
     public Func<string, CancellationToken, Task<PayResponse>>? PayBolt11Handler { get; set; }
@@ -113,7 +114,8 @@ internal class FakeLightningClient : ILightningClient
         PayBolt11Handler is null ? throw new NotSupportedException() : PayBolt11Handler(bolt11, cancellation);
     public Task<OpenChannelResponse> OpenChannel(OpenChannelRequest openChannelRequest, CancellationToken cancellation = default) =>
         OpenChannelHandler is null ? throw new NotSupportedException() : OpenChannelHandler(openChannelRequest, cancellation);
-    public Task<BitcoinAddress> GetDepositAddress(CancellationToken cancellation = default) => throw new NotSupportedException();
+    public Task<BitcoinAddress> GetDepositAddress(CancellationToken cancellation = default) =>
+        GetDepositAddressHandler is null ? throw new NotSupportedException() : GetDepositAddressHandler(cancellation);
     public Task<ConnectionResult> ConnectTo(NodeInfo nodeInfo, CancellationToken cancellation = default) =>
         ConnectToHandler is null ? throw new NotSupportedException() : ConnectToHandler(nodeInfo, cancellation);
     public Task CancelInvoice(string invoiceId, CancellationToken cancellation = default) => throw new NotSupportedException();

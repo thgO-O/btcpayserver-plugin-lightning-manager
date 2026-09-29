@@ -51,6 +51,28 @@ public class LightningManagerController : Controller
         return View(model);
     }
 
+    [HttpGet("fund")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult Fund([FromRoute] string cryptoCode)
+    {
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
+        var model = CreatePageModel<FundViewModel>(context, "Add funds to node", LightningManagerNavPages.Overview);
+        model.NetworkName = context.Network?.NBitcoinNetwork.Name;
+        return View(model);
+    }
+
+    [HttpPost("fund")]
+    [ValidateAntiForgeryToken]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GenerateDepositAddress([FromRoute] string cryptoCode, CancellationToken cancellationToken)
+    {
+        var context = _contextFactory.Create(HttpContext.GetStoreData(), cryptoCode);
+        var model = CreatePageModel<FundViewModel>(context, "Add funds to node", LightningManagerNavPages.Overview);
+        model.NetworkName = context.Network?.NBitcoinNetwork.Name;
+        await _lightningManagerService.PopulateDepositAddressAsync(model, context, cancellationToken);
+        return View("Fund", model);
+    }
+
     [HttpGet("send")]
     public IActionResult Send(
         [FromRoute] string cryptoCode,

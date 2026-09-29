@@ -5,6 +5,7 @@ public sealed class LightningCapabilities
     public static LightningCapabilities None { get; } = new();
     public static LightningCapabilities Full { get; } = new()
     {
+        CanGetDepositAddress = true,
         CanGetInfo = true,
         CanGetBalance = true,
         CanPayBolt11 = true,
@@ -33,6 +34,7 @@ public sealed class LightningCapabilities
 
     private bool _canPayAmountless;
 
+    public bool CanGetDepositAddress { get; init; }
     public bool CanGetInfo { get; init; }
     public bool CanGetBalance { get; init; }
     public bool CanPayBolt11 { get; init; }
@@ -46,6 +48,7 @@ public sealed class LightningCapabilities
     public bool CanOpenChannel { get; init; }
     public bool CanListChannels { get; init; }
     public bool HasAny =>
+        CanGetDepositAddress ||
         CanGetInfo ||
         CanGetBalance ||
         CanPayBolt11 ||

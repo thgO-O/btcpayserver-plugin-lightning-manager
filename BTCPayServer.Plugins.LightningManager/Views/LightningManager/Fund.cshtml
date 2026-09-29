@@ -1,0 +1,51 @@
+@model FundViewModel
+<div class="sticky-header"><h2>Add funds to node</h2></div>
+<partial name="LightningManager/_InternalNodeNotice" model="Model" />
+@if (!Model.IsConfigured)
+{
+    <div class="alert alert-warning">@Model.ConfigurationMessage</div>
+}
+else if (!Model.Capabilities.CanGetDepositAddress)
+{
+    <div class="alert alert-info">Use your Lightning wallet or provider's deposit tools. This backend does not expose an on-chain deposit address through Lightning Manager.</div>
+}
+else
+{
+    <p>Deposit bitcoin into <strong>@Model.BackendDisplayName</strong>'s on-chain wallet to open channels.</p>
+    <p><strong>Bitcoin network: @Model.NetworkName</strong>. Send only on this network.</p>
+    <ol>
+        <li>Generate an address from this node and send an on-chain Bitcoin payment to it. This is not a Lightning invoice or your store's separate Bitcoin wallet.</li>
+        <li>Wait for the deposit to confirm. Check the confirmed on-chain balance in Overview.</li>
+        <li>Open a channel, leaving enough funds for transaction fees and any reserve required by the node. Wait for the channel to become active before paying over Lightning.</li>
+    </ol>
+    @if (Model.Error is not null)
+    {
+        <div class="alert alert-danger" role="alert">@Model.Error</div>
+    }
+    @if (Model.Address is not null)
+    {
+        <div class="card mb-4"><div class="card-body">
+            <h3 class="h5">Node deposit address</h3>
+            <div class="mb-3"><vc:qr-code data="@Model.BitcoinUri" /></div>
+            <label for="node-deposit-address" class="form-label">Bitcoin address</label>
+            <div class="input-group">
+                <input id="node-deposit-address" class="form-control font-monospace" readonly value="@Model.Address" />
+                <button type="button" class="btn btn-outline-secondary" data-clipboard-target="#node-deposit-address">Copy address</button>
+            </div>
+            <a href="@Model.BitcoinUri" class="btn btn-outline-primary mt-3">Open in wallet</a>
+        </div></div>
+    }
+    else
+    {
+        <form asp-controller="LightningManager" asp-action="GenerateDepositAddress" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="@Model.CryptoCode" method="post" class="mb-4">
+            <button type="submit" class="btn btn-primary">Generate deposit address</button>
+        </form>
+    }
+}
+<div class="d-flex gap-3 mt-4">
+    <a asp-action="Overview" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="@Model.CryptoCode">Check node balance</a>
+    @if (Model.Capabilities.CanOpenChannel)
+    {
+        <a asp-action="Channels" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="@Model.CryptoCode">Open a channel</a>
+    }
+</div>

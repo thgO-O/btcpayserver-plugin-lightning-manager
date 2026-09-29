@@ -58,6 +58,16 @@ capability. Record unsupported checks as `N/A` in the sign-off notes.
 - [ ] A stale failed payment record is displayed as unknown, not definitively
       failed.
 
+## Node funding (LND, CLN, Eclair; external and internal)
+
+- [ ] Overview and Channels link to Add funds to node.
+- [ ] The deposit page identifies the backend and Bitcoin network.
+- [ ] Generate an address; verify the QR code, copy button and wallet link encode that address.
+- [ ] Send a small on-chain deposit and verify the configured node's confirmed balance increases after confirmation.
+- [ ] Open a channel using that balance, leaving funds for fees and reserves.
+- [ ] Internal nodes show the shared-wallet warning and deny non-admin store owners access.
+- [ ] Phoenixd and Blink show provider guidance instead of a deposit-address button.
+
 ## Phoenixd
 
 - [ ] Info and balance load.

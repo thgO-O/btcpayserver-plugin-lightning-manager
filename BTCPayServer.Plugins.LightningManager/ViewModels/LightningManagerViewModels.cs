@@ -128,3 +128,11 @@ public class ChannelsViewModel : LightningManagerPageViewModel
     public string? ChannelListMessage { get; set; }
     public ActionResultViewModel? Result { get; set; }
 }
+
+public class FundViewModel : LightningManagerPageViewModel
+{
+    public string? NetworkName { get; set; }
+    public string? Address { get; set; }
+    public string? Error { get; set; }
+    public string? BitcoinUri => Address is null ? null : $"bitcoin:{Address}";
+}
