@@ -36,12 +36,22 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         { StoreId = "other", NodeIdentity = winner.NodeIdentity, Direction = "Outgoing", PaymentHash = winner.PaymentHash }, TestContext.Current.CancellationToken));
         Assert.Null(await restarted.GetAsync(winner.Id, "other", winner.NodeIdentity, TestContext.Current.CancellationToken));
         Assert.Null(await restarted.GetAsync(winner.Id, winner.StoreId, "regtest:changed-node", TestContext.Current.CancellationToken));
+        // A lookup of a previous backend attempt can arrive before this executor's success.
+        winner.State = "Failed";
+        await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
+        Assert.Equal("Failed", (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
         durable.State = "Settled";
         durable.FeeMsat = 1234;
         await restarted.UpdateAsync(durable, TestContext.Current.CancellationToken);
-        winner.State = "Unknown";
-        await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
-        Assert.Equal("Settled", (await repository.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
+        foreach (var staleState in new[] { "Unknown", "Failed", "Pending", "Expired", "Settled" })
+        {
+            winner.State = staleState;
+            winner.FeeMsat = null;
+            await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
+            var settled = await repository.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken);
+            Assert.Equal("Settled", settled!.State);
+            Assert.Equal(1234, settled.FeeMsat);
+        }
         Assert.Empty(await restarted.PendingAsync(TestContext.Current.CancellationToken));
     }
 }

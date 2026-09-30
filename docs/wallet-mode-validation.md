@@ -7,7 +7,7 @@ The fixture used a separate disposable Docker Compose project.
 | Check | Result |
 | --- | --- |
 | Plugin Release build | Passed, no warnings or errors |
-| Deterministic tests, Release | 259 passed, no failures or skips |
+| Deterministic tests, Release | 266 passed, no failures or skips |
 | Complete native E2E executable | 8 passed, no failures or skips |
 | Whitespace / submodule changes | Clean diff; no core changes |
 
@@ -26,7 +26,17 @@ claims, recovery after recreating storage, a write failure before sending,
 and a simulated lost local result after backend settlement. Reconciliation
 also works while Wallet Mode is disabled; duplicate hashes remain blocked.
 Deterministic tests additionally exercise expiration, context binding and
-30 concurrent consumers of a payment confirmation.
+30 concurrent consumers of a payment confirmation. Native LND and CLN adapter
+tests verify stable identity with and without advertised addresses, including
+the LND connection aliases, and reject an absent native public key.
+
+The browser hosts start with BTCPay's default CSP enabled. The access case
+opens and closes the real scanner, verifies service worker readiness without
+CSP violations, and follows the offline retry link back to the wallet after
+reconnecting. PostgreSQL coverage also verifies that confirmed settlement
+replaces an older failure and stale updates cannot downgrade settlement or
+erase its saved fee. The worker script changes so existing installations
+reinstall their public assets with the updated offline page.
 
 WebAuthn uses Chromium's virtual authenticator with user verification and
 the actual BTCPay verifier. A fixture supplies no vendor metadata for that

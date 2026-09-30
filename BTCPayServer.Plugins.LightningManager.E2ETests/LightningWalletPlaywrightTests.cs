@@ -25,10 +25,12 @@ public partial class LightningManagerPlaywrightTests
         {
             await using var tester = CreatePlaywrightTester(newDb: true);
             tester.Server.ActivateLightning(LightningTestImplementation.CoreLightning);
-            tester.Server.PayTester.NoCSP = true;
+            // Start the host with its real CSP before the core browser helper sets NoCSP.
+            tester.Server.PayTester.NoCSP = false;
             await tester.Server.StartAsync();
             tester.ServerUri = new Uri(tester.Server.PayTester.ServerUriWithIP.AbsoluteUri.Replace("127.0.0.1", "localhost", StringComparison.Ordinal));
             await tester.StartAsync();
+            await tester.Page.AddInitScriptAsync("document.addEventListener('securitypolicyviolation', e => (window.walletCspViolations ??= []).push(e.violatedDirective));");
             var adminEmail = await tester.RegisterNewUser(true);
             var (_, storeId) = await tester.CreateNewStore();
             await tester.AddLightningNode(LightningTestImplementation.CoreLightning);
@@ -42,6 +44,14 @@ public partial class LightningManagerPlaywrightTests
             await Expect(tester.Page.Locator(".ln-wallet__balance strong")).ToBeVisibleAsync();
             await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Pay", Exact = true }).First.ClickAsync();
             await Expect(tester.Page.GetByText("Register a passkey", new() { Exact = false })).ToBeVisibleAsync();
+            var sendResponse = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "send").ToString());
+            Assert.True(sendResponse.Headers.ContainsKey("content-security-policy"));
+            await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Scan QR", Exact = true }).ClickAsync();
+            await Expect(tester.Page.Locator("#wallet-scan-modal")).ToBeVisibleAsync();
+            await tester.Page.Locator("#wallet-scan-modal .btn-close").ClickAsync();
+            await Expect(tester.Page.Locator("#wallet-scan-modal")).ToBeHiddenAsync();
+            await tester.Page.EvaluateAsync("() => navigator.serviceWorker.ready");
+            Assert.Empty(await tester.Page.EvaluateAsync<string[]>("() => window.walletCspViolations ?? []"));
             var authenticator = await tester.Page.Context.NewCDPSessionAsync(tester.Page);
             await authenticator.SendAsync("WebAuthn.enable");
             var added = await authenticator.SendAsync("WebAuthn.addVirtualAuthenticator", new Dictionary<string, object>
@@ -53,7 +63,8 @@ public partial class LightningManagerPlaywrightTests
             await tester.GoToUrl("/account/passkeys");
             await tester.Page.Locator("#passkey-form input[name=Name]").FillAsync("Wallet test passkey");
             await tester.Page.Locator("#btn-add-passkey").ClickAsync();
-            var registration = await tester.FindAlertMessage(BTCPayServer.Abstractions.Models.StatusMessageModel.StatusSeverity.Success, BTCPayServer.Abstractions.Models.StatusMessageModel.StatusSeverity.Error);
+            var registration = tester.Page.Locator(".alert-success, .alert-danger").First;
+            await Expect(registration).ToBeVisibleAsync(new() { Timeout = 30_000 });
             Assert.Contains("registered successfully", await registration.InnerTextAsync(), StringComparison.Ordinal);
             await Expect(tester.Page.GetByText("Wallet test passkey", new() { Exact = true })).ToBeVisibleAsync(new() { Timeout = 30_000 });
             var credentials = await authenticator.SendAsync("WebAuthn.getCredentials", new Dictionary<string, object> { ["authenticatorId"] = authenticatorId! });
@@ -77,6 +88,9 @@ public partial class LightningManagerPlaywrightTests
             await tester.Page.GotoAsync(new Uri(tester.ServerUri, root).ToString());
             await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "You are offline", Exact = true })).ToBeVisibleAsync();
             await tester.Page.Context.SetOfflineAsync(false);
+            await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Try again", Exact = true }).ClickAsync();
+            await Expect(tester.Page.Locator(".ln-wallet__balance strong")).ToBeVisibleAsync();
+            Assert.Empty(await tester.Page.EvaluateAsync<string[]>("() => window.walletCspViolations ?? []"));
 
             await using var anonymous = await tester.Browser.NewContextAsync();
             var manifest = await anonymous.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "manifest.webmanifest").ToString());
@@ -95,6 +109,7 @@ public partial class LightningManagerPlaywrightTests
             await tester.GoToUrl("/account/passkeys");
             await tester.Page.Locator("#passkey-form input[name=Name]").FillAsync("Other account passkey");
             await tester.Page.Locator("#btn-add-passkey").ClickAsync();
+            await Expect(tester.Page.GetByText("Other account passkey", new() { Exact = true })).ToBeVisibleAsync(new() { Timeout = 30_000 });
             Assert.Contains("registered successfully", await (await tester.FindAlertMessage()).InnerTextAsync(), StringComparison.Ordinal);
             await authenticator.SendAsync("WebAuthn.removeCredential", new Dictionary<string, object>
                 { ["authenticatorId"] = authenticatorId!, ["credentialId"] = adminCredentialId! });
@@ -171,7 +186,8 @@ public partial class LightningManagerPlaywrightTests
             await tester.GoToUrl("/account/passkeys");
             await page.Locator("#passkey-form input[name=Name]").FillAsync("Wallet test passkey");
             await page.Locator("#btn-add-passkey").ClickAsync();
-            var registration = await tester.FindAlertMessage(BTCPayServer.Abstractions.Models.StatusMessageModel.StatusSeverity.Success, BTCPayServer.Abstractions.Models.StatusMessageModel.StatusSeverity.Error);
+            var registration = page.Locator(".alert-success, .alert-danger").First;
+            await Expect(registration).ToBeVisibleAsync(new() { Timeout = 30_000 });
             Assert.Contains("registered successfully", await registration.InnerTextAsync(), StringComparison.Ordinal);
             await Expect(page.GetByText("Wallet test passkey", new() { Exact = true })).ToBeVisibleAsync(new() { Timeout = 30_000 });
 

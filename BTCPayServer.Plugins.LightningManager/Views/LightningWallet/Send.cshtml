@@ -1,5 +1,9 @@
 @model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
-@{ Layout = "_LayoutWallet"; }
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
+@{
+    Layout = "_LayoutWallet";
+    if (Model.Preview is null) Csp.UnsafeEval();
+}
 @section PageHeadContent {
     <link href="~/vendor/vue-qrcode-reader/vue-qrcode-reader.css" rel="stylesheet" asp-append-version="true" />
 }

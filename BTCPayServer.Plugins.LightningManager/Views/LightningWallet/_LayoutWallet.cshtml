@@ -1,7 +1,9 @@
 @using BTCPayServer.Plugins.LightningManager.Wallet
 @model WalletPageModel
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
 @{
     Layout = null;
+    Csp.Add("worker-src", "'self'");
     var root = Url.Action("Home", "LightningWallet", new { storeId = Model.StoreId })!.TrimEnd('/') + "/";
     ViewData.SetTitle("Lightning Wallet");
 }

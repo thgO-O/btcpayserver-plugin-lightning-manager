@@ -106,7 +106,8 @@ public partial class LightningManagerPlaywrightTests(ITestOutputHelper output) :
                 $"The disposable fixture already has a {scenario.Name} channel to the test recipient. " +
                 "Recreate its volumes before rerunning this channel-opening test.");
 
-            tester.Server.PayTester.NoCSP = true;
+            // Start the host with its real CSP before the core browser helper sets NoCSP.
+            tester.Server.PayTester.NoCSP = false;
             await tester.Server.StartAsync();
             // Match the core WebAuthn tests: a trustworthy localhost origin is required.
             tester.ServerUri = new Uri(tester.Server.PayTester.ServerUriWithIP.AbsoluteUri.Replace("127.0.0.1", "localhost", StringComparison.Ordinal));

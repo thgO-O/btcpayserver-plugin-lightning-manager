@@ -151,8 +151,12 @@ default-disabled activation, login/store authorization, a different account's
 valid passkey, public manifest access and offline public-assets-only caching.
 The PostgreSQL case checks repeatable migrations, cross-store
 concurrent claims, recovery after recreating the repository, node/store scoping
-and protection against overwriting terminal results. CI requires all eight cases
-and treats skips as failures.
+and confirmed settlement taking precedence over an older failure without
+allowing stale updates to downgrade settlement or erase its fee. Browser hosts
+start with BTCPay's default CSP enabled before the core Playwright helper starts
+its browser. The access case verifies the scanner modal, service worker readiness
+without CSP violations and the offline retry link after reconnecting. CI requires
+all eight cases and treats skips as failures.
 
 The test executable loads a metadata fixture for Chromium's virtual authenticator
 to avoid calls to the external FIDO MDS. Signature, origin, challenge, user ownership

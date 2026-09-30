@@ -61,8 +61,10 @@ public sealed class WalletRepository(WalletDbContextFactory factory)
     public async Task UpdateAsync(WalletOperation operation, CancellationToken token)
     {
         await using var db = factory.CreateContext();
-        // A stale reconciler must never overwrite a terminal result.
-        await db.Operations.Where(x => x.Id == operation.Id && x.State != "Settled" && x.State != "Failed" && x.State != "Expired")
+        // Confirmed settlement wins even if a reconciler saved an older failure first.
+        // Once settled, no stale result can downgrade the state or replace its fee.
+        await db.Operations.Where(x => x.Id == operation.Id && x.State != "Settled" &&
+            (operation.State == "Settled" || (x.State != "Failed" && x.State != "Expired")))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, operation.State)
                 .SetProperty(x => x.FeeMsat, operation.FeeMsat)
                 .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);

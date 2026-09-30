@@ -1,6 +1,9 @@
 using System.Globalization;
 using BTCPayServer.Data;
 using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.CLightning;
+using BTCPayServer.Lightning.LND;
+using NBitcoin;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using BTCPayServer.Services;
@@ -27,10 +30,15 @@ public sealed class WalletService(
     {
         var context = contexts.Create(store, "BTC");
         if (!Supports(context)) throw new WalletException("Wallet Mode supports LND and Core Lightning only.");
-        var info = await context.Client!.GetInfo(token);
-        var pubkey = info.NodeInfoList.FirstOrDefault()?.NodeId?.ToString();
+        // NodeInfoList contains advertised addresses, which private nodes may omit.
+        var pubkey = context.Client switch
+        {
+            CLightningClient cln => (await cln.GetInfoAsync(token)).Id,
+            LndClient lnd => (await lnd.SwaggerClient.GetInfoAsync(token)).Identity_pubkey,
+            _ => null
+        };
         if (string.IsNullOrEmpty(pubkey)) throw new WalletException("The Lightning node identity is unavailable.");
-        return new WalletNode(context, $"{context.Network!.NBitcoinNetwork.Name}:{pubkey.ToLowerInvariant()}");
+        return new WalletNode(context, $"{context.Network!.NBitcoinNetwork.Name}:{new PubKey(pubkey)}");
     }
 
     public SendPreviewViewModel Preview(WalletNode node, string? bolt11, string? amount, string? maxFee)
