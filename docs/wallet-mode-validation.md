@@ -65,6 +65,37 @@ fixture. MailKit is referenced only by the unit test project so BTCPay's native
 store-configuration types can be serialized/deserialized at runtime. No core
 source, database schema or plugin dependency requirement changed.
 
+## Latest amount and user-verification fixes
+
+Validated in the separate disposable fixture `ln-wallet-v3-20260930`:
+the complete eight-case E2E run passed in 158.129 seconds, with no failures or
+skips. The final Release build passed without warnings or errors, and all 274
+deterministic tests passed. After the final guard that preserves an already
+settled row while its amount is unavailable, the PostgreSQL case was rebuilt
+and rerun separately: one passed in 2.728 seconds. The Debug E2E rebuild emits
+existing analyzer warnings in the pinned core test project; plugin compilation
+has no errors. No core source was modified.
+
+All four LND/CLN browser cases now submit a correctly signed assertion of the
+current account's resident passkey with UV=false. The browser request alone is
+relaxed to obtain that assertion; the native server challenge remains Required.
+The server returns 400, the recipient invoice remains unpaid and no outgoing
+journal row exists. Normal UV=true payments still succeed afterwards.
+
+The same cases pay an amountless invoice for 500 sats through the Manager, then
+attempt it through Wallet Mode for 1,000 sats. Wallet Mode rejects it before
+creating a journal record, and the node's received amount remains 500 sats.
+Recovery details display the native 500-sat settled amount while retaining and
+flagging a different 1,000-sat reviewed amount.
+
+The plugin-owned `20260930000200_SettledAmount` migration adds a nullable actual
+settled amount without replacing the original reviewed amount. PostgreSQL
+checks upgrade from the original wallet schema, stale-update protection for
+settled amount/fee, backfill of legacy settled records, and preservation of
+confirmed settlement when a lookup cannot yet supply the amount. Backfill
+only queries the backend and never submits another payment. The required
+E2E counter stays at eight because these assertions extend existing cases.
+
 ## Remaining release checks
 
 Physical Android and iPhone validation is pending. Follow the device checklist

@@ -144,6 +144,15 @@ Wallet Mode extends the existing CLN/LND external and internal browser cases
 with a mobile viewport, native passkey enrollment through a Chromium virtual
 authenticator, fixed and amountless payments, receipt settlement, cancellation,
 modified payment details, confirmation replay protection, and a persistent history.
+The native verifier also receives a correctly signed assertion of the current
+user's resident passkey with UV=false: execution must reject it without a payment
+or journal row. Only the browser's request is relaxed for this negative case;
+the server challenge must remain userVerification=required.
+A previously paid amountless invoice is retried at a different amount and must
+be rejected without importing it into wallet history. Recovery checks retain the
+reviewed amount while displaying the native settled amount. PostgreSQL verifies
+the upgrade from the original wallet schema, backfilling old settled rows and
+preserving settled amount/fee against stale updates.
 An injected PostgreSQL write failure verifies no backend payment is submitted.
 The amountless flow pauses the insert behind a PostgreSQL advisory lock,
 navigates away from the paying document, observes RequestAborted on the server,

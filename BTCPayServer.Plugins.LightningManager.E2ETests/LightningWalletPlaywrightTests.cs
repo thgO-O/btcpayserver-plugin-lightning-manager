@@ -203,6 +203,51 @@ public partial class LightningManagerPlaywrightTests
                 await page.GetByRole(AriaRole.Button, new() { Name = "Review payment", Exact = true }).ClickAsync();
                 await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Review payment", Exact = true })).ToBeVisibleAsync();
 
+                if (!amountless)
+                {
+                    // Generate a genuinely signed assertion of this account's resident key,
+                    // with presence but UV=false. Relax only the browser request; the server
+                    // must still enforce its original Required option through native Fido2.
+                    await session.SendAsync("WebAuthn.setUserVerified", new Dictionary<string, object>
+                        { ["authenticatorId"] = authenticatorId!, ["isUserVerified"] = false });
+                    await page.EvaluateAsync("""
+                        () => {
+                            const get = navigator.credentials.get.bind(navigator.credentials);
+                            Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: async options => {
+                                window.walletServerVerification = options.publicKey.userVerification;
+                                const credential = await get({ ...options, publicKey: { ...options.publicKey, userVerification: 'discouraged' } });
+                                window.walletAssertionUV = (new Uint8Array(credential.response.authenticatorData)[32] & 4) !== 0;
+                                return credential;
+                            }});
+                        }
+                        """);
+                    try
+                    {
+                        var rejectionTask = page.WaitForResponseAsync(r => r.Url.EndsWith("/send/execute", StringComparison.Ordinal) && r.Request.Method == "POST");
+                        await page.GetByRole(AriaRole.Button, new() { Name = "Confirm with passkey", Exact = true }).ClickAsync();
+                        var uvRejected = await rejectionTask;
+                        Assert.Equal(400, uvRejected.Status);
+                        await Expect(page.Locator(".ln-wallet__payment-message")).ToContainTextAsync("Passkey verification failed");
+                        Assert.Equal("required", await page.EvaluateAsync<string>("() => window.walletServerVerification"));
+                        Assert.False(await page.EvaluateAsync<bool>("() => window.walletAssertionUV"));
+                        Assert.NotEqual(LightningInvoiceStatus.Paid, (await scenario.Recipient.GetInvoice(invoice.Id, token)).Status);
+                        var hash = BOLT11PaymentRequest.Parse(invoice.BOLT11, NBitcoin.Network.RegTest).PaymentHash!.ToString();
+                        await using var db = tester.Server.PayTester.GetService<WalletDbContextFactory>().CreateContext();
+                        Assert.False(await db.Operations.AnyAsync(x => x.PaymentHash == hash && x.Direction == "Outgoing", token));
+                    }
+                    finally
+                    {
+                        await page.EvaluateAsync("() => delete navigator.credentials.get");
+                        await session.SendAsync("WebAuthn.setUserVerified", new Dictionary<string, object>
+                            { ["authenticatorId"] = authenticatorId!, ["isUserVerified"] = true });
+                    }
+                    // The rejected assertion consumes its confirmation. Review afresh.
+                    await tester.GoToUrl(root + "send");
+                    await page.Locator("#bolt11").FillAsync(invoice.BOLT11);
+                    await page.Locator("#maxFeeSats").FillAsync("100");
+                    await page.GetByRole(AriaRole.Button, new() { Name = "Review payment", Exact = true }).ClickAsync();
+                }
+
                 var confirmationId = await page.Locator("[name=confirmationId]").InputValueAsync();
                 var csrf = await page.Locator(".ln-wallet__confirm [name=__RequestVerificationToken]").InputValueAsync();
                 foreach (var field in new[] { "bolt11", "amountSats", "maxFeeSats" })
@@ -312,7 +357,7 @@ public partial class LightningManagerPlaywrightTests
                 var stores = tester.Server.PayTester.GetService<BTCPayServer.Services.Stores.StoreRepository>();
                 // Simulate losing the local result after the backend settled, then restarting storage.
                 await using (var db = database.CreateContext())
-                    await db.Operations.Where(x => x.Id == operationId).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Submitting").SetProperty(x => x.FeeMsat, (long?)null), token);
+                    await db.Operations.Where(x => x.Id == operationId).ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Submitting").SetProperty(x => x.FeeMsat, (long?)null).SetProperty(x => x.SettledAmountMsat, (long?)null).SetProperty(x => x.AmountMsat, 1_000_000L), token);
                 var restarted = new WalletRepository(database);
                 await restarted.InitializeAsync(token);
                 await stores.UpdateSetting(storeId, WalletSettings.Key, new WalletSettings { Enabled = false });
@@ -320,10 +365,15 @@ public partial class LightningManagerPlaywrightTests
                 var node = await walletService.GetNodeAsync((await stores.FindStore(storeId))!, token);
                 var recovered = await restarted.GetAsync(operationId, storeId, node.Identity, token);
                 Assert.Equal("Settled", recovered!.State);
+                Assert.Equal(500_000, recovered.SettledAmountMsat);
+                Assert.Equal(1_000_000, recovered.AmountMsat);
                 var duplicate = walletService.Preview(node, invoice.BOLT11, amountless ? "500" : null, "100");
                 var rejection = await Assert.ThrowsAsync<WalletException>(() => walletService.PayAsync(node, recovered.UserId, duplicate));
                 Assert.Contains("already recorded", rejection.Message, StringComparison.Ordinal);
                 await stores.UpdateSetting(storeId, WalletSettings.Key, new WalletSettings { Enabled = true });
+                await tester.GoToUrl(root + "operations/" + operationId);
+                await Expect(page.Locator("[data-operation-amount]")).ToHaveTextAsync("500 sats");
+                await Expect(page.GetByText("The reviewed amount was 1,000 sats.", new() { Exact = false })).ToBeVisibleAsync();
                 var replay = await page.Context.APIRequest.PostAsync(new Uri(tester.ServerUri, root + "send/execute").ToString(), new()
                 {
                     Headers = new Dictionary<string, string> { ["Accept"] = "application/json" },
@@ -332,6 +382,26 @@ public partial class LightningManagerPlaywrightTests
                 });
                 Assert.Equal(400, replay.Status);
             }
+
+            // A previously paid amountless invoice must not become a new wallet payment.
+            var prior = await scenario.Recipient.CreateInvoice(LightMoney.Zero, "Previously paid through Manager", TimeSpan.FromMinutes(5), token);
+            var priorWallet = tester.Server.PayTester.GetService<WalletService>();
+            var priorStores = tester.Server.PayTester.GetService<BTCPayServer.Services.Stores.StoreRepository>();
+            var priorNode = await priorWallet.GetNodeAsync((await priorStores.FindStore(storeId))!, token);
+            var priorManager = tester.Server.PayTester.GetService<BTCPayServer.Plugins.LightningManager.Services.LightningManagerService>();
+            Assert.True((await priorManager.SendAsync(priorNode.Context, prior.BOLT11, "500", "100", token)).Result.IsSuccess);
+            Assert.Equal(LightMoney.Satoshis(500), (await scenario.Recipient.GetInvoice(prior.Id, token)).AmountReceived);
+            await tester.GoToUrl(root + "send");
+            await page.Locator("#bolt11").FillAsync(prior.BOLT11);
+            await page.Locator("#amountSats").FillAsync("1000");
+            await page.Locator("#maxFeeSats").FillAsync("100");
+            await page.GetByRole(AriaRole.Button, new() { Name = "Review payment", Exact = true }).ClickAsync();
+            await page.GetByRole(AriaRole.Button, new() { Name = "Confirm with passkey", Exact = true }).ClickAsync();
+            await Expect(page.Locator(".ln-wallet__payment-message")).ToContainTextAsync("already recorded or known to the node");
+            Assert.Equal(LightMoney.Satoshis(500), (await scenario.Recipient.GetInvoice(prior.Id, token)).AmountReceived);
+            var priorHash = BOLT11PaymentRequest.Parse(prior.BOLT11, NBitcoin.Network.RegTest).PaymentHash!.ToString();
+            await using (var db = tester.Server.PayTester.GetService<WalletDbContextFactory>().CreateContext())
+                Assert.False(await db.Operations.AnyAsync(x => x.PaymentHash == priorHash && x.Direction == "Outgoing", token));
 
             await tester.GoToUrl(root + "history");
             await Expect(page.Locator(".ln-wallet__operation")).ToHaveCountAsync(3);

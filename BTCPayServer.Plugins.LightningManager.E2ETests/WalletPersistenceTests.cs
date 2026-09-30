@@ -16,6 +16,8 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using BTCPayServer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace BTCPayServer.Plugins.LightningManager.E2ETests;
 
@@ -28,12 +30,15 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         var database = new DatabaseTester(TestLogs, NullLoggerFactory.Instance);
         await database.MigrateAsync();
         var factory = new WalletDbContextFactory(Options.Create(new DatabaseOptions { ConnectionString = database.ConnectionString }));
+        // Exercise an upgrade from the original wallet schema, not only a fresh database.
+        await using (var original = factory.CreateContext())
+            await original.GetService<IMigrator>().MigrateAsync("20260930000100_WalletOperations", TestContext.Current.CancellationToken);
         var repository = new WalletRepository(factory);
         await repository.InitializeAsync(TestContext.Current.CancellationToken);
         var attempts = Enumerable.Range(0, 16).Select(i => new WalletOperation
         {
             StoreId = "store-" + i, UserId = "user", NodeIdentity = "regtest:node1",
-            Direction = "Outgoing", PaymentHash = new string('a', 64), State = "Submitting", AmountMsat = 500_000
+            Direction = "Outgoing", PaymentHash = new string('a', 64), State = "Submitting", AmountMsat = 1_000_000
         }).ToArray();
         var results = await Task.WhenAll(attempts.Select(x => repository.InsertAsync(x, TestContext.Current.CancellationToken)));
         Assert.Single(results, x => x);
@@ -89,15 +94,39 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         await wallet.ReconcileAsync(node, failed, TestContext.Current.CancellationToken);
         Assert.Equal("Settled", failed.State);
         Assert.Equal(1234, failed.FeeMsat);
+        Assert.Equal(1_000_000, failed.AmountMsat); // authorized amount is retained
+        Assert.Equal(500_000, failed.SettledAmountMsat); // native backend amount wins
+        Assert.Equal(500_000, failed.DisplayAmountMsat);
         foreach (var staleState in new[] { "Unknown", "Failed", "Pending", "Expired", "Settled" })
         {
             winner.State = staleState;
             winner.FeeMsat = null;
+            winner.SettledAmountMsat = 999_000;
             await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
             var settled = await repository.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken);
             Assert.Equal("Settled", settled!.State);
             Assert.Equal(1234, settled.FeeMsat);
+            Assert.Equal(500_000, settled.SettledAmountMsat);
+            Assert.Equal(1_000_000, settled.AmountMsat);
         }
+        Assert.Empty(await restarted.PendingAsync(TestContext.Current.CancellationToken));
+        // Legacy settled rows and transiently unavailable amounts are backfilled without resend.
+        await using (var db = factory.CreateContext())
+            await db.Operations.Where(x => x.Id == winner.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.SettledAmountMsat, (long?)null), TestContext.Current.CancellationToken);
+        var legacy = Assert.Single(await restarted.PendingAsync(TestContext.Current.CancellationToken));
+        Assert.Null(legacy.DisplayAmountMsat);
+        handler.State = "FAILED";
+        await wallet.ReconcileAsync(node, legacy, TestContext.Current.CancellationToken);
+        Assert.Equal("Settled", legacy.State);
+        Assert.Null(legacy.DisplayAmountMsat);
+        Assert.Equal("Settled", (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
+        handler.State = "SUCCEEDED";
+        await wallet.ReconcileAsync(node, legacy, TestContext.Current.CancellationToken);
+        var backfilled = (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!;
+        Assert.Equal("Settled", backfilled.State);
+        Assert.Equal(500_000, backfilled.SettledAmountMsat);
+        Assert.Equal(1_000_000, backfilled.AmountMsat);
+        Assert.Equal(1234, backfilled.FeeMsat);
         Assert.Empty(await restarted.PendingAsync(TestContext.Current.CancellationToken));
         await AssertNativeReceivingAsync(restarted);
     }
