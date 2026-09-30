@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.LND;
 using BTCPayServer.Services;
 using BTCPayServer.Tests;
 using BTCPayServer.Tests.Lnd;
@@ -225,6 +226,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             if (pendingPoint is not null)
                 await Expect(tester.Page.GetByText(pendingPoint, new() { Exact = true })).ToHaveCountAsync(1);
 
+            await WaitForLndRouteAsync(scenario, recipientNode.NodeId, timeout.Token);
             await PayThroughUiAsync(
                 tester,
                 storeId,
@@ -716,6 +718,41 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await Expect(modal).ToBeHiddenAsync();
         await Expect(page.Locator("#bolt11")).ToHaveValueAsync(invoice);
         await Expect(page.Locator("#bolt11")).ToBeFocusedAsync();
+    }
+
+    private static async Task WaitForLndRouteAsync(
+        BackendScenario scenario,
+        PubKey recipient,
+        CancellationToken cancellationToken)
+    {
+        if (scenario.Managed is not LndClient lnd)
+            return;
+
+        // Channel activation and routing graph updates are asynchronous in LND.
+        // Query readiness without sending a payment or retrying the payment under test.
+        string lastResult = "No routes returned.";
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            try
+            {
+                var response = await lnd.SwaggerClient.QueryRoutesAsync(
+                    recipient.ToString(),
+                    PaymentAmountSats.ToString(CultureInfo.InvariantCulture),
+                    null,
+                    cancellationToken);
+                if (response.Routes?.Count > 0)
+                    return;
+                lastResult = "No routes returned.";
+            }
+            catch (SwaggerException exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastResult = exception.Response;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
+
+        Assert.Fail($"{scenario.Name} could not find a route for {PaymentAmountSats} sats to {recipient}: {lastResult}");
     }
 
     private static async Task WaitForActiveChannelInUiAsync(

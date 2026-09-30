@@ -152,6 +152,15 @@ jobs:
             exit 1
           fi
 
+      - name: Show regtest diagnostics on failure
+        if: failure()
+        working-directory: submodules/btcpayserver/BTCPayServer.Tests
+        run: |
+          docker compose \
+            -f docker-compose.yml \
+            -f ../../../scripts/eclair-0.8.compose.yml \
+            logs --no-color --tail 500 customer_lightningd merchant_lightningd customer_lnd merchant_lnd eclair
+
       - name: Stop BTCPay Server regtest fixture
         if: always()
         working-directory: submodules/btcpayserver/BTCPayServer.Tests
