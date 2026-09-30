@@ -79,7 +79,7 @@ cd ../../..
 
 ## Native end-to-end tests
 
-The required service test and all five browser cases live in the xUnit E2E
+The service test, PostgreSQL wallet test, access test and five backend browser cases live in the xUnit E2E
 project. Run the complete project without a filter so a renamed trait cannot
 silently remove a release test. Its native xUnit configuration also treats
 skips as failures. Run its executable directly to use the xUnit runner without
@@ -139,6 +139,32 @@ cd ../../..
 ```
 
 ## Validation scope
+
+Wallet Mode extends the existing CLN/LND external and internal browser cases
+with a mobile viewport, native passkey enrollment through a Chromium virtual
+authenticator, fixed and amountless payments, receipt settlement, cancellation,
+modified payment details, confirmation replay protection, and a persistent history.
+An injected PostgreSQL write failure verifies no backend payment is submitted.
+They simulate a lost local result after settlement, recreate storage, reconcile
+while disabled and reject duplicate submission. The additional access case verifies
+default-disabled activation, login/store authorization, a different account's
+valid passkey, public manifest access and offline public-assets-only caching.
+The PostgreSQL case checks repeatable migrations, cross-store
+concurrent claims, recovery after recreating the repository, node/store scoping
+and protection against overwriting terminal results. CI requires all eight cases
+and treats skips as failures.
+
+The test executable loads a metadata fixture for Chromium's virtual authenticator
+to avoid calls to the external FIDO MDS. Signature, origin, challenge, user ownership
+and user verification still run through BTCPay's real Fido2 verifier. This fixture
+is never included in the plugin artifact.
+
+Before releasing 0.2.0, manually check the exact installed artifact on Android
+and iPhone: installation from the browser, standalone launch and return after
+login, camera permission denied/granted, scan/cancel, passkey enrollment and
+payment confirmation, logout, and offline behavior. Confirm no authenticated
+HTML or financial responses appear in Cache Storage. Physical-device sign-off
+is pending; virtual-authenticator tests do not replace it.
 
 Repository validation consists of the Release build, deterministic tests,
 the CLN/LND service integration test, and native Playwright cases for CLN, LND,
