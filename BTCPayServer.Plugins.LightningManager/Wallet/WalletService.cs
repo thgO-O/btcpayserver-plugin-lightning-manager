@@ -4,6 +4,7 @@ using BTCPayServer.Lightning;
 using BTCPayServer.Lightning.CLightning;
 using BTCPayServer.Lightning.LND;
 using NBitcoin;
+using NBitcoin.DataEncoders;
 using BTCPayServer.Plugins.LightningManager.Services;
 using BTCPayServer.Plugins.LightningManager.ViewModels;
 using BTCPayServer.Services;
@@ -13,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace BTCPayServer.Plugins.LightningManager.Wallet;
 
-public sealed record WalletNode(StoreLightningManagerContext Context, string Identity);
+public sealed record WalletNode(StoreLightningManagerContext Context, string Identity, bool PrivateRouteHints = false);
 
 public sealed class WalletService(
     IStoreLightningManagerContextFactory contexts,
@@ -38,7 +39,7 @@ public sealed class WalletService(
             _ => null
         };
         if (string.IsNullOrEmpty(pubkey)) throw new WalletException("The Lightning node identity is unavailable.");
-        return new WalletNode(context, $"{context.Network!.NBitcoinNetwork.Name}:{new PubKey(pubkey)}");
+        return new WalletNode(context, $"{context.Network!.NBitcoinNetwork.Name}:{new PubKey(pubkey)}", store.GetStoreBlob().LightningPrivateRouteHints);
     }
 
     public SendPreviewViewModel Preview(WalletNode node, string? bolt11, string? amount, string? maxFee)
@@ -58,7 +59,8 @@ public sealed class WalletService(
         description = description?.Trim() ?? "";
         if (description.Length > 200) throw new WalletException("Description must be at most 200 characters.");
         var invoice = await node.Context.Client!.CreateInvoice(
-            new CreateInvoiceParams(LightMoney.Satoshis(amountSats), description, TimeSpan.FromHours(1)), token);
+            new CreateInvoiceParams(LightMoney.Satoshis(amountSats), description, TimeSpan.FromHours(1))
+            { PrivateRouteHints = node.PrivateRouteHints }, token);
         var parsed = BOLT11PaymentRequest.Parse(invoice.BOLT11, node.Context.Network!.NBitcoinNetwork);
         var operation = new WalletOperation
         {
@@ -122,13 +124,31 @@ public sealed class WalletService(
         return operation;
     }
 
+    public static async Task<LightningInvoiceStatus?> InvoiceStatusAsync(WalletNode node, string invoiceId, CancellationToken token)
+    {
+        if (node.Context.Client is LndClient lnd)
+        {
+            // The generic adapter drops CANCELED invoices and infers expiry from the clock,
+            // including ACCEPTED invoices that may still settle. Use LND's actual state.
+            var invoice = await lnd.SwaggerClient.LookupInvoiceAsync(Encoders.Hex.DecodeData(invoiceId), token);
+            return invoice.State?.ToUpperInvariant() switch
+            {
+                "SETTLED" => LightningInvoiceStatus.Paid,
+                "CANCELED" => LightningInvoiceStatus.Expired,
+                "OPEN" or "ACCEPTED" => LightningInvoiceStatus.Unpaid,
+                _ => throw new WalletException("Invoice state is unavailable.")
+            };
+        }
+        return (await node.Context.Client!.GetInvoice(invoiceId, token))?.Status;
+    }
+
     public async Task<WalletOperation> ReconcileAsync(WalletNode node, WalletOperation operation, CancellationToken token)
     {
-        if (operation.IsFinal || operation.NodeIdentity != node.Identity) return operation;
+        if (!operation.RequiresReconciliation || operation.NodeIdentity != node.Identity) return operation;
         if (operation.Direction == "Incoming")
         {
-            var invoice = await node.Context.Client!.GetInvoice(operation.InvoiceId, token);
-            operation.State = invoice?.Status switch
+            var status = await InvoiceStatusAsync(node, operation.InvoiceId, token);
+            operation.State = status switch
             {
                 LightningInvoiceStatus.Paid => "Settled",
                 LightningInvoiceStatus.Expired => "Expired",
@@ -138,6 +158,15 @@ public sealed class WalletService(
         else
         {
             var payment = await node.Context.Client!.GetPayment(operation.PaymentHash, token);
+            // A lookup can see an older failed Manager attempt before this submission
+            // reaches the node. Give the 60-second executor time to finish, but still
+            // recover a Submitting row after a process crash. Failed hashes stay reconcilable.
+            if (operation.State == "Submitting" && payment?.Status == LightningPaymentStatus.Failed &&
+                operation.CreatedAt > DateTimeOffset.UtcNow.AddMinutes(-2))
+            {
+                await repository.DeferAsync(operation.Id, token);
+                return operation;
+            }
             operation.State = payment?.Status switch
             {
                 LightningPaymentStatus.Complete => "Settled",

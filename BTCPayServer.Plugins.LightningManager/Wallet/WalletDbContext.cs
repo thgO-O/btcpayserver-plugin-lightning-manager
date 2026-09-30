@@ -26,6 +26,8 @@ public sealed class WalletOperation
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ExpiresAt { get; set; }
     public bool IsFinal => State is "Settled" or "Failed" or "Expired";
+    // A failed hash can belong to an older attempt and later become pending/settled.
+    public bool RequiresReconciliation => !IsFinal || (Direction == "Outgoing" && State == "Failed");
 }
 
 public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) : DbContext(options)
@@ -38,6 +40,7 @@ public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) :
         op.ToTable("LightningManagerWalletOperations");
         op.HasKey(x => x.Id);
         op.Ignore(x => x.IsFinal);
+        op.Ignore(x => x.RequiresReconciliation);
         op.HasIndex(x => new { x.NodeIdentity, x.PaymentHash, x.Direction }).IsUnique();
         op.HasIndex(x => new { x.StoreId, x.NodeIdentity, x.CreatedAt });
         op.HasIndex(x => x.State);

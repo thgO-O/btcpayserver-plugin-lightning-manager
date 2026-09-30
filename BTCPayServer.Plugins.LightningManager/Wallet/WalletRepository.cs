@@ -54,7 +54,8 @@ public sealed class WalletRepository(WalletDbContextFactory factory)
     {
         RequireReady();
         await using var db = factory.CreateContext();
-        return await db.Operations.AsNoTracking().Where(x => x.State == "Pending" || x.State == "Unknown" || x.State == "Submitting")
+        return await db.Operations.AsNoTracking().Where(x => x.State == "Pending" || x.State == "Unknown" || x.State == "Submitting" ||
+                (x.Direction == "Outgoing" && x.State == "Failed"))
             .OrderBy(x => x.UpdatedAt).Take(100).ToListAsync(token);
     }
 
@@ -64,7 +65,7 @@ public sealed class WalletRepository(WalletDbContextFactory factory)
         // Confirmed settlement wins even if a reconciler saved an older failure first.
         // Once settled, no stale result can downgrade the state or replace its fee.
         await db.Operations.Where(x => x.Id == operation.Id && x.State != "Settled" &&
-            (operation.State == "Settled" || (x.State != "Failed" && x.State != "Expired")))
+            (operation.State == "Settled" || x.State != "Expired"))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, operation.State)
                 .SetProperty(x => x.FeeMsat, operation.FeeMsat)
                 .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);

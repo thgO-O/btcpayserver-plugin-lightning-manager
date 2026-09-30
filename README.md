@@ -127,7 +127,8 @@ Wallet Mode settings**, enable it, and open **Wallet Mode**. Activation also
 requires permission to modify the store. It is disabled by default.
 
 The wallet shows the connected node's Lightning balance, pays fixed or amountless
-BOLT11 invoices, creates one-hour receiving invoices, and displays the latest 100
+BOLT11 invoices, creates one-hour receiving invoices using the store's private
+route-hint setting, and displays the latest 100
 Wallet Mode operations for the current store and node. Its history does not
 include payments made elsewhere. This does not create individual accounts or
 balances: operators authorized for the same node use the same funds. Reported
@@ -150,13 +151,21 @@ device before release.
 Only generic public assets and an offline message are cached. Balance, invoices,
 history and authentication are never stored in the service worker cache. Offline
 payments are not queued. The server and Lightning node must remain online;
-receiving a payment does not require the phone to remain open.
+receiving a payment does not require the phone to remain open. On LND, the
+invoice's native state determines settlement and cancellation; an accepted
+payment is not treated as expired just because its BOLT11 deadline passed.
+Canceled invoices are displayed as expired. A lookup failure preserves the
+last known state.
 
 Wallet operations are persisted in plugin-owned PostgreSQL tables. A payment is
 durably claimed before contacting the backend, including across stores connected
 to the same node. A disconnect, timeout or server restart does not permit an
 automatic resubmission. Pending or unknown outcomes are looked up on the backend
-every 30 seconds and when viewing operation details. If the status remains
+every 30 seconds and when viewing operation details. Failed outgoing hashes
+are also checked: an older backend failure must not hide a later settlement.
+A recent submission has a two-minute grace period before a lookup can report
+a previous failure; abandoned submissions remain recoverable after a restart.
+These lookups never send another payment. If the status remains
 unknown, check the node before trying another payment. An already recorded
 outgoing payment hash cannot be submitted again through Wallet Mode, including
 after failure; create a fresh invoice for a deliberate retry.

@@ -4,6 +4,18 @@ using BTCPayServer.Tests;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
+using System.Net;
+using System.Text;
+using BTCPayServer.Lightning;
+using BTCPayServer.Lightning.LND;
+using BTCPayServer.Plugins.LightningManager.Services;
+using NBitcoin;
+using NBXplorer;
+using NBitcoin.DataEncoders;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using BTCPayServer;
+using Microsoft.EntityFrameworkCore;
 
 namespace BTCPayServer.Plugins.LightningManager.E2ETests;
 
@@ -21,7 +33,7 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         var attempts = Enumerable.Range(0, 16).Select(i => new WalletOperation
         {
             StoreId = "store-" + i, UserId = "user", NodeIdentity = "regtest:node1",
-            Direction = "Outgoing", PaymentHash = "payment1", State = "Submitting", AmountMsat = 500_000
+            Direction = "Outgoing", PaymentHash = new string('a', 64), State = "Submitting", AmountMsat = 500_000
         }).ToArray();
         var results = await Task.WhenAll(attempts.Select(x => repository.InsertAsync(x, TestContext.Current.CancellationToken)));
         Assert.Single(results, x => x);
@@ -40,9 +52,43 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         winner.State = "Failed";
         await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
         Assert.Equal("Failed", (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
-        durable.State = "Settled";
-        durable.FeeMsat = 1234;
+        // A timeout/pending result must replace an older failure, and failed rows
+        // must remain discoverable even when the executor never saved its result.
+        foreach (var uncertain in new[] { "Pending", "Unknown" })
+        {
+            durable.State = uncertain;
+            await restarted.UpdateAsync(durable, TestContext.Current.CancellationToken);
+            Assert.Equal(uncertain, (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
+            await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
+            Assert.Single(await restarted.PendingAsync(TestContext.Current.CancellationToken));
+        }
+        var handler = new PaymentHandler();
+        using var http = new HttpClient(handler);
+        var client = new LndClient(new LndSwaggerClient(new LndRestSettings(new Uri("https://lnd.example.test/")), http), Network.RegTest);
+        var node = new WalletNode(new StoreLightningManagerContext
+        {
+            StoreId = winner.StoreId, CryptoCode = "BTC", BackendFingerprint = "test", BackendIdentityFingerprint = "test",
+            Capabilities = LightningCapabilities.Full, Client = client
+        }, winner.NodeIdentity);
+        var wallet = new WalletService(null!, null!, restarted, null!, NullLogger<WalletService>.Instance, null!);
+        durable.State = "Submitting";
         await restarted.UpdateAsync(durable, TestContext.Current.CancellationToken);
+        handler.State = "FAILED";
+        await wallet.ReconcileAsync(node, durable, TestContext.Current.CancellationToken);
+        Assert.Equal("Submitting", (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
+        // After the executor's grace period, a crashed submission can resolve to
+        // failure and still be revisited if a late backend settlement follows.
+        await using (var db = factory.CreateContext())
+            await db.Operations.Where(x => x.Id == winner.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.CreatedAt, DateTimeOffset.UtcNow.AddMinutes(-3)), TestContext.Current.CancellationToken);
+        var abandoned = (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!;
+        await wallet.ReconcileAsync(node, abandoned, TestContext.Current.CancellationToken);
+        Assert.Equal("Failed", abandoned.State);
+        handler.State = "SUCCEEDED";
+        var failed = (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!;
+        Assert.Equal("Failed", failed.State);
+        await wallet.ReconcileAsync(node, failed, TestContext.Current.CancellationToken);
+        Assert.Equal("Settled", failed.State);
+        Assert.Equal(1234, failed.FeeMsat);
         foreach (var staleState in new[] { "Unknown", "Failed", "Pending", "Expired", "Settled" })
         {
             winner.State = staleState;
@@ -53,5 +99,72 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
             Assert.Equal(1234, settled.FeeMsat);
         }
         Assert.Empty(await restarted.PendingAsync(TestContext.Current.CancellationToken));
+        await AssertNativeReceivingAsync(restarted);
+    }
+
+    private static async Task AssertNativeReceivingAsync(WalletRepository repository)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var peer = new LightningClientFactory(Network.RegTest).Create(Environment.GetEnvironmentVariable("TEST_CUSTOMERLIGHTNINGD") ?? "type=clightning;server=tcp://127.0.0.1:30992/");
+        var network = new BTCPayNetwork { CryptoCode = "BTC", NBXplorerNetwork = new NBXplorerNetworkProvider(ChainName.Regtest).GetBTC() };
+        foreach (var privateHints in new[] { false, true })
+        {
+            // Use an actual, correctly signed BOLT11; observe native request serialization.
+            var invoice = await peer.CreateInvoice(LightMoney.Satoshis(500), "Route hint regression", TimeSpan.FromHours(1), token);
+            var handler = new InvoiceHandler(invoice, privateHints);
+            using var http = new HttpClient(handler);
+            var client = new LndClient(new LndSwaggerClient(new LndRestSettings(new Uri("https://lnd.example.test/")), http), Network.RegTest);
+            var node = new WalletNode(new StoreLightningManagerContext
+            {
+                StoreId = "receiving", CryptoCode = "BTC", BackendFingerprint = "test", BackendIdentityFingerprint = "test",
+                Network = network, Capabilities = LightningCapabilities.Full, Client = client
+            }, "regtest:receiving", privateHints);
+            var wallet = new WalletService(null!, null!, repository, null!, NullLogger<WalletService>.Instance, null!);
+            var operation = await wallet.ReceiveAsync(node, "user", 500, "Route hint regression", token);
+            handler.Unavailable = true;
+            await Assert.ThrowsAsync<SwaggerException>(() => wallet.ReconcileAsync(node, operation, token));
+            Assert.Equal("Pending", (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!.State);
+            handler.Unavailable = false;
+            await wallet.ReconcileAsync(node, operation, token);
+            Assert.Equal("Expired", operation.State);
+            Assert.Equal("Expired", (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!.State);
+        }
+        Assert.Empty(await repository.PendingAsync(token));
+    }
+
+    private sealed class InvoiceHandler(LightningInvoice invoice, bool privateHints) : HttpMessageHandler
+    {
+        public bool Unavailable { get; set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.Equal("/v1/invoices", request.RequestUri!.AbsolutePath);
+                var body = JObject.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+                Assert.Equal(privateHints, body["private"]!.Value<bool>());
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(JsonConvert.SerializeObject(new
+                    { payment_request = invoice.BOLT11, r_hash = Convert.ToBase64String(Encoders.Hex.DecodeData(invoice.PaymentHash)) }))
+                };
+            }
+            Assert.StartsWith("/v1/invoice/", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return new HttpResponseMessage(Unavailable ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+            { Content = new StringContent("{\"state\":\"CANCELED\",\"settled\":false}") };
+        }
+    }
+
+    private sealed class PaymentHandler : HttpMessageHandler
+    {
+        public string State { get; set; } = "SUCCEEDED";
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Contains("/v2/router/track/", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(Newtonsoft.Json.JsonConvert.SerializeObject(new
+                { result = new { status = State, payment_hash = new string('a', 64), value_msat = "500000", fee_msat = "1234" } }) + "\n", Encoding.UTF8, "application/json")
+            });
+        }
     }
 }

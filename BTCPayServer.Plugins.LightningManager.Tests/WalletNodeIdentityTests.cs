@@ -85,6 +85,21 @@ public class WalletNodeIdentityTests
         await Assert.ThrowsAsync<WalletException>(() => GetNodeAsync(client, "type=lnd-rest;server=https://lnd.example.test/", CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NodeCarriesTheStoresPrivateRouteHintSetting(bool enabled)
+    {
+        using var http = new HttpClient(new InfoHandler(JsonConvert.SerializeObject(new { identity_pubkey = PublicKey })));
+        var client = new LndClient(new LndSwaggerClient(new LndRestSettings(new Uri("https://lnd.example.test/")), http), Network.RegTest);
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client, "type=lnd-rest;server=https://lnd.example.test/");
+        var service = new WalletService(new FakeStoreLightningManagerContextFactory { Context = context },
+            TestLightningManagerServiceFactory.Create(), null!, null!, NullLogger<WalletService>.Instance, null!);
+        var store = new StoreData { Id = context.StoreId };
+        store.SetStoreBlob(new StoreBlob { LightningPrivateRouteHints = enabled });
+        Assert.Equal(enabled, (await service.GetNodeAsync(store, CancellationToken.None)).PrivateRouteHints);
+    }
+
     private static Task<WalletNode> GetNodeAsync(ILightningClient client, string connection, CancellationToken token)
     {
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client, connection);
