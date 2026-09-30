@@ -8,6 +8,6 @@
 {
     <a asp-controller="LightningWallet" asp-action="Details" asp-route-storeId="@Model.StoreId" asp-route-id="@operation.Id" class="ln-wallet__operation">
         <span>@(operation.Direction == "Incoming" ? "↓ Incoming" : "↑ Payment")<small class="text-secondary">@(string.IsNullOrEmpty(operation.Description) ? "Lightning" : operation.Description)</small></span>
-        <span>@((operation.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats<small>@operation.State</small></span>
+        <span>@(operation.DisplayAmountMsat is long amount ? (amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture) + " sats" : "Paid amount unavailable")<small>@operation.State</small></span>
     </a>
 }

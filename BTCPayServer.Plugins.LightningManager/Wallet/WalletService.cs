@@ -77,6 +77,16 @@ public sealed class WalletService(
     {
         var validated = Preview(node, preview.Bolt11, preview.UserAmountSats?.ToString(CultureInfo.InvariantCulture),
             preview.MaxFeeSats?.ToString(CultureInfo.InvariantCulture));
+        repository.RequireReady();
+        // Do not import a payment already made elsewhere or resubmit an in-flight hash.
+        // This lookup is advisory; the durable claim and settlement lookup still cover races.
+        using (var lookup = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping))
+        {
+            lookup.CancelAfter(TimeSpan.FromSeconds(10));
+            var existing = await node.Context.Client!.GetPayment(validated.PaymentHash, lookup.Token).WaitAsync(lookup.Token);
+            if (existing is not null && existing.Status != LightningPaymentStatus.Failed)
+                throw new WalletException("This payment is already recorded or known to the node. Check its status before retrying.");
+        }
         var operation = new WalletOperation
         {
             StoreId = node.Context.StoreId, UserId = userId, NodeIdentity = node.Identity,
@@ -103,15 +113,19 @@ public sealed class WalletService(
                 LightningPaymentStatus.Pending => "Pending",
                 _ => "Unknown"
             };
-            // Read backend fee data when available before saving a terminal result.
+            // Persist the node's actual amount, separately from the passkey-authorized amount.
             if (operation.State == "Settled")
             {
                 try
                 {
                     var payment = await node.Context.Client!.GetPayment(operation.PaymentHash, timeout.Token);
-                    operation.FeeMsat = payment?.Fee?.MilliSatoshi;
+                    if (payment?.Status == LightningPaymentStatus.Complete)
+                    {
+                        operation.SettledAmountMsat = payment.Amount?.MilliSatoshi;
+                        operation.FeeMsat = payment.Fee?.MilliSatoshi;
+                    }
                 }
-                catch (Exception ex) { logger.LogWarning("Wallet fee lookup unavailable ({ErrorType})", ex.GetType().Name); }
+                catch (Exception ex) { logger.LogWarning("Wallet settlement lookup unavailable ({ErrorType})", ex.GetType().Name); }
             }
         }
         catch (Exception ex)
@@ -158,6 +172,11 @@ public sealed class WalletService(
         else
         {
             var payment = await node.Context.Client!.GetPayment(operation.PaymentHash, token);
+            if (operation.State == "Settled" && (payment?.Status != LightningPaymentStatus.Complete || payment.Amount is null))
+            {
+                await repository.DeferAsync(operation.Id, token);
+                return operation;
+            }
             // A lookup can see an older failed Manager attempt before this submission
             // reaches the node. Give the 60-second executor time to finish, but still
             // recover a Submitting row after a process crash. Failed hashes stay reconcilable.
@@ -167,13 +186,18 @@ public sealed class WalletService(
                 await repository.DeferAsync(operation.Id, token);
                 return operation;
             }
-            operation.State = payment?.Status switch
-            {
-                LightningPaymentStatus.Complete => "Settled",
-                LightningPaymentStatus.Failed => "Failed",
-                LightningPaymentStatus.Pending => "Pending",
-                _ => "Unknown"
-            };
+            // A settled row may only need its actual amount backfilled. Lookup
+            // unavailability must never undo an already confirmed settlement.
+            if (operation.State != "Settled")
+                operation.State = payment?.Status switch
+                {
+                    LightningPaymentStatus.Complete => "Settled",
+                    LightningPaymentStatus.Failed => "Failed",
+                    LightningPaymentStatus.Pending => "Pending",
+                    _ => "Unknown"
+                };
+            if (payment?.Status == LightningPaymentStatus.Complete)
+                operation.SettledAmountMsat = payment.Amount?.MilliSatoshi;
             operation.FeeMsat = payment?.Fee?.MilliSatoshi;
         }
         await repository.UpdateAsync(operation, token);

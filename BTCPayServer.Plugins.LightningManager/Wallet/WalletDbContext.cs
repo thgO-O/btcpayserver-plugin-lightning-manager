@@ -19,6 +19,7 @@ public sealed class WalletOperation
     public string Bolt11 { get; set; } = "";
     public string Description { get; set; } = "";
     public long AmountMsat { get; set; }
+    public long? SettledAmountMsat { get; set; }
     public long? FeeMsat { get; set; }
     public long? MaxFeeSats { get; set; }
     public string State { get; set; } = "Pending";
@@ -27,7 +28,9 @@ public sealed class WalletOperation
     public DateTimeOffset? ExpiresAt { get; set; }
     public bool IsFinal => State is "Settled" or "Failed" or "Expired";
     // A failed hash can belong to an older attempt and later become pending/settled.
-    public bool RequiresReconciliation => !IsFinal || (Direction == "Outgoing" && State == "Failed");
+    public bool RequiresReconciliation => !IsFinal || (Direction == "Outgoing" &&
+        (State == "Failed" || (State == "Settled" && SettledAmountMsat is null)));
+    public long? DisplayAmountMsat => Direction == "Outgoing" && State == "Settled" ? SettledAmountMsat : AmountMsat;
 }
 
 public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) : DbContext(options)
@@ -41,6 +44,7 @@ public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) :
         op.HasKey(x => x.Id);
         op.Ignore(x => x.IsFinal);
         op.Ignore(x => x.RequiresReconciliation);
+        op.Ignore(x => x.DisplayAmountMsat);
         op.HasIndex(x => new { x.NodeIdentity, x.PaymentHash, x.Direction }).IsUnique();
         op.HasIndex(x => new { x.StoreId, x.NodeIdentity, x.CreatedAt });
         op.HasIndex(x => x.State);

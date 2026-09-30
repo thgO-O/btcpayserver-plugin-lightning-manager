@@ -90,7 +90,7 @@
                     balance.querySelector('[data-balance-error]').hidden = true;
                 } else {
                     document.querySelector('[data-history-error]').textContent = '';
-                    if (data.map(op => op.id + ':' + op.state).join(';') !== history.dataset.historySnapshot) location.reload();
+                    if (data.map(op => op.id + ':' + op.state + ':' + (op.settledAmountMsat ?? '')).join(';') !== history.dataset.historySnapshot) location.reload();
                 }
             } catch {
                 if (balance) {

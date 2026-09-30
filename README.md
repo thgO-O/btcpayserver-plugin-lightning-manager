@@ -157,6 +157,15 @@ payment is not treated as expired just because its BOLT11 deadline passed.
 Canceled invoices are displayed as expired. A lookup failure preserves the
 last known state.
 
+Before submitting, the wallet checks whether the node already knows the hash as
+paid or in progress and rejects it without creating a new wallet operation.
+The journal retains the reviewed amount separately from the actual settled amount
+reported by the node. Details and history display the actual paid amount and
+flag differences from the review, including a payment completed through another
+interface during submission. An unavailable paid amount is shown as unavailable
+and fetched again; it is never inferred from the reviewed amount. Existing
+settled records are also backfilled without sending payments.
+
 Wallet operations are persisted in plugin-owned PostgreSQL tables. A payment is
 durably claimed before contacting the backend, including across stores connected
 to the same node. A disconnect, timeout or server restart does not permit an

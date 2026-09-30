@@ -122,7 +122,7 @@ public sealed class LightningWalletController(
         var node = await NodeAsync(cancellationToken);
         var operations = await repository.ListAsync(StoreId, node.Identity, 100, cancellationToken);
         return Json(operations.Select(x => new { id = x.Id, direction = x.Direction, description = x.Description,
-            amountMsat = x.AmountMsat, feeMsat = x.FeeMsat, state = x.State, createdAt = x.CreatedAt }));
+            amountMsat = x.DisplayAmountMsat, reviewedAmountMsat = x.AmountMsat, settledAmountMsat = x.SettledAmountMsat, feeMsat = x.FeeMsat, state = x.State, createdAt = x.CreatedAt }));
     }
 
     [HttpGet("send")]
@@ -215,7 +215,7 @@ public sealed class LightningWalletController(
         var operation = await repository.GetAsync(id, StoreId, node.Identity, cancellationToken);
         if (operation is null) return NotFound();
         await wallet.ReconcileAsync(node, operation, cancellationToken);
-        return Json(new { state = operation.State, final = operation.IsFinal });
+        return Json(new { state = operation.State, final = operation.IsFinal && !operation.RequiresReconciliation });
     }
 }
 

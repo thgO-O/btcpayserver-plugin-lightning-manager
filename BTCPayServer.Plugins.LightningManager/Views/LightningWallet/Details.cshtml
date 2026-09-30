@@ -5,9 +5,21 @@
     <link href="~/main/qrcode.css" rel="stylesheet" asp-append-version="true" />
 }
 <h1 class="h3">@(op.Direction == "Incoming" ? "Receive Lightning" : "Payment")</h1>
-<p class="h2">@((op.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats</p>
+@if (op.DisplayAmountMsat is long amount)
+{
+    <p class="h2" data-operation-amount>@((amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats</p>
+}
+else
+{
+    <p class="h2" data-operation-amount>Paid amount unavailable</p>
+}
+@if (op.Direction == "Outgoing" && op.State == "Settled" && op.SettledAmountMsat != op.AmountMsat)
+{
+    <p class="alert alert-warning">The reviewed amount was @((op.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats.
+        @(op.SettledAmountMsat is null ? "The node's paid amount has not been retrieved yet." : "The node reports a different paid amount. This invoice may have been paid through another interface.")</p>
+}
 <p>@op.Description</p>
-<p class="h5" role="status" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@op.IsFinal.ToString().ToLowerInvariant()">@op.State</p>
+<p class="h5" role="status" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@((op.IsFinal && !op.RequiresReconciliation).ToString().ToLowerInvariant())">@op.State</p>
 <p class="ln-wallet__status-error text-secondary" role="status"></p>
 @if (op.Direction == "Incoming" && !op.IsFinal)
 {
