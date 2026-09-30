@@ -1,10 +1,16 @@
 @using BTCPayServer.Lightning
 @model SendViewModel
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
 @{
     Layout = "_LayoutWizard";
     ViewData.SetTitle($"Send {Model.CryptoCode} payment");
 
     var currentStep = Model.HasPaymentResult ? 3 : Model.Preview is not null ? 2 : 1;
+    var canScanInvoice = currentStep == 1 && Model.Capabilities.CanPayBolt11;
+    if (canScanInvoice)
+    {
+        Csp.UnsafeEval();
+    }
     var payment = Model.Payment;
     var isSuccessfulPayment = Model.HasPaymentResult &&
                               Model.Result?.IsSuccess is true &&
@@ -47,6 +53,10 @@
 }
 
 @section PageHeadContent {
+    @if (canScanInvoice)
+    {
+        <link href="~/vendor/vue-qrcode-reader/vue-qrcode-reader.css" rel="stylesheet" asp-append-version="true" />
+    }
     <style>
         #SendPayment {
             --lm-step-size: 1.75rem;
@@ -167,6 +177,7 @@
 
         #SendPayment .lm-invoice-actions {
             display: flex;
+            flex-wrap: wrap;
             justify-content: flex-end;
             gap: var(--btcpay-space-s);
             padding: 0 var(--btcpay-space-s) var(--btcpay-space-s);
@@ -328,6 +339,13 @@
 }
 
 @section PageFootContent {
+    @if (canScanInvoice)
+    {
+        <partial name="CameraScanner" />
+        <script src="~/vendor/vuejs/vue.min.js" asp-append-version="true"></script>
+        <script src="~/vendor/vue-qrcode-reader/VueQrcodeReader.umd.min.js" asp-append-version="true"></script>
+        <script src="~/vendor/ur-registry/urlib.min.js" asp-append-version="true"></script>
+    }
     <script>
         const executePaymentForm = document.getElementById('execute-payment-form')
         executePaymentForm?.addEventListener('submit', event => {
@@ -343,6 +361,19 @@
         const invoice = document.getElementById('bolt11')
         const pasteInvoice = document.getElementById('PasteInvoice')
         const clearInvoice = document.getElementById('ClearInvoice')
+
+        if (document.getElementById('ScanInvoice')) {
+            initCameraScanningApp('Scan a Lightning invoice', data => {
+                if (typeof data === 'string') {
+                    invoice.value = data.trim()
+                    invoice.dispatchEvent(new Event('input', { bubbles: true }))
+                }
+            }, 'scanInvoiceModal', true)
+
+            document.getElementById('scanInvoiceModal').addEventListener('hidden.bs.modal', () => {
+                requestAnimationFrame(() => invoice.focus())
+            })
+        }
 
         pasteInvoice?.addEventListener('click', async () => {
             try {
@@ -630,7 +661,7 @@
         else
         {
             <section aria-labelledby="InvoiceEntryTitle">
-                <h2 id="InvoiceEntryTitle" class="h3 mb-2">Paste a Lightning invoice</h2>
+                <h2 id="InvoiceEntryTitle" class="h3 mb-2">Enter a Lightning invoice</h2>
                 <p class="text-secondary mb-4">Review every detail before funds leave your node.</p>
 
                 @if (Model.Result is not null)
@@ -666,6 +697,11 @@
                                           aria-describedby="Bolt11Help"
                                           required>@Model.Bolt11</textarea>
                                 <div class="lm-invoice-actions only-for-js">
+                                    <button type="button" id="ScanInvoice" class="btn btn-link d-inline-flex align-items-center gap-2"
+                                            data-bs-toggle="modal" data-bs-target="#scanInvoiceModal">
+                                        <vc:icon symbol="scan-qr" />
+                                        Scan QR
+                                    </button>
                                     <button type="button" id="PasteInvoice" class="btn btn-link d-inline-flex align-items-center gap-2">
                                         <vc:icon symbol="actions-copy" />
                                         Paste
@@ -676,7 +712,7 @@
                                     </button>
                                 </div>
                             </div>
-                            <div id="Bolt11Help" class="form-text">Paste the full invoice exactly as received.</div>
+                            <div id="Bolt11Help" class="form-text">Paste the full invoice or scan its QR code.</div>
                         </div>
 
                         @if (Model.Capabilities.CanPayAmountless || Model.Capabilities.CanSetMaxFee)

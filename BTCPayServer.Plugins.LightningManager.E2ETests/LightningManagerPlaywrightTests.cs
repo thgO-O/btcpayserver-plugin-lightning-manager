@@ -33,6 +33,64 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
     private const string InternalNodeNotice =
         "You are managing BTCPay Server's shared internal Lightning node. Its balance, payments, peers, and channels are server-wide and are not isolated to this store.";
 
+    [Fact(Timeout = 120_000)]
+    public async Task CanScanInvoiceWithoutSubmittingPayment()
+    {
+        var previousDebugPlugins = Environment.GetEnvironmentVariable("DEBUG_PLUGINS");
+        var previousPluginDirectory = Environment.GetEnvironmentVariable("BTCPAY_PLUGINDIR");
+        var isolatedPluginDirectory = Path.Combine(Path.GetTempPath(), $"lightning-manager-qr-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(isolatedPluginDirectory);
+        Environment.SetEnvironmentVariable("DEBUG_PLUGINS", GetPluginAssemblyPath());
+        Environment.SetEnvironmentVariable("BTCPAY_PLUGINDIR", isolatedPluginDirectory);
+        try
+        {
+            await using var tester = CreatePlaywrightTester(newDb: true);
+            tester.Server.ActivateLightning(LightningTestImplementation.CoreLightning);
+            // Start the server with CSP before the browser harness switches its default to NoCSP.
+            tester.Server.PayTester.NoCSP = false;
+            await tester.Server.StartAsync();
+            await tester.StartAsync();
+            await tester.RegisterNewUser(true);
+            var (_, storeId) = await tester.CreateNewStore();
+            var recipient = new LndMockTester(tester.Server, "TEST_CUSTOMERLND", CustomerLndConnection,
+                "customer_lnd", Network.RegTest).Client;
+            var eclair = new LightningClientFactory(Network.RegTest).Create(EclairConnection);
+            await ConfigureBackendAsync(tester, storeId, CreateScenario(tester, ManagedBackend.Eclair, eclair, recipient));
+            var invoice = await recipient.CreateInvoice(LightMoney.Satoshis(PaymentAmountSats),
+                "Lightning Manager QR test", TimeSpan.FromMinutes(5), TestContext.Current.CancellationToken);
+            await tester.GoToUrl(ManagerUrl(storeId, "send"));
+            var response = await tester.Page.ReloadAsync();
+            Assert.NotNull(response);
+            Assert.Contains("script-src", response.Headers["content-security-policy"]);
+            Assert.Contains("'unsafe-eval'", response.Headers["content-security-policy"]);
+            await tester.Page.Locator("#bolt11").FillAsync("Keep this invoice when cancelling");
+            var modal = await OpenInvoiceScannerAsync(tester.Page);
+            await modal.GetByRole(AriaRole.Button, new() { Name = "Close", Exact = true }).ClickAsync();
+            await Expect(modal).ToBeHiddenAsync();
+            await Expect(tester.Page.Locator("#bolt11")).ToHaveValueAsync("Keep this invoice when cancelling");
+            await ScanInvoiceAsync(tester.Page, invoice.BOLT11);
+            await ScanInvoiceAsync(tester.Page, $"LIGHTNING:{invoice.BOLT11.ToUpperInvariant()}");
+            await Expect(tester.Page.Locator("#execute-payment-form")).ToHaveCountAsync(0);
+            await Expect(tester.Page.Locator("[aria-label='Payment progress'] [aria-current='step'] > span:last-child"))
+                .ToHaveTextAsync("Invoice");
+            response = await tester.Page.RunAndWaitForResponseAsync(
+                () => tester.Page.GetByRole(AriaRole.Button, new() { Name = "Review payment" }).ClickAsync(),
+                result => result.Url.EndsWith("/send/preview", StringComparison.Ordinal) && result.Request.Method == "POST");
+            Assert.Contains("script-src", response.Headers["content-security-policy"]);
+            Assert.DoesNotContain("'unsafe-eval'", response.Headers["content-security-policy"]);
+            await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Review payment" })).ToBeVisibleAsync();
+            await Expect(tester.Page.Locator("#execute-payment-form input[name=bolt11]")).ToHaveValueAsync(invoice.BOLT11);
+            await Expect(tester.Page.Locator("#ScanInvoice")).ToHaveCountAsync(0);
+            await Expect(tester.Page.Locator("#scanInvoiceModal")).ToHaveCountAsync(0);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DEBUG_PLUGINS", previousDebugPlugins);
+            Environment.SetEnvironmentVariable("BTCPAY_PLUGINDIR", previousPluginDirectory);
+            Directory.Delete(isolatedPluginDirectory, recursive: true);
+        }
+    }
+
     [Theory(Timeout = 360_000)]
     [InlineData(ManagedBackend.Cln)]
     [InlineData(ManagedBackend.Lnd)]
@@ -610,6 +668,54 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             },
             $"The {scenario.Name} channel did not become active on both nodes.",
             cancellationToken);
+    }
+
+    private static async Task<ILocator> OpenInvoiceScannerAsync(IPage page)
+    {
+        var modal = page.Locator("#scanInvoiceModal");
+        await modal.EvaluateAsync("""
+            element => {
+                element.dataset.shown = 'false';
+                element.addEventListener('shown.bs.modal', () => element.dataset.shown = 'true', { once: true });
+            }
+            """);
+        await page.GetByRole(AriaRole.Button, new() { Name = "Scan QR", Exact = true }).ClickAsync();
+        await Expect(modal).ToHaveAttributeAsync("data-shown", "true");
+        return modal;
+    }
+
+    private static async Task ScanInvoiceAsync(IPage page, string invoice)
+    {
+        // Decode an actual QR image through the shared scanner's drop zone.
+        // This exercises the decoder without requiring a physical camera in CI.
+        var qr = new ZXing.QrCode.QRCodeWriter().encode(invoice, BarcodeFormat.QR_CODE, 0, 0);
+        var rows = Enumerable.Range(0, qr.Height)
+            .Select(y => new string(Enumerable.Range(0, qr.Width)
+                .Select(x => qr[x, y] ? '1' : '0').ToArray()))
+            .ToArray();
+
+        var modal = await OpenInvoiceScannerAsync(page);
+        await modal.Locator(".modal-body .d-flex > div:not(.spinner-border)").EvaluateAsync("""
+            async (element, rows) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = rows[0].length * 6;
+                canvas.height = rows.length * 6;
+                const context = canvas.getContext('2d');
+                context.fillStyle = 'white';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = 'black';
+                rows.forEach((row, y) => Array.from(row).forEach((pixel, x) => {
+                    if (pixel === '1') context.fillRect(x * 6, y * 6, 6, 6);
+                }));
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(new File([blob], 'invoice.png', { type: 'image/png' }));
+                element.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer }));
+            }
+            """, rows);
+        await Expect(modal).ToBeHiddenAsync();
+        await Expect(page.Locator("#bolt11")).ToHaveValueAsync(invoice);
+        await Expect(page.Locator("#bolt11")).ToBeFocusedAsync();
     }
 
     private static async Task WaitForActiveChannelInUiAsync(

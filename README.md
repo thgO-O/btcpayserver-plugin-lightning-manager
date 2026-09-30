@@ -18,8 +18,9 @@ the backend supports those actions.
 - `Overview`: view node or wallet information, its address, and available
   balances.
 - `Add funds to node`: generate an on-chain deposit address with QR code for LND, CLN, or Eclair.
-- `Pay`: preview and pay fixed-amount BOLT11 invoices. Supported backends also
-  accept a positive whole-sat amount for amountless invoices.
+- `Pay`: paste or scan a BOLT11 invoice QR code, then preview and confirm the
+  payment. Supported backends also accept a positive whole-sat amount for
+  amountless invoices.
 - `Channels`: list and open channels, connecting to the peer automatically on confirmation.
 - `Channels → Manage peers`: connect or reconnect peers for troubleshooting.
 
