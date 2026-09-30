@@ -6,6 +6,7 @@ using Microsoft.Playwright;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Xunit;
+using Npgsql;
 using static Microsoft.Playwright.Assertions;
 
 namespace BTCPayServer.Plugins.LightningManager.E2ETests;
@@ -250,7 +251,57 @@ public partial class LightningManagerPlaywrightTests
                     }
                 }
 
-                await page.GetByRole(AriaRole.Button, new() { Name = "Confirm with passkey", Exact = true }).ClickAsync();
+                if (amountless)
+                {
+                    var factory = tester.Server.PayTester.GetService<WalletDbContextFactory>();
+                    var disconnect = tester.Server.PayTester.GetService<WalletRequestDisconnectProbe>();
+                    disconnect.Reset();
+                    await using var db = factory.CreateContext();
+                    await using var gate = new NpgsqlConnection(db.Database.GetConnectionString());
+                    await gate.OpenAsync(token);
+                    var lockId = Random.Shared.Next(1, int.MaxValue);
+                    await using var command = new NpgsqlCommand("SELECT pg_advisory_lock(@id)", gate);
+                    command.Parameters.AddWithValue("id", lockId);
+                    await command.ExecuteNonQueryAsync(token);
+                    command.CommandText = $"""
+                        CREATE FUNCTION "LMWalletTestPause"() RETURNS trigger LANGUAGE plpgsql AS $$
+                        BEGIN PERFORM pg_advisory_xact_lock({lockId}); RETURN NEW; END $$;
+                        CREATE TRIGGER "LMWalletTestPause" BEFORE INSERT ON "LightningManagerWalletOperations"
+                        FOR EACH ROW EXECUTE FUNCTION "LMWalletTestPause"();
+                        """;
+                    await command.ExecuteNonQueryAsync(token);
+                    try
+                    {
+                        await page.GetByRole(AriaRole.Button, new() { Name = "Confirm with passkey", Exact = true }).ClickAsync();
+                        using var wait = CancellationTokenSource.CreateLinkedTokenSource(token);
+                        wait.CancelAfter(TimeSpan.FromSeconds(30));
+                        command.CommandText = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = CAST(@id AS oid) AND NOT granted)";
+                        while (!(bool)(await command.ExecuteScalarAsync(wait.Token))!)
+                            await Task.Delay(100, wait.Token);
+                        // Destroy the paying document while its server-side insert is paused.
+                        await tester.GoToUrl(root + "history");
+                        await disconnect.Disconnected.Task.WaitAsync(TimeSpan.FromSeconds(10), token);
+                    }
+                    finally
+                    {
+                        command.CommandText = "SELECT pg_advisory_unlock(@id)";
+                        await command.ExecuteNonQueryAsync(CancellationToken.None);
+                        await db.Database.ExecuteSqlRawAsync("DROP FUNCTION \"LMWalletTestPause\"() CASCADE", CancellationToken.None);
+                    }
+                    // The browser request is gone. Backend settlement and the journal must still complete.
+                    var hash = BOLT11PaymentRequest.Parse(invoice.BOLT11, NBitcoin.Network.RegTest).PaymentHash!.ToString();
+                    Guid id;
+                    using var recovery = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    recovery.CancelAfter(TimeSpan.FromSeconds(30));
+                    while (true)
+                    {
+                        var completed = await db.Operations.AsNoTracking().SingleOrDefaultAsync(x => x.StoreId == storeId && x.PaymentHash == hash && x.Direction == "Outgoing", recovery.Token);
+                        if (completed?.State == "Settled") { id = completed.Id; break; }
+                        await Task.Delay(100, recovery.Token);
+                    }
+                    await tester.GoToUrl(root + "operations/" + id);
+                }
+                else await page.GetByRole(AriaRole.Button, new() { Name = "Confirm with passkey", Exact = true }).ClickAsync();
                 await Expect(page.Locator("[data-status-url]")).ToHaveTextAsync("Settled", new() { Timeout = 30_000 });
                 var recipientInvoice = await scenario.Recipient.GetInvoice(invoice.Id, token);
                 Assert.Equal(LightningInvoiceStatus.Paid, recipientInvoice.Status);

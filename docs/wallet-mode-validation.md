@@ -7,7 +7,7 @@ The fixture used a separate disposable Docker Compose project.
 | Check | Result |
 | --- | --- |
 | Plugin Release build | Passed, no warnings or errors |
-| Deterministic tests, Release | 266 passed, no failures or skips |
+| Deterministic tests, Release | 274 passed, no failures or skips |
 | Complete native E2E executable | 8 passed, no failures or skips |
 | Whitespace / submodule changes | Clean diff; no core changes |
 
@@ -42,6 +42,28 @@ WebAuthn uses Chromium's virtual authenticator with user verification and
 the actual BTCPay verifier. A fixture supplies no vendor metadata for that
 virtual authenticator; no external FIDO metadata service is needed. This
 test fixture is not packaged with Lightning Manager.
+
+The follow-up recovery changes passed the complete eight-case E2E run with
+PostgreSQL/regtest in `ln-wallet-review-v2-20260930` (277.175 seconds). In all
+four LND/CLN browser cases, a database lock pauses submission, browser navigation
+cancels the actual server request, and releasing the lock still leads to one
+settled journal record and a paid peer invoice. These checks run through the
+normal cookie, antiforgery and native passkey flow.
+
+The PostgreSQL case additionally verifies Pending/Unknown replacing an older
+failure, failed hashes staying discoverable, delayed backend settlement,
+recovery of an abandoned Submitting record and settled-fee immutability. A
+controlled native LND HTTP response verifies canceled invoices becoming expired
+and backend unavailability preserving the persisted state. Signed BOLT11 invoices
+come from the regtest peer; native invoice requests are checked for both values
+of the private route-hint flag. The deterministic cases read the persisted
+store blob and verify all four native LND invoice states, including ACCEPTED
+past the invoice deadline.
+
+The added request-abort observer and database gates belong only to the E2E
+fixture. MailKit is referenced only by the unit test project so BTCPay's native
+store-configuration types can be serialized/deserialized at runtime. No core
+source, database schema or plugin dependency requirement changed.
 
 ## Remaining release checks
 

@@ -1,5 +1,7 @@
 using BTCPayServer.Abstractions.Models;
 using Fido2NetLib;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BTCPayServer.Plugins.LightningManager.E2ETests;
@@ -9,7 +11,12 @@ namespace BTCPayServer.Plugins.LightningManager.E2ETests;
 // Fido2 verifier and avoid an unrelated remote MDS dependency in deterministic tests.
 public sealed class WalletWebAuthnTestPlugin : BaseBTCPayServerPlugin
 {
-    public override void Execute(IServiceCollection services) => services.AddSingleton<IMetadataService>(new VirtualAuthenticatorMetadata());
+    public override void Execute(IServiceCollection services)
+    {
+        services.AddSingleton<IMetadataService>(new VirtualAuthenticatorMetadata());
+        services.AddSingleton<WalletRequestDisconnectProbe>();
+        services.AddSingleton<IStartupFilter>(sp => sp.GetRequiredService<WalletRequestDisconnectProbe>());
+    }
 
     private sealed class VirtualAuthenticatorMetadata : IMetadataService
     {
@@ -22,4 +29,26 @@ public sealed class WalletWebAuthnTestPlugin : BaseBTCPayServerPlugin
         }
         public bool ConformanceTesting() => false;
     }
+}
+
+// Observe the actual server request abort; browser navigation alone is not the oracle.
+public sealed class WalletRequestDisconnectProbe : IStartupFilter
+{
+    public TaskCompletionSource Disconnected { get; private set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public void Reset() => Disconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use(async (context, nextMiddleware) =>
+        {
+            if (context.Request.Path.Value?.EndsWith("/send/execute", StringComparison.Ordinal) is true)
+            {
+                var observation = Disconnected;
+                using var registration = context.RequestAborted.Register(() => observation.TrySetResult());
+                await nextMiddleware();
+            }
+            else await nextMiddleware();
+        });
+        next(app);
+    };
 }

@@ -145,14 +145,22 @@ with a mobile viewport, native passkey enrollment through a Chromium virtual
 authenticator, fixed and amountless payments, receipt settlement, cancellation,
 modified payment details, confirmation replay protection, and a persistent history.
 An injected PostgreSQL write failure verifies no backend payment is submitted.
-They simulate a lost local result after settlement, recreate storage, reconcile
+The amountless flow pauses the insert behind a PostgreSQL advisory lock,
+navigates away from the paying document, observes RequestAborted on the server,
+then releases the insert and verifies settlement and a single journal record.
+They also simulate a lost local result after settlement, recreate storage, reconcile
 while disabled and reject duplicate submission. The additional access case verifies
 default-disabled activation, login/store authorization, a different account's
 valid passkey, public manifest access and offline public-assets-only caching.
 The PostgreSQL case checks repeatable migrations, cross-store
 concurrent claims, recovery after recreating the repository, node/store scoping
 and confirmed settlement taking precedence over an older failure without
-allowing stale updates to downgrade settlement or erase its fee. Browser hosts
+allowing stale updates to downgrade settlement or erase its fee. It also checks
+recovery from older failures, abandoned submissions, native LND invoice
+cancellation, lookup unavailability and serialized private route-hint flags.
+The deterministic tests read the actual store configuration blob and check
+LND OPEN/ACCEPTED/SETTLED/CANCELED states independently of wall-clock expiry.
+Browser hosts
 start with BTCPay's default CSP enabled before the core Playwright helper starts
 its browser. The access case verifies the scanner modal, service worker readiness
 without CSP violations and the offline retry link after reconnecting. CI requires
