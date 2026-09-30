@@ -1,0 +1,5 @@
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@{ Layout = "_LayoutWallet"; }
+<h1 class="h3">Wallet unavailable</h1>
+<p class="alert alert-warning" role="alert">@Model.Error</p>
+<a asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId">Wallet Mode settings</a>

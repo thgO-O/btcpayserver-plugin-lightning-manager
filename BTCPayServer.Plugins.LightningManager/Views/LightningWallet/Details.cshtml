@@ -1,0 +1,27 @@
+@using System.Globalization
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@{ Layout = "_LayoutWallet"; var op = Model.Operation!; }
+@section PageHeadContent {
+    <link href="~/main/qrcode.css" rel="stylesheet" asp-append-version="true" />
+}
+<h1 class="h3">@(op.Direction == "Incoming" ? "Receive Lightning" : "Payment")</h1>
+<p class="h2">@((op.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats</p>
+<p>@op.Description</p>
+<p class="h5" role="status" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@op.IsFinal.ToString().ToLowerInvariant()">@op.State</p>
+<p class="ln-wallet__status-error text-secondary" role="status"></p>
+@if (op.Direction == "Incoming" && !op.IsFinal)
+{
+    <div class="ln-wallet__qr"><vc:qr-code data="@("lightning:" + op.Bolt11)" /></div>
+    <p id="wallet-invoice" class="ln-wallet__invoice font-monospace">@op.Bolt11</p>
+    <button type="button" class="btn btn-secondary w-100" data-clipboard-target="#wallet-invoice">Copy invoice</button>
+    <p class="text-secondary mt-3">Expires @op.ExpiresAt?.ToString("u")</p>
+}
+@if (op.Direction == "Outgoing" && !op.IsFinal)
+{
+    <p>The outcome is not confirmed yet. Check this operation or the node before attempting another payment.</p>
+}
+@if (op.FeeMsat is long fee)
+{
+    <p>Routing fee: @((fee / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sats</p>
+}
+<details class="mt-4"><summary>Payment details</summary><p class="font-monospace text-break">@op.PaymentHash</p><p>@op.CreatedAt.ToString("u")</p></details>

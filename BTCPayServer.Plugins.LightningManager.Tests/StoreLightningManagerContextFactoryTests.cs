@@ -44,7 +44,7 @@ public class StoreLightningManagerContextFactoryTests
         Assert.Equal(
             LightningBackendTypes.GetIdentityFingerprint(config.ConnectionString),
             context.BackendIdentityFingerprint);
-        Assert.Same(LightningCapabilities.Full, context.Capabilities);
+        Assert.True(context.Capabilities.CanCreateWalletInvoice);
         Assert.False(context.IsInternalNode);
         Assert.Null(context.ConfigurationError);
     }
@@ -73,7 +73,7 @@ public class StoreLightningManagerContextFactoryTests
         Assert.True(context.IsInternalNode);
         Assert.Same(client, context.Client);
         Assert.Equal(expectedBackendType, context.BackendType);
-        Assert.Same(LightningCapabilities.Full, context.Capabilities);
+        Assert.Equal(expectedBackendType != LightningBackendTypes.Eclair, context.Capabilities.CanCreateWalletInvoice);
         Assert.Equal(
             LightningBackendTypes.GetFingerprint($"internal:{connectionString}"),
             context.BackendFingerprint);

@@ -1,0 +1,13 @@
+@using System.Globalization
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@if (Model.Operations.Count == 0)
+{
+    <p class="text-secondary">No Wallet Mode activity yet.</p>
+}
+@foreach (var operation in Model.Operations)
+{
+    <a asp-controller="LightningWallet" asp-action="Details" asp-route-storeId="@Model.StoreId" asp-route-id="@operation.Id" class="ln-wallet__operation">
+        <span>@(operation.Direction == "Incoming" ? "↓ Incoming" : "↑ Payment")<small class="text-secondary">@(string.IsNullOrEmpty(operation.Description) ? "Lightning" : operation.Description)</small></span>
+        <span>@((operation.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats<small>@operation.State</small></span>
+    </a>
+}

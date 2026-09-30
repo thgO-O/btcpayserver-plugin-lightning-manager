@@ -1,0 +1,17 @@
+.ln-wallet { max-width: 36rem; margin: auto; padding: 1.25rem 1rem 6rem; }
+.ln-wallet__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.ln-wallet__header a { color: inherit; text-decoration: none; }
+.ln-wallet__balance { text-align: center; padding: 2rem 1rem; margin-bottom: 1rem; border: 1px solid var(--btcpay-body-border-light); border-radius: 1rem; }
+.ln-wallet__balance strong { display: block; font-size: clamp(2rem, 9vw, 3rem); font-variant-numeric: tabular-nums; }
+.ln-wallet__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+.ln-wallet__actions .btn { padding: 1rem; }
+.ln-wallet__nav { display: flex; gap: .5rem; justify-content: space-around; flex-wrap: wrap; margin-top: 2rem; border-top: 1px solid var(--btcpay-body-border-light); padding-top: 1rem; }
+.ln-wallet__nav a, .ln-wallet button, .ln-wallet input, .ln-wallet .btn { min-height: 44px; }
+.ln-wallet__operation { display: flex; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--btcpay-body-border-light); color: inherit; text-decoration: none; }
+.ln-wallet__operation small { display: block; }
+.ln-wallet__operation span:last-child { text-align: right; white-space: nowrap; }
+.ln-wallet .form-group { margin-bottom: 1.25rem; }
+.ln-wallet__review dd { overflow-wrap: anywhere; margin-bottom: 1rem; }
+.ln-wallet__qr { display: flex; justify-content: center; margin: 1.5rem 0; }
+.ln-wallet__invoice { overflow-wrap: anywhere; font-size: .8rem; }
+.ln-wallet [hidden] { display: none !important; }

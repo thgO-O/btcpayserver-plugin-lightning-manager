@@ -1,0 +1,58 @@
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@{ Layout = "_LayoutWallet"; }
+@section PageHeadContent {
+    <link href="~/vendor/vue-qrcode-reader/vue-qrcode-reader.css" rel="stylesheet" asp-append-version="true" />
+}
+<h1 class="h3">@(Model.Preview is null ? "Pay Lightning" : "Review payment")</h1>
+@if (!Model.HasPasskey)
+{
+    <div class="alert alert-info">Register a passkey in <a asp-controller="UIManage" asp-action="Passkeys">account settings</a> to pay. You can still receive and view your wallet.</div>
+}
+@if (Model.Preview is { } preview)
+{
+    <dl class="ln-wallet__review">
+        <dt>Amount</dt><dd>@preview.AmountDisplay</dd>
+        <dt>Description</dt><dd>@preview.Description</dd>
+        <dt>Maximum fee</dt><dd>@preview.MaxFeeDisplay</dd>
+        <dt>Expires</dt><dd>@preview.ExpiresAt.ToString("u")</dd>
+        <dt>Recipient node</dt><dd class="small font-monospace">@preview.Payee</dd>
+    </dl>
+    <p>Lightning payments are final. Confirm the amount before using your passkey.</p>
+    @if (Model.ConfirmationId is not null)
+    {
+        <form asp-controller="LightningWallet" asp-action="Execute" asp-route-storeId="@Model.StoreId" method="post" class="ln-wallet__confirm" data-challenge-url="@Url.Action("Challenge", "LightningWallet", new { storeId = Model.StoreId })">
+            <input type="hidden" name="confirmationId" value="@Model.ConfirmationId" />
+            <button type="button" class="btn btn-primary btn-lg w-100">Confirm with passkey</button>
+        </form>
+        <p class="ln-wallet__payment-message mt-3" role="status" aria-live="polite"></p>
+        <noscript>JavaScript is required for passkey confirmation.</noscript>
+    }
+    <a asp-controller="LightningWallet" asp-action="Send" asp-route-storeId="@Model.StoreId" class="btn btn-link mt-3">Start over</a>
+}
+else
+{
+    <form asp-controller="LightningWallet" asp-action="Preview" asp-route-storeId="@Model.StoreId" method="post">
+        <div class="form-group">
+            <label for="bolt11" class="form-label">Lightning invoice</label>
+            <textarea id="bolt11" name="bolt11" class="form-control font-monospace" rows="4" required placeholder="lnbc…"></textarea>
+            <button type="button" class="btn btn-secondary ln-wallet__scan mt-2">Scan QR</button>
+        </div>
+        <div class="form-group">
+            <label for="amountSats" class="form-label">Amount in sats (only for invoices without an amount)</label>
+            <input id="amountSats" name="amountSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" />
+        </div>
+        <div class="form-group">
+            <label for="maxFeeSats" class="form-label">Maximum routing fee in sats</label>
+            <input id="maxFeeSats" name="maxFeeSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" value="10" required />
+        </div>
+        <button class="btn btn-primary btn-lg w-100" type="submit">Review payment</button>
+    </form>
+}
+@section PageFootContent {
+    @if (Model.Preview is null)
+    {
+        <script src="~/vendor/vuejs/vue.min.js" asp-append-version="true"></script>
+        <script src="~/vendor/vue-qrcode-reader/VueQrcodeReader.umd.min.js" asp-append-version="true"></script>
+        <partial name="CameraScanner" />
+    }
+}

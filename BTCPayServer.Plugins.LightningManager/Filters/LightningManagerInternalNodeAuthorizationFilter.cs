@@ -4,6 +4,7 @@ using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Lightning;
 using BTCPayServer.Plugins.LightningManager.Services;
+using BTCPayServer.Plugins.LightningManager.Controllers;
 using BTCPayServer.Security;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
@@ -19,7 +20,9 @@ public sealed class LightningManagerInternalNodeAuthorizationFilter(
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        var cryptoCode = context.RouteData.Values["cryptoCode"]?.ToString();
+        // Wallet Mode has a literal BTC route; the Manager supplies the route value.
+        var cryptoCode = context.Controller is LightningWalletController
+            ? LightningManagerCrypto.Bitcoin : context.RouteData.Values["cryptoCode"]?.ToString();
         if (!LightningManagerCrypto.IsSupported(cryptoCode))
         {
             await next();

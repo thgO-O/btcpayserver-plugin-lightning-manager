@@ -1,0 +1,49 @@
+@using BTCPayServer.Plugins.LightningManager.Wallet
+@model WalletPageModel
+@{
+    Layout = null;
+    var root = Url.Action("Home", "LightningWallet", new { storeId = Model.StoreId })!.TrimEnd('/') + "/";
+    ViewData.SetTitle("Lightning Wallet");
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <partial name="LayoutHead" />
+    <meta name="theme-color" content="#141820" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="@(root + "manifest.webmanifest")" />
+    <link rel="apple-touch-icon" href="@(root + "assets/icon-192.png")" />
+    <link rel="stylesheet" href="@(root + "assets/wallet.css")" />
+    @await RenderSectionAsync("PageHeadContent", false)
+</head>
+<body>
+<main class="ln-wallet" data-wallet-root="@root">
+    <header class="ln-wallet__header">
+        <div>
+            <a href="@root" class="h5 mb-0">⚡ Lightning Wallet</a>
+            @if (!string.IsNullOrEmpty(Model.StoreName))
+            {
+                <small class="d-block text-secondary text-break">@Model.StoreName</small>
+            }
+        </div>
+        <a asp-controller="LightningManager" asp-action="Overview" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="BTC">Manager</a>
+    </header>
+    @RenderBody()
+    <nav class="ln-wallet__nav" aria-label="Wallet">
+        <a href="@root">Home</a>
+        <a href="@(root + "send")">Pay</a>
+        <a href="@(root + "receive")">Receive</a>
+        <a href="@(root + "history")">History</a>
+    </nav>
+    <details class="mt-4 text-secondary small">
+        <summary>Add to your phone</summary>
+        <p>In your browser menu, choose Install app or Add to Home Screen. On iPhone, use Safari's Share menu and Add to Home Screen.</p>
+        <p>This wallet uses your BTCPay login. Manage your passkeys and sign out in <a asp-controller="UIManage" asp-action="Index">account settings</a>.</p>
+    </details>
+</main>
+<partial name="LayoutFoot" />
+@await RenderSectionAsync("PageFootContent", false)
+<script src="@(root + "assets/wallet.js")"></script>
+</body>
+</html>

@@ -100,15 +100,15 @@ not compatibility or release sign-off claims. Internal nodes reuse the preset
 for their actual backend; an unknown internal backend is rejected. Repository
 validation uses the standard BTCPay test stack for real service-level CLN/LND
 integration and Playwright channel/payment flows for external CLN, internal
-CLN, external LND, and external Eclair 0.8. Packaging and distribution are
+CLN, external and internal LND, and external Eclair 0.8. Packaging and distribution are
 handled separately through the Plugin Builder. Phoenixd and Blink remain
 unvalidated until their manual records in
 [`docs/backend-smoke-tests.md`](docs/backend-smoke-tests.md) contain real
 backend evidence.
 
 Blink receive-only connections do not expose Lightning Manager. They are
-intended to receive payments, while this plugin does not create invoices or
-provide Lightning receiving tools.
+intended to receive payments through checkout. Wallet Mode receiving tools are
+available only for LND and Core Lightning.
 
 Peer and channel actions are available only for LND, CLN, and Eclair. Phoenixd
 and Blink control routing fees through their own backend policy, so Lightning
@@ -119,7 +119,59 @@ submitted amount override is ignored. For amountless invoices on supported
 backends, enter a positive whole number of satoshis before previewing the
 payment. Backends without amountless support accept fixed-amount invoices only.
 
-## Safety
+## Wallet Mode (0.2.0)
+
+Wallet Mode is an optional mobile PWA for LND and Core Lightning, including
+internal nodes for Server Admins with store Lightning access. Open **Overview →
+Wallet Mode settings**, enable it, and open **Wallet Mode**. Activation also
+requires permission to modify the store. It is disabled by default.
+
+The wallet shows the connected node's Lightning balance, pays fixed or amountless
+BOLT11 invoices, creates one-hour receiving invoices, and displays the latest 100
+Wallet Mode operations for the current store and node. Its history does not
+include payments made elsewhere. This does not create individual accounts or
+balances: operators authorized for the same node use the same funds. Reported
+balance is not a guarantee of payment or inbound liquidity.
+
+Sign in with your normal BTCPay account. Register a passkey in **Account →
+Passkeys** before paying. Every PWA payment requires a separate passkey
+confirmation bound to its invoice, amount, fee limit, user, store and node.
+Confirmations expire after two minutes and can be used once. Without a passkey,
+you can still receive and inspect the wallet. Wallet Mode does not reduce the
+operator's existing Manager or Greenfield API permissions; those interfaces keep
+their existing authentication.
+
+Use your browser's **Install app / Add to Home Screen** action. On iPhone, open
+the wallet in Safari and choose **Share → Add to Home Screen**. HTTPS is required
+for production PWA and passkey functionality. The icon uses BTCPay's existing
+artwork. Camera, passkey prompts and installation should be checked on the actual
+device before release.
+
+Only generic public assets and an offline message are cached. Balance, invoices,
+history and authentication are never stored in the service worker cache. Offline
+payments are not queued. The server and Lightning node must remain online;
+receiving a payment does not require the phone to remain open.
+
+Wallet operations are persisted in plugin-owned PostgreSQL tables. A payment is
+durably claimed before contacting the backend, including across stores connected
+to the same node. A disconnect, timeout or server restart does not permit an
+automatic resubmission. Pending or unknown outcomes are looked up on the backend
+every 30 seconds and when viewing operation details. If the status remains
+unknown, check the node before trying another payment. An already recorded
+outgoing payment hash cannot be submitted again through Wallet Mode, including
+after failure; create a fresh invoice for a deliberate retry.
+
+Changing the node separates the history; changing credentials for the same node
+does not. Disabling Wallet Mode preserves history and pending reconciliation.
+Database initialization or availability failures block new wallet payments.
+Keep the plugin's tables in your normal BTCPay database backup. They are an
+operation journal, not a replacement for Lightning node backups.
+
+LND/CLN Wallet Mode is covered by the native browser cases with WebAuthn virtual
+authenticators and real regtest payments. Physical Android/iPhone installation,
+camera and passkey validation remain required manual release checks.
+
+## Manager Safety
 
 - Payments and channel operations are sent directly to the configured
   Lightning node or wallet.
@@ -142,14 +194,15 @@ Lightning Manager:
 - supports BTC Lightning only;
 - requires either an explicit, supported `type=` in an external Lightning
   connection string or a supported internal Lightning backend;
-- does not create a wallet, create Lightning invoices, or change
-  checkout behavior;
+- provides an optional wallet interface and BOLT11 receiving invoices without
+  changing checkout behavior;
 - does not support BOLT12, keysend, spontaneous payments, or LNURL checkout
   features;
 - does not close channels, disconnect peers, rebalance, perform swaps, or
   change channel policies; and
-- does not add a plugin-specific HTTP API, database, migrations, persisted
-  settings, or custodial accounts.
+- uses cookie-authenticated wallet UI endpoints and plugin-owned persisted
+  settings, operation tables and migrations; it does not add a Greenfield API
+  or custodial accounts.
 
 ## Troubleshooting
 

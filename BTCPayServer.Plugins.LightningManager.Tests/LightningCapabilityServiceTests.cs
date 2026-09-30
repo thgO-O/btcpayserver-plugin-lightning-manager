@@ -14,7 +14,8 @@ public class LightningCapabilityServiceTests
     {
         var capabilities = LightningCapabilityService.GetCapabilities(connectionString);
 
-        Assert.Same(LightningCapabilities.Full, capabilities);
+        Assert.Equal(!connectionString.Contains("ECLAIR", StringComparison.OrdinalIgnoreCase), capabilities.CanCreateWalletInvoice);
+        Assert.Equal(capabilities.CanCreateWalletInvoice, capabilities.CanLookupWalletOperation);
         Assert.True(capabilities.HasAny);
         Assert.True(capabilities.CanGetInfo);
         Assert.True(capabilities.CanGetBalance);
