@@ -297,7 +297,11 @@ public sealed class LightningManagerService
             return false;
         }
 
-        if (!BOLT11PaymentRequest.TryParse(bolt11.Trim(), out var paymentRequest, context.Network.NBitcoinNetwork) || paymentRequest is null)
+        var invoice = bolt11.Trim();
+        if (invoice.StartsWith("lightning:", StringComparison.OrdinalIgnoreCase))
+            invoice = invoice["lightning:".Length..];
+
+        if (!BOLT11PaymentRequest.TryParse(invoice, out var paymentRequest, context.Network.NBitcoinNetwork) || paymentRequest is null)
         {
             error = "The BOLT11 invoice is invalid.";
             return false;
@@ -364,7 +368,7 @@ public sealed class LightningManagerService
 
         preview = new SendPreviewViewModel
         {
-            Bolt11 = bolt11.Trim(),
+            Bolt11 = paymentRequest.ToString(),
             PaymentAmount = paymentAmount,
             UserAmountSats = userAmountSats,
             AmountDisplay = FormatLightMoney(paymentAmount),

@@ -471,7 +471,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await AssertInternalNodeNoticeAsync(tester, isInternalNode);
         await Expect(tester.Page.Locator("[aria-label='Payment progress'] [aria-current='step'] > span:last-child"))
             .ToHaveTextAsync("Invoice");
-        await tester.Page.Locator("#bolt11").FillAsync(invoice.BOLT11);
+        await tester.Page.Locator("#bolt11").FillAsync($"LIGHTNING:{invoice.BOLT11.ToUpperInvariant()}");
         var amountInput = tester.Page.Locator("#amountSats");
         await Expect(amountInput).ToHaveCountAsync(1);
         if (amountless)

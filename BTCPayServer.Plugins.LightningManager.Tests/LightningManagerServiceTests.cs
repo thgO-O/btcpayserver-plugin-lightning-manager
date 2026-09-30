@@ -204,8 +204,12 @@ public class LightningManagerServiceTests
         Assert.Equal(21, capturedParams!.MaxFeeFlat!.Satoshi);
     }
 
-    [Fact]
-    public async Task SendAsync_UsesNormalizedPreviewInvoice()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SendAsync_UsesNormalizedPreviewInvoice(bool lightningPrefix, bool uppercase)
     {
         string? capturedBolt11 = null;
         var client = new FakeLightningClient
@@ -218,7 +222,10 @@ public class LightningManagerServiceTests
         };
         var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client);
 
-        var result = await _service.SendAsync(context, $" {TestInvoiceData.FixedAmountBolt11} ", null, null);
+        var invoice = lightningPrefix ? $"lightning:{TestInvoiceData.FixedAmountBolt11}" : TestInvoiceData.FixedAmountBolt11;
+        if (uppercase)
+            invoice = invoice.ToUpperInvariant();
+        var result = await _service.SendAsync(context, $" {invoice} ", null, null);
 
         Assert.True(result.Result.IsSuccess);
         Assert.Equal(TestInvoiceData.FixedAmountBolt11, capturedBolt11);
