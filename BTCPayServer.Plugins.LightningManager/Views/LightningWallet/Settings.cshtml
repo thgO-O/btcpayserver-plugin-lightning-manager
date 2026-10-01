@@ -1,12 +1,21 @@
 @model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
-@{ Layout = "_LayoutWallet"; }
-<h1 class="h3">Wallet Mode</h1>
-<p>Use your connected LND or Core Lightning node from a mobile wallet interface. Operators keep their existing access to the node; this does not create individual balances.</p>
-<p>Every payment in this interface requires a passkey. Other authorized Manager and API payment flows keep their existing authentication.</p>
-<form method="post" asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId">
-    <div class="form-check mb-4">
-        <input asp-for="Enabled" class="form-check-input" />
-        <label asp-for="Enabled" class="form-check-label">Enable Wallet Mode for this store</label>
-    </div>
-    <button class="btn btn-primary" type="submit">Save</button>
-</form>
+@{ Layout = "_LayoutWallet"; ViewData["WalletPage"] = "Settings"; }
+<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">Store preferences</p><h1>Wallet Mode</h1><p>A focused Lightning wallet for your store's operators.</p></div><span class="ln-wallet__pill">@(Model.Enabled ? "Enabled" : "Disabled")</span></div>
+<div class="ln-wallet__form-grid">
+    <section class="ln-wallet__card ln-wallet__form-card">
+        <form method="post" asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId">
+            <div class="ln-wallet__setting-row">
+                <label asp-for="Enabled"><strong>Enable Wallet Mode for this store</strong><span>Open a mobile wallet using your connected LND or Core Lightning node.</span></label>
+                <div class="form-check form-switch"><input asp-for="Enabled" class="form-check-input" role="switch" /></div>
+            </div>
+            <div class="ln-wallet__setting-info"><span aria-hidden="true"><vc:icon symbol="key" /></span><div><h2>Passkey for every payment</h2><p>Each payment requires confirmation with the operator's own passkey.</p></div></div>
+            <div class="ln-wallet__setting-info"><span aria-hidden="true"><vc:icon symbol="wallet-wallet" /></span><div><h2>Shared funds, existing permissions</h2><p>Operators use the connected node's funds. This does not create individual balances or change access to Manager and API payments.</p></div></div>
+            <button class="btn btn-primary w-100" type="submit">Save</button>
+        </form>
+    </section>
+    <aside class="ln-wallet__aside">
+        <span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="lightning" /></span><h2>Built for everyday Lightning</h2>
+        <p>Check your balance, receive invoices, pay with a passkey and see your wallet activity.</p>
+        <div class="ln-wallet__notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="info" /></span><p>Disabling Wallet Mode keeps your history. Submitted payments continue to be checked with the node.</p></div>
+    </aside>
+</div>

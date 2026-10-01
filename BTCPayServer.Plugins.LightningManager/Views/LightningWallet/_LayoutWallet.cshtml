@@ -5,6 +5,11 @@
     Layout = null;
     Csp.Add("worker-src", "'self'");
     var root = Url.Action("Home", "LightningWallet", new { storeId = Model.StoreId })!.TrimEnd('/') + "/";
+    var page = ViewData["WalletPage"] as string ?? "Home";
+    var navigation = new[] { (Page: "Home", Path: "", Icon: "wallet-wallet", Label: "Home"),
+        (Page: "Send", Path: "send", Icon: "payment-send", Label: "Pay"),
+        (Page: "Receive", Path: "receive", Icon: "payment-receive", Label: "Receive"),
+        (Page: "History", Path: "history", Icon: "nav-transactions", Label: "History") };
     ViewData.SetTitle("Lightning Wallet");
 }
 <!doctype html>
@@ -19,31 +24,39 @@
     <link rel="stylesheet" href="@(root + "assets/wallet.css")" />
     @await RenderSectionAsync("PageHeadContent", false)
 </head>
-<body>
-<main class="ln-wallet" data-wallet-root="@root">
+<body class="ln-wallet-page">
+<a class="ln-wallet__skip" href="#wallet-content">Skip to content</a>
+<div class="ln-wallet" data-wallet-root="@root">
     <header class="ln-wallet__header">
-        <div>
-            <a href="@root" class="h5 mb-0">⚡ Lightning Wallet</a>
-            @if (!string.IsNullOrEmpty(Model.StoreName))
-            {
-                <small class="d-block text-secondary text-break">@Model.StoreName</small>
-            }
+        <a class="ln-wallet__brand" href="@(Model.Enabled ? root : root + "settings")">
+            <span class="ln-wallet__brand-icon" aria-hidden="true"><vc:icon symbol="lightning" /></span>
+            <span><strong>Lightning Wallet</strong><small>@Model.StoreName</small></span>
+        </a>
+        <div class="ln-wallet__header-actions">
+            <a class="ln-wallet__icon-button" asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId" permission="@BTCPayServer.Client.Policies.CanModifyStoreSettings" aria-label="Wallet settings" title="Wallet settings" aria-current="@(page == "Settings" ? "page" : null)"><span aria-hidden="true"><vc:icon symbol="settings" /></span></a>
+            <a class="ln-wallet__manager" asp-controller="LightningManager" asp-action="Overview" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="BTC">Manager <span aria-hidden="true"><vc:icon symbol="caret-right" /></span></a>
         </div>
-        <a asp-controller="LightningManager" asp-action="Overview" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="BTC">Manager</a>
     </header>
-    @RenderBody()
     <nav class="ln-wallet__nav" aria-label="Wallet">
-        <a href="@root">Home</a>
-        <a href="@(root + "send")">Pay</a>
-        <a href="@(root + "receive")">Receive</a>
-        <a href="@(root + "history")">History</a>
+        @foreach (var item in navigation)
+        {
+            <a href="@(Model.Enabled ? root + item.Path : null)" aria-disabled="@(!Model.Enabled ? "true" : null)" aria-current="@(page == item.Page ? "page" : null)">
+                <span aria-hidden="true"><vc:icon symbol="@item.Icon" /></span><span>@item.Label</span>
+            </a>
+        }
     </nav>
-    <details class="mt-4 text-secondary small">
-        <summary>Add to your phone</summary>
-        <p>In your browser menu, choose Install app or Add to Home Screen. On iPhone, use Safari's Share menu and Add to Home Screen.</p>
-        <p>This wallet uses your BTCPay login. Manage your passkeys and sign out in <a asp-controller="UIManage" asp-action="Index">account settings</a>.</p>
-    </details>
-</main>
+    <main id="wallet-content" class="ln-wallet__content" tabindex="-1">@RenderBody()</main>
+    <footer class="ln-wallet__footer">
+        <details class="ln-wallet__install">
+            <summary><span aria-hidden="true"><vc:icon symbol="actions-download" /></span>Add to your phone</summary>
+            <div class="ln-wallet__install-content">
+                <p>Choose <strong>Install app</strong> or <strong>Add to Home Screen</strong> in your browser. On iPhone, use Safari's Share menu.</p>
+                <p>Use your BTCPay account to sign in. Manage your passkeys and sign out in <a asp-controller="UIManage" asp-action="Index">account settings</a>.</p>
+            </div>
+        </details>
+        <span class="ln-wallet__powered">Powered by BTCPay Server</span>
+    </footer>
+</div>
 <partial name="LayoutFoot" />
 @await RenderSectionAsync("PageFootContent", false)
 <script src="@(root + "assets/wallet.js")"></script>

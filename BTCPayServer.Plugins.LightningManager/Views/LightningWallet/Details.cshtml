@@ -1,39 +1,64 @@
 @using System.Globalization
 @model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
-@{ Layout = "_LayoutWallet"; var op = Model.Operation!; }
+@{
+    Layout = "_LayoutWallet"; var op = Model.Operation!;
+    var incoming = op.Direction == "Incoming";
+    ViewData["WalletPage"] = incoming ? "Receive" : "Send";
+    var awaitingPayment = incoming && !op.IsFinal;
+}
 @section PageHeadContent {
     <link href="~/main/qrcode.css" rel="stylesheet" asp-append-version="true" />
 }
-<h1 class="h3">@(op.Direction == "Incoming" ? "Receive Lightning" : "Payment")</h1>
-@if (op.DisplayAmountMsat is long amount)
-{
-    <p class="h2" data-operation-amount>@((amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats</p>
-}
-else
-{
-    <p class="h2" data-operation-amount>Paid amount unavailable</p>
-}
-@if (op.Direction == "Outgoing" && op.State == "Settled" && op.SettledAmountMsat != op.AmountMsat)
-{
-    <p class="alert alert-warning">The reviewed amount was @((op.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats.
-        @(op.SettledAmountMsat is null ? "The node's paid amount has not been retrieved yet." : "The node reports a different paid amount. This invoice may have been paid through another interface.")</p>
-}
-<p>@op.Description</p>
-<p class="h5" role="status" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@((op.IsFinal && !op.RequiresReconciliation).ToString().ToLowerInvariant())">@op.State</p>
-<p class="ln-wallet__status-error text-secondary" role="status"></p>
-@if (op.Direction == "Incoming" && !op.IsFinal)
-{
-    <div class="ln-wallet__qr"><vc:qr-code data="@("lightning:" + op.Bolt11)" /></div>
-    <p id="wallet-invoice" class="ln-wallet__invoice font-monospace">@op.Bolt11</p>
-    <button type="button" class="btn btn-secondary w-100" data-clipboard-target="#wallet-invoice">Copy invoice</button>
-    <p class="text-secondary mt-3">Expires @op.ExpiresAt?.ToString("u")</p>
-}
-@if (op.Direction == "Outgoing" && !op.IsFinal)
-{
-    <p>The outcome is not confirmed yet. Check this operation or the node before attempting another payment.</p>
-}
-@if (op.FeeMsat is long fee)
-{
-    <p>Routing fee: @((fee / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sats</p>
-}
-<details class="mt-4"><summary>Payment details</summary><p class="font-monospace text-break">@op.PaymentHash</p><p>@op.CreatedAt.ToString("u")</p></details>
+<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">@(incoming ? "Payment request" : "Payment details")</p><h1>@(incoming ? "Receive Lightning" : "Payment")</h1><p>@(awaitingPayment ? "Share this invoice with the sender." : "The latest outcome reported by your connected node.")</p></div></div>
+<div class="ln-wallet__form-grid">
+    <section class="ln-wallet__card ln-wallet__form-card ln-wallet__receipt">
+        <span class="ln-wallet__receipt-icon @(op.State == "Settled" ? "is-success" : "")" aria-hidden="true"><vc:icon symbol="@(op.State == "Settled" ? "checkmark" : incoming ? "payment-receive" : "payment-send")" /></span>
+        @if (op.DisplayAmountMsat is long amount)
+        {
+            <p class="ln-wallet__receipt-amount" data-operation-amount>@((amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) <small>sats</small></p>
+        }
+        else
+        {
+            <p class="ln-wallet__receipt-amount ln-wallet__receipt-unavailable" data-operation-amount>Paid amount unavailable</p>
+        }
+        <p class="ln-wallet__receipt-description">@(string.IsNullOrEmpty(op.Description) ? (incoming ? "Lightning invoice" : "Lightning payment") : op.Description)</p>
+        <p class="ln-wallet__status" role="status" data-state="@op.State" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@((op.IsFinal && !op.RequiresReconciliation).ToString().ToLowerInvariant())">@op.State</p>
+        <p class="ln-wallet__status-error ln-wallet__inline-error" role="status"></p>
+        @if (op.Direction == "Outgoing" && op.State == "Settled" && op.SettledAmountMsat != op.AmountMsat)
+        {
+            <div class="ln-wallet__notice ln-wallet__notice-warning"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="warning" /></span><p>The reviewed amount was @((op.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats. @(op.SettledAmountMsat is null ? "The node's paid amount has not been retrieved yet." : "The node reports a different paid amount. This invoice may have been paid through another interface.")</p></div>
+        }
+        @if (awaitingPayment)
+        {
+            <div class="ln-wallet__qr"><vc:qr-code data="@("lightning:" + op.Bolt11)" /></div>
+            <button type="button" class="btn btn-primary w-100" data-clipboard-target="#wallet-invoice"><span aria-hidden="true"><vc:icon symbol="actions-copy" /></span>Copy invoice</button>
+            <p id="wallet-invoice" class="ln-wallet__invoice font-monospace" tabindex="0" aria-label="Lightning invoice">@op.Bolt11</p>
+            <p class="ln-wallet__help">Expires <time datetime="@op.ExpiresAt?.ToString("O")" data-local-time>@op.ExpiresAt?.ToString("u")</time></p>
+        }
+        @if (op.FeeMsat is long fee)
+        {
+            <div class="ln-wallet__receipt-fee">Routing fee: @((fee / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sats</div>
+        }
+        <details class="ln-wallet__details"><summary>Payment details</summary><dl class="ln-wallet__review"><div><dt>Payment hash</dt><dd class="font-monospace text-break">@op.PaymentHash</dd></div><div><dt>Created</dt><dd><time datetime="@op.CreatedAt.ToString("O")" data-local-time>@op.CreatedAt.ToString("u")</time></dd></div></dl></details>
+        @if (!awaitingPayment)
+        {
+            <a asp-controller="LightningWallet" asp-action="Home" asp-route-storeId="@Model.StoreId" class="btn btn-secondary w-100 mt-3">Back to wallet</a>
+        }
+    </section>
+    <aside class="ln-wallet__aside">
+        @if (incoming)
+        {
+            <span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="qr-code" /></span><h2>@(awaitingPayment ? "Ready to share" : op.State == "Settled" ? "Payment received" : "Invoice closed")</h2>
+            <p>@(awaitingPayment ? "The sender can scan the QR code or paste the copied invoice into their Lightning wallet." : op.State == "Settled" ? "Your node has confirmed this payment. You can find it in the wallet's history." : "Create a new invoice if you still want to receive a payment.")</p>
+            @if (awaitingPayment)
+            {
+                <div class="ln-wallet__notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="actions-refresh" /></span><p>This screen checks for payment automatically while open. Your node can receive even after you close it.</p></div>
+            }
+        }
+        else
+        {
+            <span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="@(op.State == "Settled" ? "checkmark" : "info")" /></span><h2>@(op.State == "Settled" ? "Payment completed" : "Check before retrying")</h2>
+            <p>@(op.State == "Settled" ? "The amount shown is the actual payment reported by your node." : "If the outcome is not confirmed, check this operation or the node before attempting another payment. This wallet never resends it automatically.")</p>
+        }
+    </aside>
+</div>

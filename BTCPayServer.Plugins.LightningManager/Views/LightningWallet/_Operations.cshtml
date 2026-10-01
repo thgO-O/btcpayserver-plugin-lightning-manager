@@ -2,12 +2,20 @@
 @model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
 @if (Model.Operations.Count == 0)
 {
-    <p class="text-secondary">No Wallet Mode activity yet.</p>
+    <div class="ln-wallet__empty">
+        <span class="ln-wallet__empty-icon" aria-hidden="true"><vc:icon symbol="nav-transactions" /></span>
+        <h3>No activity yet</h3>
+        <p>Payments and invoices created in this wallet will appear here.</p>
+        <a asp-controller="LightningWallet" asp-action="Receive" asp-route-storeId="@Model.StoreId" class="btn btn-secondary">Create your first invoice</a>
+    </div>
 }
 @foreach (var operation in Model.Operations)
 {
+    var incoming = operation.Direction == "Incoming";
+    var statusClass = operation.State switch { "Settled" => "success", "Failed" => "error", "Expired" => "muted", _ => "pending" };
     <a asp-controller="LightningWallet" asp-action="Details" asp-route-storeId="@Model.StoreId" asp-route-id="@operation.Id" class="ln-wallet__operation">
-        <span>@(operation.Direction == "Incoming" ? "↓ Incoming" : "↑ Payment")<small class="text-secondary">@(string.IsNullOrEmpty(operation.Description) ? "Lightning" : operation.Description)</small></span>
-        <span>@(operation.DisplayAmountMsat is long amount ? (amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture) + " sats" : "Paid amount unavailable")<small>@operation.State</small></span>
+        <span class="ln-wallet__operation-icon @(incoming ? "is-incoming" : "is-outgoing")" aria-hidden="true"><vc:icon symbol="@(incoming ? "payment-receive" : "payment-send")" /></span>
+        <span class="ln-wallet__operation-description"><strong>@(string.IsNullOrEmpty(operation.Description) ? (incoming ? "Lightning invoice" : "Lightning payment") : operation.Description)</strong><small>@(incoming ? "Incoming" : "Payment") · <time datetime="@operation.CreatedAt.ToString("O")" data-local-time>@operation.CreatedAt.ToString("MMM d, HH:mm 'UTC'", CultureInfo.InvariantCulture)</time></small></span>
+        <span class="ln-wallet__operation-value"><strong>@(operation.DisplayAmountMsat is long amount ? (amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture) + " sats" : "Paid amount unavailable")</strong><small class="ln-wallet__state-text is-@statusClass">@operation.State</small></span>
     </a>
 }

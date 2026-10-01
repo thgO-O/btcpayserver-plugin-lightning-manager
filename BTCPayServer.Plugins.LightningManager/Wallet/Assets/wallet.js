@@ -6,6 +6,13 @@
     if ('serviceWorker' in navigator && window.isSecureContext) {
         navigator.serviceWorker.register(root + 'worker.js', { scope: root }).catch(() => {});
     }
+    const dates = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    document.querySelectorAll('time[data-local-time]').forEach(time => {
+        const date = new Date(time.dateTime);
+        if (Number.isNaN(date.getTime())) return;
+        time.textContent = dates.format(date);
+        time.title = date.toISOString().replace('T', ' ');
+    });
     const fromBase64 = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
     const toBase64 = data => btoa(String.fromCharCode(...new Uint8Array(data))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     async function post(url, form) {
@@ -21,6 +28,7 @@
         const message = document.querySelector('.ln-wallet__payment-message');
         button.addEventListener('click', async () => {
             button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
             message.textContent = 'Confirm this payment with your passkey.';
             try {
                 if (!window.isSecureContext || !navigator.credentials) throw new Error('A secure connection and passkey support are required.');
@@ -44,6 +52,7 @@
             } catch (error) {
                 message.textContent = error.name === 'NotAllowedError' ? 'Passkey confirmation was cancelled. No payment was submitted.' : error.message;
                 button.disabled = false;
+                button.removeAttribute('aria-busy');
             }
         });
     }
@@ -65,6 +74,7 @@
                 if (!response.ok || response.redirected) throw new Error();
                 const data = await response.json();
                 status.textContent = data.state;
+                status.dataset.state = data.state;
                 if (data.final) { clearInterval(timer); location.reload(); }
                 document.querySelector('.ln-wallet__status-error').textContent = '';
             } catch {

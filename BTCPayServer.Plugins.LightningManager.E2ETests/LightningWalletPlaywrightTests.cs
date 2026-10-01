@@ -43,6 +43,7 @@ public partial class LightningManagerPlaywrightTests
             await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Save", Exact = true }).ClickAsync();
             Assert.Contains(root.TrimEnd('/'), tester.Page.Url, StringComparison.Ordinal);
             await Expect(tester.Page.Locator(".ln-wallet__balance strong")).ToBeVisibleAsync();
+            await AssertResponsiveWalletAsync(tester, root);
             await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Pay", Exact = true }).First.ClickAsync();
             await Expect(tester.Page.GetByText("Register a passkey", new() { Exact = false })).ToBeVisibleAsync();
             var sendResponse = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "send").ToString());
@@ -135,6 +136,51 @@ public partial class LightningManagerPlaywrightTests
             Environment.SetEnvironmentVariable("BTCPAY_PLUGINDIR", previousDirectory);
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static async Task AssertResponsiveWalletAsync(PlaywrightTester tester, string root)
+    {
+        var page = tester.Page;
+        var artifacts = Environment.GetEnvironmentVariable("TESTS_ARTIFACTS_DIR");
+        var screens = new[] { (Path: "", Active: "Home"), (Path: "send", Active: "Pay"),
+            (Path: "receive", Active: "Receive"), (Path: "history", Active: "History"), (Path: "settings", Active: "") };
+        foreach (var theme in new[] { "light", "dark" })
+        {
+            await tester.GoToUrl(root);
+            await page.EvaluateAsync("mode => window.setColorMode(mode)", theme);
+            foreach (var width in new[] { 320, 390, 1280 })
+            {
+                await page.SetViewportSizeAsync(width, 844);
+                foreach (var screen in screens)
+                {
+                    await tester.GoToUrl(root + screen.Path);
+                    var overflows = await page.EvaluateAsync<bool>("() => document.documentElement.scrollWidth > window.innerWidth");
+                    Assert.False(overflows, $"{screen.Path} overflows at {width}px in {theme} mode.");
+                    var current = page.Locator(".ln-wallet__nav [aria-current=page]");
+                    await Expect(current).ToHaveCountAsync(screen.Active == "" ? 0 : 1);
+                    if (screen.Active != "") await Expect(current).ToHaveTextAsync(screen.Active);
+                    foreach (var link in await page.Locator(".ln-wallet__nav a").AllAsync())
+                        Assert.True((await link.BoundingBoxAsync())!.Height >= 44);
+                    if (width < 768)
+                    {
+                        var nav = (await page.Locator(".ln-wallet__nav").BoundingBoxAsync())!;
+                        Assert.InRange(nav.Y + nav.Height, 843, 845);
+                    }
+                    if (screen.Path == "settings")
+                    {
+                        // A shared text-input rule previously stretched this checkbox to 44px.
+                        var toggle = (await page.Locator("#Enabled").BoundingBoxAsync())!;
+                        Assert.InRange(toggle.Height, 20, 32);
+                        await Expect(page.Locator("#Enabled")).ToBeCheckedAsync();
+                    }
+                    if (!string.IsNullOrEmpty(artifacts))
+                        await page.ScreenshotAsync(new() { Path = Path.Combine(artifacts,
+                            $"wallet-ui-{theme}-{width}-{(screen.Path == "" ? "home" : screen.Path)}.png"), FullPage = true });
+                }
+            }
+        }
+        await page.SetViewportSizeAsync(1280, 844);
+        await tester.GoToUrl(root);
     }
 
     private static async Task AssertWalletModeAsync(PlaywrightTester tester, string storeId, BackendScenario scenario, CancellationToken token)
