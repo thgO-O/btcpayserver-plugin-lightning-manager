@@ -38,6 +38,8 @@ public partial class LightningManagerPlaywrightTests
             var root = $"/stores/{storeId}/lightning/BTC/wallet/";
             await tester.GoToUrl(root, ignoreResponse: true);
             await Expect(tester.Page.GetByText("Wallet Mode is disabled for this store.", new() { Exact = true })).ToBeVisibleAsync();
+            await Expect(tester.Page.Locator(".ln-wallet__nav [aria-disabled=true]")).ToHaveCountAsync(4);
+            await Expect(tester.Page.Locator(".ln-wallet__nav a[href]")).ToHaveCountAsync(0);
             await tester.GoToUrl(root + "settings");
             await tester.Page.Locator("#Enabled").CheckAsync();
             await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Save", Exact = true }).ClickAsync();
@@ -102,7 +104,7 @@ public partial class LightningManagerPlaywrightTests
             await tester.GoToUrl("/account");
             await tester.Logout();
             await tester.GoToRegister();
-            await tester.RegisterNewUser();
+            var operatorEmail = await tester.RegisterNewUser();
             await tester.SkipWizard();
             var denied = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root).ToString());
             Assert.Equal(403, denied.Status);
@@ -129,6 +131,39 @@ public partial class LightningManagerPlaywrightTests
             await Expect(tester.Page.Locator(".ln-wallet__operation")).ToHaveCountAsync(0);
             await authenticator.DetachAsync();
             TestContext.Current.CancellationToken.ThrowIfCancellationRequested();
+
+            // An operator can recover from invalid input without access to store settings.
+            var stores = tester.Server.PayTester.GetService<BTCPayServer.Services.Stores.StoreRepository>();
+            await using var users = tester.Server.PayTester.GetService<BTCPayServer.Data.ApplicationDbContextFactory>().CreateContext();
+            var operatorId = await users.Users.Where(x => x.Email == operatorEmail).Select(x => x.Id).SingleAsync(TestContext.Current.CancellationToken);
+            var role = new BTCPayServer.Services.Stores.StoreRoleId(storeId, "Wallet operator");
+            await stores.AddOrUpdateStoreRole(role, new[] { BTCPayServer.Client.Policies.CanViewStoreSettings,
+                BTCPayServer.Client.Policies.CanUseLightningNodeInStore });
+            await stores.AddOrUpdateStoreUser(storeId, operatorId, role);
+            await tester.GoToUrl("/account");
+            await tester.Logout();
+            await tester.GoToLogin();
+            await tester.LogIn(operatorEmail);
+            var settings = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "settings").ToString());
+            Assert.Equal(403, settings.Status);
+            await tester.GoToUrl(root + "send");
+            await tester.Page.Locator("#bolt11").FillAsync("invalid-invoice");
+            await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Review payment", Exact = true }).ClickAsync();
+            await Expect(tester.Page.GetByRole(AriaRole.Alert)).ToHaveTextAsync("The BOLT11 invoice is invalid.");
+            await Expect(tester.Page.Locator(".ln-wallet__nav a[href]")).ToHaveCountAsync(4);
+            await Expect(tester.Page.Locator(".ln-wallet__nav [aria-disabled=true]")).ToHaveCountAsync(0);
+            await Expect(tester.Page.Locator(".ln-wallet__brand")).ToHaveAttributeAsync("href", root);
+            await Expect(tester.Page.Locator(".ln-wallet__icon-button")).ToHaveCountAsync(0);
+            await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Pay", Exact = true }).ClickAsync();
+            await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Pay Lightning", Exact = true })).ToBeVisibleAsync();
+            await tester.Page.Locator(".ln-wallet__brand").ClickAsync();
+            await Expect(tester.Page.Locator(".ln-wallet__balance")).ToBeVisibleAsync();
+            await stores.UpdateSetting(storeId, WalletSettings.Key, new WalletSettings { Enabled = false });
+            await tester.GoToUrl(root, ignoreResponse: true);
+            await Expect(tester.Page.GetByRole(AriaRole.Alert)).ToHaveTextAsync("Wallet Mode is disabled for this store.");
+            await Expect(tester.Page.Locator(".ln-wallet__nav [aria-disabled=true]")).ToHaveCountAsync(4);
+            await Expect(tester.Page.Locator(".ln-wallet__nav a[href]")).ToHaveCountAsync(0);
+
         }
         finally
         {

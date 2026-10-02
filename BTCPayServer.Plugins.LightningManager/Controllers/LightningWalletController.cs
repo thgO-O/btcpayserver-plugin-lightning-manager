@@ -36,7 +36,10 @@ public sealed class LightningWalletController(
 
     private async Task<WalletNode> NodeAsync(CancellationToken token)
     {
-        if ((await stores.GetSettingAsync<WalletSettings>(StoreId, WalletSettings.Key))?.Enabled != true)
+        var enabled = (await stores.GetSettingAsync<WalletSettings>(StoreId, WalletSettings.Key))?.Enabled == true;
+        // Preserve the checked activation state for the exception filter without another database query.
+        HttpContext.Items[typeof(WalletSettings)] = enabled;
+        if (!enabled)
             throw new WalletException("Wallet Mode is disabled for this store.");
         repository.RequireReady();
         var freshStore = await stores.FindStore(StoreId, UserId) ?? throw new WalletException("Store access is unavailable.");
@@ -231,7 +234,9 @@ public sealed class WalletExceptionFilter(ILogger<WalletExceptionFilter> logger)
             : new ViewResult { ViewName = "Error", StatusCode = status,
                 ViewData = new Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary<WalletPageModel>(
                     new Microsoft.AspNetCore.Mvc.ModelBinding.EmptyModelMetadataProvider(), context.ModelState)
-                { Model = new WalletPageModel { StoreId = context.RouteData.Values["storeId"]?.ToString() ?? "", Error = message } } };
+                { Model = new WalletPageModel { StoreId = context.RouteData.Values["storeId"]?.ToString() ?? "", Error = message,
+                    Enabled = context.HttpContext.Items[typeof(WalletSettings)] is true,
+                    StoreName = context.HttpContext.GetStoreData()?.StoreName } } };
         context.ExceptionHandled = true;
     }
 }
