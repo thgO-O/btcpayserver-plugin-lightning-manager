@@ -16,8 +16,9 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
     private const long PaymentAmountSats = 500;
     private const long MaxFeeSats = 100;
     private const long ChannelCapacitySats = 100_000;
-    private const long LiquidityBootstrapSats = 10_000;
-    private const long RequiredOutboundLiquiditySats = 2 * (PaymentAmountSats + MaxFeeSats);
+    private const long LiquidityBootstrapSats = 30_000;
+    // Reported local balance includes reserves and commitment fee headroom.
+    private const long RequiredOutboundLiquiditySats = 20_000;
 
     [Fact(Timeout = 360_000)]
     [Trait("Integration", "Integration")]
@@ -59,6 +60,7 @@ public class LightningManagerBackendTests(ITestOutputHelper output) : UnitTestBa
         Assert.True(lndConnect.IsSuccess, $"LND peer connection failed: {lndConnect.Message}");
 
         await EnsureLndOutboundLiquidityAsync(cln, lnd, clnNode.NodeId, timeout.Token);
+        await LightningRouteReadiness.WaitAsync(lnd, clnNode.NodeId, PaymentAmountSats, timeout.Token);
 
         var clnChannels = new ChannelsViewModel();
         var lndChannels = new ChannelsViewModel();

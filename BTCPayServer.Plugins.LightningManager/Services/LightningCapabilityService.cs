@@ -20,6 +20,16 @@ public static class LightningCapabilityService
             LightningBackendTypes.LndGrpc or
             LightningBackendTypes.Eclair)
         {
+            if (type != LightningBackendTypes.Eclair)
+            {
+                return new LightningCapabilities
+                {
+                    CanGetDepositAddress = true, CanGetInfo = true, CanGetBalance = true,
+                    CanPayBolt11 = true, CanPayAmountless = true, CanSetMaxFee = true,
+                    CanConnectPeer = true, CanOpenChannel = true, CanListChannels = true,
+                    CanCreateWalletInvoice = true, CanLookupWalletOperation = true
+                };
+            }
             return LightningCapabilities.Full;
         }
 

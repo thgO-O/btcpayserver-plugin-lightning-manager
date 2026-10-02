@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BTCPayServer.Lightning;
-using BTCPayServer.Lightning.LND;
 using BTCPayServer.Services;
 using BTCPayServer.Tests;
 using BTCPayServer.Tests.Lnd;
@@ -19,7 +18,7 @@ public sealed class LightningManagerE2ECollection;
 [Trait("Playwright", "Playwright")]
 [Trait("Lightning", "Lightning")]
 [Collection("Lightning Manager E2E")]
-public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTestBase(output)
+public partial class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTestBase(output)
 {
     private const long ChannelAmountSats = 100_000;
     private const long PaymentAmountSats = 500;
@@ -108,7 +107,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             $"lightning-manager-e2e-{Guid.NewGuid():N}");
         Directory.CreateDirectory(isolatedPluginDirectory);
 
-        Environment.SetEnvironmentVariable("DEBUG_PLUGINS", GetPluginAssemblyPath());
+        Environment.SetEnvironmentVariable("DEBUG_PLUGINS", GetPluginAssemblyPath() + ";" + typeof(WalletWebAuthnTestPlugin).Assembly.Location);
         Environment.SetEnvironmentVariable("plugindir", isolatedPluginDirectory);
         Environment.SetEnvironmentVariable("BTCPAY_PLUGINDIR", isolatedPluginDirectory);
 
@@ -165,6 +164,11 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 $"The disposable fixture already has a {scenario.Name} channel to the test recipient. " +
                 "Recreate its volumes before rerunning this channel-opening test.");
 
+            // Start the host with its real CSP before the core browser helper sets NoCSP.
+            tester.Server.PayTester.NoCSP = false;
+            await tester.Server.StartAsync();
+            // Match the core WebAuthn tests: a trustworthy localhost origin is required.
+            tester.ServerUri = new Uri(tester.Server.PayTester.ServerUriWithIP.AbsoluteUri.Replace("127.0.0.1", "localhost", StringComparison.Ordinal));
             await tester.StartAsync();
             tester.Page.SetDefaultNavigationTimeout(NavigationTimeoutMilliseconds);
 
@@ -226,7 +230,7 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             if (pendingPoint is not null)
                 await Expect(tester.Page.GetByText(pendingPoint, new() { Exact = true })).ToHaveCountAsync(1);
 
-            await WaitForLndRouteAsync(scenario, recipientNode.NodeId, timeout.Token);
+            await LightningRouteReadiness.WaitAsync(scenario.Managed, recipientNode.NodeId, PaymentAmountSats, timeout.Token);
             await PayThroughUiAsync(
                 tester,
                 storeId,
@@ -243,6 +247,9 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
                 amountless: true,
                 scenario.IsInternalNode,
                 timeout.Token);
+
+            if (backend != ManagedBackend.Eclair)
+                await AssertWalletModeAsync(tester, storeId, scenario, timeout.Token);
 
             await tester.Page.AssertNoError();
             if (nonAdminOwner is not null)
@@ -609,6 +616,9 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
             .ToHaveCountAsync(0);
         await tester.AssertPageAccess(false, ManagerUrl(storeId, "overview"));
         await tester.AssertPageAccess(false, ManagerUrl(storeId, "fund"));
+        await tester.AssertPageAccess(false, $"/stores/{storeId}/lightning/BTC/wallet/");
+        await tester.AssertPageAccess(false, $"/stores/{storeId}/lightning/BTC/wallet/settings");
+        await tester.AssertPageAccess(false, $"/stores/{storeId}/lightning/BTC/wallet/operations/{Guid.NewGuid()}/status");
     }
 
     private static async Task AssertInternalNodeNoticeAsync(
@@ -718,41 +728,6 @@ public class LightningManagerPlaywrightTests(ITestOutputHelper output) : UnitTes
         await Expect(modal).ToBeHiddenAsync();
         await Expect(page.Locator("#bolt11")).ToHaveValueAsync(invoice);
         await Expect(page.Locator("#bolt11")).ToBeFocusedAsync();
-    }
-
-    private static async Task WaitForLndRouteAsync(
-        BackendScenario scenario,
-        PubKey recipient,
-        CancellationToken cancellationToken)
-    {
-        if (scenario.Managed is not LndClient lnd)
-            return;
-
-        // Channel activation and routing graph updates are asynchronous in LND.
-        // Query readiness without sending a payment or retrying the payment under test.
-        string lastResult = "No routes returned.";
-        for (var attempt = 0; attempt < 60; attempt++)
-        {
-            try
-            {
-                var response = await lnd.SwaggerClient.QueryRoutesAsync(
-                    recipient.ToString(),
-                    PaymentAmountSats.ToString(CultureInfo.InvariantCulture),
-                    null,
-                    cancellationToken);
-                if (response.Routes?.Count > 0)
-                    return;
-                lastResult = "No routes returned.";
-            }
-            catch (SwaggerException exception) when (!cancellationToken.IsCancellationRequested)
-            {
-                lastResult = exception.Response;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
-        }
-
-        Assert.Fail($"{scenario.Name} could not find a route for {PaymentAmountSats} sats to {recipient}: {lastResult}");
     }
 
     private static async Task WaitForActiveChannelInUiAsync(

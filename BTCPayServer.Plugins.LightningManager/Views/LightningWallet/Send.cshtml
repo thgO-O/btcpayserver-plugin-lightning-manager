@@ -1,0 +1,69 @@
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
+@{
+    Layout = "_LayoutWallet"; ViewData["WalletPage"] = "Send";
+    if (Model.Preview is null) Csp.UnsafeEval();
+}
+@section PageHeadContent {
+    <link href="~/vendor/vue-qrcode-reader/vue-qrcode-reader.css" rel="stylesheet" asp-append-version="true" />
+}
+<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">@(Model.Preview is null ? "Send a payment" : "Payment confirmation")</p><h1>@(Model.Preview is null ? "Pay Lightning" : "Review payment")</h1><p>@(Model.Preview is null ? "Scan a QR code or paste a Lightning invoice." : "Check the details before confirming with your passkey.")</p></div></div>
+<div class="ln-wallet__form-grid">
+    <section class="ln-wallet__card ln-wallet__form-card">
+        @if (!Model.HasPasskey)
+        {
+            <div class="ln-wallet__notice ln-wallet__passkey-notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="key" /></span><div><strong>Set up your passkey</strong><p><a asp-controller="UIManage" asp-action="Passkeys">Register a passkey</a> to pay. You can still receive and view your wallet.</p></div></div>
+        }
+        @if (Model.Preview is { } preview)
+        {
+            <div class="ln-wallet__review-amount"><span>You are sending</span><strong>@preview.AmountDisplay</strong></div>
+            <dl class="ln-wallet__review">
+                <div><dt>Description</dt><dd>@(string.IsNullOrEmpty(preview.Description) ? "No description" : preview.Description)</dd></div>
+                <div><dt>Maximum fee</dt><dd>@preview.MaxFeeDisplay</dd></div>
+                <div><dt>Expires</dt><dd><time datetime="@preview.ExpiresAt.ToString("O")" data-local-time>@preview.ExpiresAt.ToString("u")</time></dd></div>
+            </dl>
+            <details class="ln-wallet__details"><summary>Recipient node</summary><p class="font-monospace text-break">@preview.Payee</p></details>
+            <div class="ln-wallet__form-note"><span aria-hidden="true"><vc:icon symbol="lock" /></span>Lightning payments are final. Confirm the amount before paying.</div>
+            @if (Model.ConfirmationId is not null)
+            {
+                <form asp-controller="LightningWallet" asp-action="Execute" asp-route-storeId="@Model.StoreId" method="post" class="ln-wallet__confirm" data-challenge-url="@Url.Action("Challenge", "LightningWallet", new { storeId = Model.StoreId })">
+                    <input type="hidden" name="confirmationId" value="@Model.ConfirmationId" />
+                    <button type="button" class="btn btn-primary w-100"><span aria-hidden="true"><vc:icon symbol="key" /></span>Confirm with passkey</button>
+                </form>
+                <p class="ln-wallet__payment-message ln-wallet__inline-error" role="status" aria-live="polite"></p>
+                <noscript>JavaScript is required for passkey confirmation.</noscript>
+            }
+            <a asp-controller="LightningWallet" asp-action="Send" asp-route-storeId="@Model.StoreId" class="ln-wallet__text-link">Start over</a>
+        }
+        else
+        {
+            <form asp-controller="LightningWallet" asp-action="Preview" asp-route-storeId="@Model.StoreId" method="post">
+                <div class="form-group">
+                    <div class="ln-wallet__field-heading"><label for="bolt11" class="form-label">Lightning invoice</label><button type="button" class="btn btn-secondary ln-wallet__scan"><span aria-hidden="true"><vc:icon symbol="scan-qr" /></span>Scan QR</button></div>
+                    <textarea id="bolt11" name="bolt11" class="form-control font-monospace" rows="4" required placeholder="Paste an invoice starting with lnbc…" aria-describedby="invoice-help"></textarea>
+                    <p id="invoice-help" class="ln-wallet__help">BOLT11 invoices only. A lightning: prefix is also accepted.</p>
+                </div>
+                <div class="form-group">
+                    <label for="amountSats" class="form-label">Amount <span class="ln-wallet__optional">If not specified by invoice</span></label>
+                    <div class="ln-wallet__unit-input"><input id="amountSats" name="amountSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" placeholder="Use invoice amount" aria-describedby="send-amount-help" /><span>sats</span></div>
+                    <p id="send-amount-help" class="ln-wallet__help">Only needed for an invoice without an amount.</p>
+                </div>
+                <div class="form-group">
+                    <label for="maxFeeSats" class="form-label">Maximum routing fee</label>
+                    <div class="ln-wallet__unit-input"><input id="maxFeeSats" name="maxFeeSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" value="10" required aria-describedby="fee-help" /><span>sats</span></div>
+                    <p id="fee-help" class="ln-wallet__help">The payment will not exceed this fee limit.</p>
+                </div>
+                <button class="btn btn-primary w-100" type="submit">Review payment<span aria-hidden="true"><vc:icon symbol="caret-right" /></span></button>
+            </form>
+        }
+    </section>
+    <aside class="ln-wallet__aside"><span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="key" /></span><h2>You're in control</h2><p>Review the amount, description and fee limit. Your passkey authorizes this specific payment.</p><div class="ln-wallet__notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="info" /></span><p>A cancelled passkey prompt sends no payment. If a submitted payment's result is unknown, check its history before paying again.</p></div></aside>
+</div>
+@section PageFootContent {
+    @if (Model.Preview is null)
+    {
+        <script src="~/vendor/vuejs/vue.min.js" asp-append-version="true"></script>
+        <script src="~/vendor/vue-qrcode-reader/VueQrcodeReader.umd.min.js" asp-append-version="true"></script>
+        <partial name="CameraScanner" />
+    }
+}

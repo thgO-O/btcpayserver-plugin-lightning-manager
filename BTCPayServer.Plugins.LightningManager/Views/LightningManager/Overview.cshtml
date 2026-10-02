@@ -25,6 +25,16 @@
 
 <partial name="LightningManager/_InternalNodeNotice" model="Model" />
 
+@if (Model.IsConfigured && Model.Capabilities.CanCreateWalletInvoice)
+{
+    <div class="border rounded p-3 mb-4 d-flex flex-wrap align-items-center gap-3">
+        <span aria-hidden="true"><vc:icon symbol="wallet-wallet" /></span>
+        <div class="flex-grow-1"><h3 class="h6 mb-1">Wallet Mode</h3><p class="text-secondary small mb-0">A mobile interface for payments, receiving and wallet activity.</p></div>
+        <a asp-controller="LightningWallet" asp-action="Home" asp-route-storeId="@Model.StoreId" class="btn btn-primary">Open Wallet Mode</a>
+        <a asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId" class="btn btn-secondary" permission="@BTCPayServer.Client.Policies.CanModifyStoreSettings">Wallet Mode settings</a>
+    </div>
+}
+
 @if (!Model.IsConfigured)
 {
     <div class="alert alert-warning">@Model.ConfigurationMessage</div>

@@ -1,0 +1,66 @@
+@using BTCPayServer.Plugins.LightningManager.Wallet
+@model WalletPageModel
+@inject BTCPayServer.Security.ContentSecurityPolicies Csp
+@{
+    Layout = null;
+    Csp.Add("worker-src", "'self'");
+    var root = Url.Action("Home", "LightningWallet", new { storeId = Model.StoreId })!.TrimEnd('/') + "/";
+    var page = ViewData["WalletPage"] as string ?? "Home";
+    var navigation = new[] { (Page: "Home", Path: "", Icon: "wallet-wallet", Label: "Home"),
+        (Page: "Send", Path: "send", Icon: "payment-send", Label: "Pay"),
+        (Page: "Receive", Path: "receive", Icon: "payment-receive", Label: "Receive"),
+        (Page: "History", Path: "history", Icon: "nav-transactions", Label: "History") };
+    ViewData.SetTitle("Lightning Wallet");
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <partial name="LayoutHead" />
+    <meta name="theme-color" content="#141820" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="robots" content="noindex" />
+    <link rel="manifest" href="@(root + "manifest.webmanifest")" />
+    <link rel="apple-touch-icon" href="@(root + "assets/icon-192.png")" />
+    <link rel="stylesheet" href="@(root + "assets/wallet.css")" />
+    @await RenderSectionAsync("PageHeadContent", false)
+</head>
+<body class="ln-wallet-page">
+<a class="ln-wallet__skip" href="#wallet-content">Skip to content</a>
+<div class="ln-wallet" data-wallet-root="@root">
+    <header class="ln-wallet__header">
+        <a class="ln-wallet__brand" href="@(Model.Enabled ? root : root + "settings")">
+            <span class="ln-wallet__brand-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 46 84" focusable="false"><use href="@(Url.Content("~/img/logo.svg") + "#small")" /></svg>
+            </span>
+            <span><strong>Lightning Wallet</strong><small>@Model.StoreName</small></span>
+        </a>
+        <div class="ln-wallet__header-actions">
+            <a class="ln-wallet__icon-button" asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId" permission="@BTCPayServer.Client.Policies.CanModifyStoreSettings" aria-label="Wallet settings" title="Wallet settings" aria-current="@(page == "Settings" ? "page" : null)"><span aria-hidden="true"><vc:icon symbol="settings" /></span></a>
+            <a class="ln-wallet__manager" asp-controller="LightningManager" asp-action="Overview" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="BTC">Manager <span aria-hidden="true"><vc:icon symbol="caret-right" /></span></a>
+        </div>
+    </header>
+    <nav class="ln-wallet__nav" aria-label="Wallet">
+        @foreach (var item in navigation)
+        {
+            <a href="@(Model.Enabled ? root + item.Path : null)" aria-disabled="@(!Model.Enabled ? "true" : null)" aria-current="@(page == item.Page ? "page" : null)">
+                <span aria-hidden="true"><vc:icon symbol="@item.Icon" /></span><span>@item.Label</span>
+            </a>
+        }
+    </nav>
+    <main id="wallet-content" class="ln-wallet__content" tabindex="-1">@RenderBody()</main>
+    <footer class="ln-wallet__footer">
+        <details class="ln-wallet__install">
+            <summary><span aria-hidden="true"><vc:icon symbol="actions-download" /></span>Add to your phone</summary>
+            <div class="ln-wallet__install-content">
+                <p>Choose <strong>Install app</strong> or <strong>Add to Home Screen</strong> in your browser. On iPhone, use Safari's Share menu.</p>
+                <p>Use your BTCPay account to sign in. Manage your passkeys and sign out in <a asp-controller="UIManage" asp-action="Index">account settings</a>.</p>
+            </div>
+        </details>
+        <span class="ln-wallet__powered">Powered by BTCPay Server</span>
+    </footer>
+</div>
+<partial name="LayoutFoot" />
+@await RenderSectionAsync("PageFootContent", false)
+<script src="@(root + "assets/wallet.js")"></script>
+</body>
+</html>

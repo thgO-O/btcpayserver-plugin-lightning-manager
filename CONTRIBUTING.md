@@ -79,7 +79,7 @@ cd ../../..
 
 ## Native end-to-end tests
 
-The required service test and all five browser cases live in the xUnit E2E
+The service test, PostgreSQL wallet test, access test and five backend browser cases live in the xUnit E2E
 project. Run the complete project without a filter so a renamed trait cannot
 silently remove a release test. Its native xUnit configuration also treats
 skips as failures. Run its executable directly to use the xUnit runner without
@@ -139,6 +139,53 @@ cd ../../..
 ```
 
 ## Validation scope
+
+Wallet Mode extends the existing CLN/LND external and internal browser cases
+with a mobile viewport, native passkey enrollment through a Chromium virtual
+authenticator, fixed and amountless payments, receipt settlement, cancellation,
+modified payment details, confirmation replay protection, and a persistent history.
+The native verifier also receives a correctly signed assertion of the current
+user's resident passkey with UV=false: execution must reject it without a payment
+or journal row. Only the browser's request is relaxed for this negative case;
+the server challenge must remain userVerification=required.
+A previously paid amountless invoice is retried at a different amount and must
+be rejected without importing it into wallet history. Recovery checks retain the
+reviewed amount while displaying the native settled amount. PostgreSQL verifies
+the upgrade from the original wallet schema, backfilling old settled rows and
+preserving settled amount/fee against stale updates.
+An injected PostgreSQL write failure verifies no backend payment is submitted.
+The amountless flow pauses the insert behind a PostgreSQL advisory lock,
+navigates away from the paying document, observes RequestAborted on the server,
+then releases the insert and verifies settlement and a single journal record.
+They also simulate a lost local result after settlement, recreate storage, reconcile
+while disabled and reject duplicate submission. The additional access case verifies
+default-disabled activation, login/store authorization, a different account's
+valid passkey, public manifest access and offline public-assets-only caching.
+The PostgreSQL case checks repeatable migrations, cross-store
+concurrent claims, recovery after recreating the repository, node/store scoping
+and confirmed settlement taking precedence over an older failure without
+allowing stale updates to downgrade settlement or erase its fee. It also checks
+recovery from older failures, abandoned submissions, native LND invoice
+cancellation, lookup unavailability and serialized private route-hint flags.
+The deterministic tests read the actual store configuration blob and check
+LND OPEN/ACCEPTED/SETTLED/CANCELED states independently of wall-clock expiry.
+Browser hosts
+start with BTCPay's default CSP enabled before the core Playwright helper starts
+its browser. The access case verifies the scanner modal, service worker readiness
+without CSP violations and the offline retry link after reconnecting. CI requires
+all nine cases, including the Manager QR scanner case, and treats skips as failures.
+
+The test executable loads a metadata fixture for Chromium's virtual authenticator
+to avoid calls to the external FIDO MDS. Signature, origin, challenge, user ownership
+and user verification still run through BTCPay's real Fido2 verifier. This fixture
+is never included in the plugin artifact.
+
+Before releasing 0.2.0, manually check the exact installed artifact on Android
+and iPhone: installation from the browser, standalone launch and return after
+login, camera permission denied/granted, scan/cancel, passkey enrollment and
+payment confirmation, logout, and offline behavior. Confirm no authenticated
+HTML or financial responses appear in Cache Storage. Physical-device sign-off
+is pending; virtual-authenticator tests do not replace it.
 
 Repository validation consists of the Release build, deterministic tests,
 the CLN/LND service integration test, and native Playwright cases for CLN, LND,

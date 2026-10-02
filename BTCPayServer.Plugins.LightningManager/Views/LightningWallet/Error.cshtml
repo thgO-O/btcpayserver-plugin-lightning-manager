@@ -1,0 +1,9 @@
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@{ Layout = "_LayoutWallet"; }
+<section class="ln-wallet__card ln-wallet__empty ln-wallet__error-page">
+    <span class="ln-wallet__empty-icon" aria-hidden="true"><vc:icon symbol="warning" /></span>
+    <h1>Wallet unavailable</h1>
+    <p role="alert">@Model.Error</p>
+    <a class="btn btn-primary" asp-controller="LightningManager" asp-action="Overview" asp-route-storeId="@Model.StoreId" asp-route-cryptoCode="BTC">Back to Manager</a>
+    <a class="ln-wallet__text-link" asp-controller="LightningWallet" asp-action="Settings" asp-route-storeId="@Model.StoreId" permission="@BTCPayServer.Client.Policies.CanModifyStoreSettings">Wallet Mode settings</a>
+</section>

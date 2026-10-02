@@ -35,6 +35,8 @@ public sealed class LightningCapabilities
     private bool _canPayAmountless;
 
     public bool CanGetDepositAddress { get; init; }
+    public bool CanCreateWalletInvoice { get; init; }
+    public bool CanLookupWalletOperation { get; init; }
     public bool CanGetInfo { get; init; }
     public bool CanGetBalance { get; init; }
     public bool CanPayBolt11 { get; init; }

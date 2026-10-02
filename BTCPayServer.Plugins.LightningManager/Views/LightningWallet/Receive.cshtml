@@ -1,0 +1,26 @@
+@model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
+@{ Layout = "_LayoutWallet"; ViewData["WalletPage"] = "Receive"; }
+<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">Request a payment</p><h1>Receive Lightning</h1><p>Create an invoice to share with the sender.</p></div></div>
+<div class="ln-wallet__form-grid">
+    <section class="ln-wallet__card ln-wallet__form-card">
+        <form method="post" asp-controller="LightningWallet" asp-action="Receive" asp-route-storeId="@Model.StoreId">
+            <div class="form-group">
+                <label for="amountSats" class="form-label">Amount</label>
+                <div class="ln-wallet__amount-input"><input id="amountSats" name="amountSats" type="number" min="1" step="1" required inputmode="numeric" class="form-control" placeholder="0" aria-describedby="receive-amount-help" /><span>sats</span></div>
+                <p id="receive-amount-help" class="ln-wallet__help">Enter the amount you want to receive.</p>
+            </div>
+            <div class="form-group">
+                <label for="description" class="form-label">Description <span class="ln-wallet__optional">Optional</span></label>
+                <input id="description" name="description" maxlength="200" class="form-control" placeholder="What is this payment for?" />
+            </div>
+            <div class="ln-wallet__form-note"><span aria-hidden="true"><vc:icon symbol="time" /></span>Invoice expires in one hour</div>
+            <button class="btn btn-primary w-100" type="submit"><span aria-hidden="true"><vc:icon symbol="qr-code" /></span>Create invoice</button>
+        </form>
+    </section>
+    <aside class="ln-wallet__aside">
+        <span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="payment-receive" /></span>
+        <h2>Receive in three steps</h2>
+        <ol class="ln-wallet__steps"><li>Choose an amount and create your invoice.</li><li>Share the QR code or copy the invoice.</li><li>Keep this page open to see when it is paid.</li></ol>
+        <div class="ln-wallet__notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="info" /></span><p>Your node must be online and have inbound liquidity. Receiving does not require a passkey.</p></div>
+    </aside>
+</div>
