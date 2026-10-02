@@ -29,7 +29,9 @@
 <div class="ln-wallet" data-wallet-root="@root">
     <header class="ln-wallet__header">
         <a class="ln-wallet__brand" href="@(Model.Enabled ? root : root + "settings")">
-            <span class="ln-wallet__brand-icon" aria-hidden="true"><vc:icon symbol="lightning" /></span>
+            <span class="ln-wallet__brand-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 46 84" focusable="false"><use href="@(Url.Content("~/img/logo.svg") + "#small")" /></svg>
+            </span>
             <span><strong>Lightning Wallet</strong><small>@Model.StoreName</small></span>
         </a>
         <div class="ln-wallet__header-actions">

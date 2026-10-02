@@ -21,8 +21,8 @@
 .ln-wallet__brand > span:last-child { min-width: 0; }
 .ln-wallet__brand strong { display: block; font-size: 1.0625rem; letter-spacing: -.02em; }
 .ln-wallet__brand small { display: block; color: var(--wallet-muted); font-size: .8125rem; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: .125rem; }
-.ln-wallet__brand-icon { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: .875rem; color: white; background: var(--wallet-accent); flex-shrink: 0; }
-.ln-wallet__brand-icon .icon { width: 1.5rem; height: 1.5rem; }
+.ln-wallet__brand-icon { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; flex-shrink: 0; }
+.ln-wallet__brand-icon svg { width: 1.5rem; height: 2.75rem; }
 .ln-wallet__header-actions { display: flex; align-items: center; gap: .5rem; }
 .ln-wallet__icon-button, .ln-wallet__manager { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; color: var(--wallet-muted); border-radius: .75rem; }
 .ln-wallet__icon-button { width: 44px; }
