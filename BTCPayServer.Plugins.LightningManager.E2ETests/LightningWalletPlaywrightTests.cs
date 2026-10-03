@@ -193,6 +193,8 @@ public partial class LightningManagerPlaywrightTests
         foreach (var theme in new[] { "light", "dark" })
         {
             await tester.GoToUrl(root);
+            // GoToUrl waits for navigation commit, before the theme script necessarily runs.
+            await page.WaitForFunctionAsync("() => typeof window.setColorMode === 'function'");
             await page.EvaluateAsync("mode => window.setColorMode(mode)", theme);
             foreach (var width in new[] { 320, 390, 1280 })
             {
@@ -200,6 +202,7 @@ public partial class LightningManagerPlaywrightTests
                 foreach (var screen in screens)
                 {
                     await tester.GoToUrl(root + screen.Path);
+                    await Expect(page.Locator("html")).ToHaveAttributeAsync("data-btcpay-theme", theme);
                     var overflows = await page.EvaluateAsync<bool>("() => document.documentElement.scrollWidth > window.innerWidth");
                     Assert.False(overflows, $"{screen.Path} overflows at {width}px in {theme} mode.");
                     var current = page.Locator(".ln-wallet__nav [aria-current=page]");
