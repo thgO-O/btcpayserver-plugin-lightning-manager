@@ -148,7 +148,7 @@ else if (!Model.Capabilities.CanOpenChannel && !Model.Capabilities.CanListChanne
                         ? 100m - localPercentage
                         : 0m;
                     var statusBadgeClass = channel.IsPending is true
-                        ? "bg-warning text-dark"
+                        ? "text-bg-warning"
                         : channel.IsActive
                             ? "bg-success"
                             : "bg-secondary";
