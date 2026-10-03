@@ -55,7 +55,7 @@ public sealed class WalletRepository(WalletDbContextFactory factory)
         RequireReady();
         await using var db = factory.CreateContext();
         return await db.Operations.AsNoTracking().Where(x => x.State == "Pending" || x.State == "Unknown" || x.State == "Submitting" ||
-                (x.Direction == "Outgoing" && (x.State == "Failed" || (x.State == "Settled" && x.SettledAmountMsat == null))))
+                (x.State == "Settled" && x.SettledAmountMsat == null) || (x.Direction == "Outgoing" && x.State == "Failed"))
             .OrderBy(x => x.UpdatedAt).Take(100).ToListAsync(token);
     }
 

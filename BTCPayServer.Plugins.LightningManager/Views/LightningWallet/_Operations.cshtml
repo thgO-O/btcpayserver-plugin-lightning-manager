@@ -16,6 +16,6 @@
     <a asp-controller="LightningWallet" asp-action="Details" asp-route-storeId="@Model.StoreId" asp-route-id="@operation.Id" class="ln-wallet__operation">
         <span class="ln-wallet__operation-icon @(incoming ? "is-incoming" : "is-outgoing")" aria-hidden="true"><vc:icon symbol="@(incoming ? "payment-receive" : "payment-send")" /></span>
         <span class="ln-wallet__operation-description"><strong>@(string.IsNullOrEmpty(operation.Description) ? (incoming ? "Lightning invoice" : "Lightning payment") : operation.Description)</strong><small>@(incoming ? "Incoming" : "Payment") · <time datetime="@operation.CreatedAt.ToString("O")" data-local-time>@operation.CreatedAt.ToString("MMM d, HH:mm 'UTC'", CultureInfo.InvariantCulture)</time></small></span>
-        <span class="ln-wallet__operation-value"><strong>@(operation.DisplayAmountMsat is long amount ? (amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture) + " sats" : "Paid amount unavailable")</strong><small class="ln-wallet__state-text is-@statusClass">@operation.State</small></span>
+        <span class="ln-wallet__operation-value"><strong>@(operation.DisplayAmountMsat is long amount ? (amount / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture) + " sats" : incoming ? "Received amount unavailable" : "Paid amount unavailable")</strong><small class="ln-wallet__state-text is-@statusClass">@operation.State</small></span>
     </a>
 }

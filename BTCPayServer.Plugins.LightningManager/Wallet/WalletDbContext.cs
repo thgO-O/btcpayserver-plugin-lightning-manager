@@ -28,9 +28,9 @@ public sealed class WalletOperation
     public DateTimeOffset? ExpiresAt { get; set; }
     public bool IsFinal => State is "Settled" or "Failed" or "Expired";
     // A failed hash can belong to an older attempt and later become pending/settled.
-    public bool RequiresReconciliation => !IsFinal || (Direction == "Outgoing" &&
-        (State == "Failed" || (State == "Settled" && SettledAmountMsat is null)));
-    public long? DisplayAmountMsat => Direction == "Outgoing" && State == "Settled" ? SettledAmountMsat : AmountMsat;
+    public bool RequiresReconciliation => !IsFinal || (State == "Settled" && SettledAmountMsat is null) ||
+        (Direction == "Outgoing" && State == "Failed");
+    public long? DisplayAmountMsat => State == "Settled" ? SettledAmountMsat : AmountMsat;
 }
 
 public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) : DbContext(options)

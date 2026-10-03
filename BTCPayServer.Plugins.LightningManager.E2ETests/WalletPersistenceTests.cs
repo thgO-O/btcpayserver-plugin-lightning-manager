@@ -128,19 +128,20 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         Assert.Equal(1_000_000, backfilled.AmountMsat);
         Assert.Equal(1234, backfilled.FeeMsat);
         Assert.Empty(await restarted.PendingAsync(TestContext.Current.CancellationToken));
-        await AssertNativeReceivingAsync(restarted);
+        await AssertNativeReceivingAsync(restarted, factory);
     }
 
-    private static async Task AssertNativeReceivingAsync(WalletRepository repository)
+    private static async Task AssertNativeReceivingAsync(WalletRepository repository, WalletDbContextFactory repositoryFactory)
     {
         var token = TestContext.Current.CancellationToken;
         var peer = new LightningClientFactory(Network.RegTest).Create(Environment.GetEnvironmentVariable("TEST_CUSTOMERLIGHTNINGD") ?? "type=clightning;server=tcp://127.0.0.1:30992/");
         var network = new BTCPayNetwork { CryptoCode = "BTC", NBXplorerNetwork = new NBXplorerNetworkProvider(ChainName.Regtest).GetBTC() };
         foreach (var privateHints in new[] { false, true })
+        foreach (var state in new[] { "CANCELED", "SETTLED" })
         {
             // Use an actual, correctly signed BOLT11; observe native request serialization.
             var invoice = await peer.CreateInvoice(LightMoney.Satoshis(500), "Route hint regression", TimeSpan.FromHours(1), token);
-            var handler = new InvoiceHandler(invoice, privateHints);
+            var handler = new InvoiceHandler(invoice, privateHints) { State = state };
             using var http = new HttpClient(handler);
             var client = new LndClient(new LndSwaggerClient(new LndRestSettings(new Uri("https://lnd.example.test/")), http), Network.RegTest);
             var node = new WalletNode(new StoreLightningManagerContext
@@ -155,8 +156,43 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
             Assert.Equal("Pending", (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!.State);
             handler.Unavailable = false;
             await wallet.ReconcileAsync(node, operation, token);
-            Assert.Equal("Expired", operation.State);
-            Assert.Equal("Expired", (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!.State);
+            var saved = (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!;
+            if (state == "CANCELED")
+            {
+                Assert.Equal("Expired", saved.State);
+                continue;
+            }
+            Assert.Equal("Settled", saved.State);
+            Assert.Equal(500_000, saved.AmountMsat);
+            Assert.Equal(501_000, saved.SettledAmountMsat);
+            Assert.Equal(501_000, saved.DisplayAmountMsat);
+            Assert.False(saved.RequiresReconciliation);
+            Assert.Empty(await repository.PendingAsync(token));
+
+            // Existing settled receipts must backfill the received amount, even after restart.
+            await using (var db = repositoryFactory.CreateContext())
+                await db.Operations.Where(x => x.Id == saved.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.SettledAmountMsat, (long?)null), token);
+            var legacy = Assert.Single(await repository.PendingAsync(token));
+            Assert.Null(legacy.DisplayAmountMsat);
+            // Neither a stale state nor a missing received amount undoes confirmed settlement.
+            handler.State = "CANCELED";
+            await wallet.ReconcileAsync(node, legacy, token);
+            handler.State = "SETTLED";
+            handler.ReceivedMsat = null;
+            await wallet.ReconcileAsync(node, legacy, token);
+            saved = (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!;
+            Assert.Equal("Settled", saved.State);
+            Assert.Null(saved.DisplayAmountMsat);
+            Assert.Single(await repository.PendingAsync(token));
+            handler.ReceivedMsat = "501000";
+            await wallet.ReconcileAsync(node, legacy, token);
+            saved = (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!;
+            Assert.Equal(501_000, saved.DisplayAmountMsat);
+            Assert.Equal(500_000, saved.AmountMsat);
+            // A delayed reconciler cannot overwrite a known received amount.
+            operation.SettledAmountMsat = 500_000;
+            await repository.UpdateAsync(operation, token);
+            Assert.Equal(501_000, (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!.SettledAmountMsat);
         }
         Assert.Empty(await repository.PendingAsync(token));
     }
@@ -164,6 +200,8 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
     private sealed class InvoiceHandler(LightningInvoice invoice, bool privateHints) : HttpMessageHandler
     {
         public bool Unavailable { get; set; }
+        public string State { get; set; } = "CANCELED";
+        public string? ReceivedMsat { get; set; } = "501000";
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.Method == HttpMethod.Post)
@@ -179,7 +217,7 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
             }
             Assert.StartsWith("/v1/invoice/", request.RequestUri!.AbsolutePath, StringComparison.Ordinal);
             return new HttpResponseMessage(Unavailable ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
-            { Content = new StringContent("{\"state\":\"CANCELED\",\"settled\":false}") };
+            { Content = new StringContent(JsonConvert.SerializeObject(new { state = State, settled = State == "SETTLED", amt_paid_msat = ReceivedMsat })) };
         }
     }
 

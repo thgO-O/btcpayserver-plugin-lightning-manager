@@ -111,6 +111,30 @@ in the separate disposable Docker Compose project `wallet-merge-20261002`.
 The running manual-test server and its fixture were left intact. Local test
 results are saved under `output/wallet-merge-20261002/` and are not committed.
 
+## Received invoice amounts (2026-10-02)
+
+Incoming operations retain the requested invoice amount separately from the
+actual received amount, using the existing settled-amount column. LND reads
+its native `amt_paid_msat`; CLN supplies `AmountReceived`. Settled invoices
+without a received amount remain reconcilable, including existing records.
+An unavailable amount never downgrades confirmed settlement or replaces it
+with the requested amount. A stale update cannot overwrite a known received
+amount. No database migration is required.
+
+The final Release and Debug builds passed without warnings or errors, all 283
+deterministic tests passed, and the complete nine-case E2E executable passed
+in 184.601 seconds without failures or skips. The run used fresh volumes in
+the disposable `wallet-received-amount-20261002` fixture; results are saved in
+`output/wallet-received-amount-20261002/` and are not committed.
+
+Native adapter response tests cover 500 sats requested and 501 sats received
+on LND and CLN, plus missing received amounts. PostgreSQL tests verify the
+received amount, preservation of the requested amount, backfill of old receipts
+and stale-update protection. All four LND/CLN browser cases receive a real
+regtest payment, verify receipt/history amounts and backfill, and require the
+receipt to reload when settlement arrives with reconciliation still pending.
+The required CI case count remains nine because these extend existing cases.
+
 ## Remaining release checks
 
 Physical Android and iPhone validation is pending. Follow the device checklist

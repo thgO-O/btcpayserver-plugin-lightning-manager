@@ -138,22 +138,28 @@ public sealed class WalletService(
         return operation;
     }
 
-    public static async Task<LightningInvoiceStatus?> InvoiceStatusAsync(WalletNode node, string invoiceId, CancellationToken token)
+    public static async Task<LightningInvoice?> InvoiceAsync(WalletNode node, string invoiceId, CancellationToken token)
     {
         if (node.Context.Client is LndClient lnd)
         {
             // The generic adapter drops CANCELED invoices and infers expiry from the clock,
             // including ACCEPTED invoices that may still settle. Use LND's actual state.
             var invoice = await lnd.SwaggerClient.LookupInvoiceAsync(Encoders.Hex.DecodeData(invoiceId), token);
-            return invoice.State?.ToUpperInvariant() switch
+            var status = invoice.State?.ToUpperInvariant() switch
             {
                 "SETTLED" => LightningInvoiceStatus.Paid,
                 "CANCELED" => LightningInvoiceStatus.Expired,
                 "OPEN" or "ACCEPTED" => LightningInvoiceStatus.Unpaid,
                 _ => throw new WalletException("Invoice state is unavailable.")
             };
+            return new LightningInvoice
+            {
+                Status = status,
+                AmountReceived = long.TryParse(invoice.AmountPaid, NumberStyles.None, CultureInfo.InvariantCulture, out var received)
+                    ? new LightMoney(received, LightMoneyUnit.MilliSatoshi) : null
+            };
         }
-        return (await node.Context.Client!.GetInvoice(invoiceId, token))?.Status;
+        return await node.Context.Client!.GetInvoice(invoiceId, token);
     }
 
     public async Task<WalletOperation> ReconcileAsync(WalletNode node, WalletOperation operation, CancellationToken token)
@@ -161,13 +167,21 @@ public sealed class WalletService(
         if (!operation.RequiresReconciliation || operation.NodeIdentity != node.Identity) return operation;
         if (operation.Direction == "Incoming")
         {
-            var status = await InvoiceStatusAsync(node, operation.InvoiceId, token);
-            operation.State = status switch
+            var invoice = await InvoiceAsync(node, operation.InvoiceId, token);
+            if (operation.State == "Settled" && (invoice?.Status != LightningInvoiceStatus.Paid || invoice.AmountReceived is null))
             {
-                LightningInvoiceStatus.Paid => "Settled",
-                LightningInvoiceStatus.Expired => "Expired",
-                _ => operation.State
-            };
+                await repository.DeferAsync(operation.Id, token);
+                return operation;
+            }
+            if (operation.State != "Settled")
+                operation.State = invoice?.Status switch
+                {
+                    LightningInvoiceStatus.Paid => "Settled",
+                    LightningInvoiceStatus.Expired => "Expired",
+                    _ => operation.State
+                };
+            if (invoice?.Status == LightningInvoiceStatus.Paid)
+                operation.SettledAmountMsat = invoice.AmountReceived?.MilliSatoshi;
         }
         else
         {

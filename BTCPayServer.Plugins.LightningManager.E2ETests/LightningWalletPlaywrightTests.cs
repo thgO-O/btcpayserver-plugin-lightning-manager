@@ -5,6 +5,7 @@ using BTCPayServer.Tests;
 using Microsoft.Playwright;
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Xunit;
 using Npgsql;
 using static Microsoft.Playwright.Assertions;
@@ -261,9 +262,40 @@ public partial class LightningManagerPlaywrightTests
         await page.GetByRole(AriaRole.Button, new() { Name = "Create invoice", Exact = true }).ClickAsync();
         await Expect(page.Locator("#wallet-invoice")).ToBeVisibleAsync();
         var received = await page.Locator("#wallet-invoice").InnerTextAsync();
+        var statusUrl = new Uri(page.Url).AbsolutePath + "/status";
+        var observedDeferredSettlement = false;
+        // A paid state can arrive before its received amount is ready. The UI must
+        // refresh the receipt on settlement even while reconciliation continues.
+        await page.RouteAsync("**" + statusUrl, async route =>
+        {
+            var response = await route.FetchAsync();
+            var status = JObject.Parse(await response.TextAsync());
+            if (status["state"]!.Value<string>() == "Settled") observedDeferredSettlement = true;
+            status["final"] = false;
+            await route.FulfillAsync(new() { Response = response, Body = status.ToString(Formatting.None) });
+        });
         var paid = await scenario.Recipient.Pay(received, new PayInvoiceParams { MaxFeeFlat = NBitcoin.Money.Satoshis(100) }, token);
         Assert.Equal(PayResult.Ok, paid.Result);
         await Expect(page.Locator("[data-status-url]")).ToHaveTextAsync("Settled", new() { Timeout = 30_000 });
+        await Expect(page.Locator("[data-status-url]")).ToHaveAttributeAsync("data-final", "true");
+        Assert.True(observedDeferredSettlement, "The receipt must refresh after a settled status with final=false.");
+        await page.UnrouteAsync("**" + statusUrl);
+        await Expect(page.Locator("[data-operation-amount]")).ToHaveTextAsync("500 sats");
+        var receivedId = Guid.Parse(new Uri(page.Url).Segments.Last());
+        await using (var db = tester.Server.PayTester.GetService<WalletDbContextFactory>().CreateContext())
+        {
+            var receipt = await db.Operations.SingleAsync(x => x.Id == receivedId, token);
+            Assert.Equal(500_000, receipt.AmountMsat);
+            Assert.Equal(500_000, receipt.SettledAmountMsat);
+            // Simulate a settled invoice recorded before received amounts were persisted.
+            await db.Operations.Where(x => x.Id == receivedId).ExecuteUpdateAsync(s => s.SetProperty(x => x.SettledAmountMsat, (long?)null), token);
+        }
+        await tester.GoToUrl(root + "operations/" + receivedId);
+        await Expect(page.Locator("[data-operation-amount]")).ToHaveTextAsync("500 sats");
+        await using (var db = tester.Server.PayTester.GetService<WalletDbContextFactory>().CreateContext())
+            Assert.Equal(500_000, (await db.Operations.SingleAsync(x => x.Id == receivedId, token)).SettledAmountMsat);
+        await tester.GoToUrl(root + "history");
+        await Expect(page.Locator($".ln-wallet__operation[href$='/operations/{receivedId}'] .ln-wallet__operation-value strong")).ToHaveTextAsync("500 sats");
 
         var session = await page.Context.NewCDPSessionAsync(page);
         await session.SendAsync("WebAuthn.enable");

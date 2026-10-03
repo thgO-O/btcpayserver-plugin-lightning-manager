@@ -166,6 +166,10 @@ flag differences from the review, including a payment completed through another
 interface during submission. An unavailable paid amount is shown as unavailable
 and fetched again; it is never inferred from the reviewed amount. Existing
 settled records are also backfilled without sending payments.
+Receiving invoices likewise retain the requested amount separately from the
+amount actually received. Details and history show the received amount, including
+payments above the invoice amount; older settled invoices are backfilled from
+the node without creating another invoice.
 
 Wallet operations are persisted in plugin-owned PostgreSQL tables. A payment is
 durably claimed before contacting the backend, including across stores connected

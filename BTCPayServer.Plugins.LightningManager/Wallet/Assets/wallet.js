@@ -73,9 +73,10 @@
                 const response = await fetch(status.dataset.statusUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
                 if (!response.ok || response.redirected) throw new Error();
                 const data = await response.json();
+                const settled = data.state === 'Settled' && status.dataset.state !== data.state;
                 status.textContent = data.state;
                 status.dataset.state = data.state;
-                if (data.final) { clearInterval(timer); location.reload(); }
+                if (data.final || settled) { clearInterval(timer); location.reload(); }
                 document.querySelector('.ln-wallet__status-error').textContent = '';
             } catch {
                 document.querySelector('.ln-wallet__status-error').textContent = 'Status unavailable. Check again when connected; do not assume the payment failed.';
