@@ -155,6 +155,7 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
             await Assert.ThrowsAsync<SwaggerException>(() => wallet.ReconcileAsync(node, operation, token));
             Assert.Equal("Pending", (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!.State);
             handler.Unavailable = false;
+            if (state == "SETTLED") handler.ReceivedMsat = null;
             await wallet.ReconcileAsync(node, operation, token);
             var saved = (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!;
             if (state == "CANCELED")
@@ -162,6 +163,17 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
                 Assert.Equal("Expired", saved.State);
                 continue;
             }
+            // The first settlement may arrive before the node supplies its received amount.
+            // Persist the settlement without inferring that amount from the invoice request.
+            Assert.Equal("Settled", saved.State);
+            Assert.Equal(500_000, saved.AmountMsat);
+            Assert.Null(saved.SettledAmountMsat);
+            Assert.Null(saved.DisplayAmountMsat);
+            Assert.True(saved.RequiresReconciliation);
+            Assert.Equal(saved.Id, Assert.Single(await repository.PendingAsync(token)).Id);
+            handler.ReceivedMsat = "501000";
+            await wallet.ReconcileAsync(node, saved, token);
+            saved = (await repository.GetAsync(operation.Id, operation.StoreId, node.Identity, token))!;
             Assert.Equal("Settled", saved.State);
             Assert.Equal(500_000, saved.AmountMsat);
             Assert.Equal(501_000, saved.SettledAmountMsat);
