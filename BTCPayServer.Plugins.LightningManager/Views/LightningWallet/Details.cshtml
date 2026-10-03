@@ -24,6 +24,13 @@
         <p class="ln-wallet__receipt-description">@(string.IsNullOrEmpty(op.Description) ? (incoming ? "Lightning invoice" : "Lightning payment") : op.Description)</p>
         <p class="ln-wallet__status" role="status" data-state="@op.State" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@((op.IsFinal && !op.RequiresReconciliation).ToString().ToLowerInvariant())">@op.State</p>
         <p class="ln-wallet__status-error ln-wallet__inline-error" role="status"></p>
+        @if (!incoming)
+        {
+            <div class="ln-wallet__notice ln-wallet__notice-warning" data-payment-failure hidden="@(op.State != "Failed")" role="status" aria-live="polite">
+                <span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="warning" /></span>
+                <div><strong>Payment failed</strong><p data-failure-message>@op.FailureMessage</p><p class="mt-2">Inspect this payment on your node using the payment hash below for more details. This wallet never retries it automatically.</p></div>
+            </div>
+        }
         @if (op.State == "Settled" && op.SettledAmountMsat != op.AmountMsat)
         {
             <div class="ln-wallet__notice ln-wallet__notice-warning"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="warning" /></span><p>The @(incoming ? "requested" : "reviewed") amount was @((op.AmountMsat / 1000m).ToString("#,0.###", CultureInfo.InvariantCulture)) sats.

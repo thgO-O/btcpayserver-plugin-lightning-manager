@@ -68,6 +68,7 @@ public sealed class WalletRepository(WalletDbContextFactory factory)
             (x.State != "Settled" || (operation.State == "Settled" && x.SettledAmountMsat == null && operation.SettledAmountMsat != null)) &&
             (operation.State == "Settled" || x.State != "Expired"))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, operation.State)
+                .SetProperty(x => x.FailureReason, x => operation.State == "Failed" ? operation.FailureReason ?? x.FailureReason : null)
                 .SetProperty(x => x.SettledAmountMsat, x => x.SettledAmountMsat ?? operation.SettledAmountMsat)
                 .SetProperty(x => x.FeeMsat, x => x.State == "Settled" ? x.FeeMsat ?? operation.FeeMsat : operation.FeeMsat)
                 .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);

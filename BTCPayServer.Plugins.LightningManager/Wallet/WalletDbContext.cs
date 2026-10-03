@@ -23,6 +23,7 @@ public sealed class WalletOperation
     public long? FeeMsat { get; set; }
     public long? MaxFeeSats { get; set; }
     public string State { get; set; } = "Pending";
+    public string? FailureReason { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ExpiresAt { get; set; }
@@ -31,6 +32,9 @@ public sealed class WalletOperation
     public bool RequiresReconciliation => !IsFinal || (State == "Settled" && SettledAmountMsat is null) ||
         (Direction == "Outgoing" && State == "Failed");
     public long? DisplayAmountMsat => State == "Settled" ? SettledAmountMsat : AmountMsat;
+    public string? FailureMessage => State == "Failed"
+        ? FailureReason ?? "The node confirmed that this payment failed. A detailed failure reason is unavailable."
+        : null;
 }
 
 public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) : DbContext(options)
@@ -45,6 +49,7 @@ public sealed class WalletDbContext(DbContextOptions<WalletDbContext> options) :
         op.Ignore(x => x.IsFinal);
         op.Ignore(x => x.RequiresReconciliation);
         op.Ignore(x => x.DisplayAmountMsat);
+        op.Ignore(x => x.FailureMessage);
         op.HasIndex(x => new { x.NodeIdentity, x.PaymentHash, x.Direction }).IsUnique();
         op.HasIndex(x => new { x.StoreId, x.NodeIdentity, x.CreatedAt });
         op.HasIndex(x => x.State);

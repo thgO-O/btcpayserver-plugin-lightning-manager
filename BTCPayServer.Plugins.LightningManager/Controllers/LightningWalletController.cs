@@ -218,7 +218,8 @@ public sealed class LightningWalletController(
         var operation = await repository.GetAsync(id, StoreId, node.Identity, cancellationToken);
         if (operation is null) return NotFound();
         await wallet.ReconcileAsync(node, operation, cancellationToken);
-        return Json(new { state = operation.State, final = operation.IsFinal && !operation.RequiresReconciliation });
+        return Json(new { state = operation.State, final = operation.IsFinal && !operation.RequiresReconciliation,
+            failureMessage = operation.FailureMessage });
     }
 }
 

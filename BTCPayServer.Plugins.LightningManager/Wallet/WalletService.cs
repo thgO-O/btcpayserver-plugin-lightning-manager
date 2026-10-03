@@ -113,6 +113,7 @@ public sealed class WalletService(
                 LightningPaymentStatus.Pending => "Pending",
                 _ => "Unknown"
             };
+            operation.FailureReason = operation.State == "Failed" ? result.FailureReason : null;
             // Persist the node's actual amount, separately from the passkey-authorized amount.
             if (operation.State == "Settled")
             {
@@ -213,6 +214,7 @@ public sealed class WalletService(
             if (payment?.Status == LightningPaymentStatus.Complete)
                 operation.SettledAmountMsat = payment.Amount?.MilliSatoshi;
             operation.FeeMsat = payment?.Fee?.MilliSatoshi;
+            if (operation.State != "Failed") operation.FailureReason = null;
         }
         await repository.UpdateAsync(operation, token);
         return operation;

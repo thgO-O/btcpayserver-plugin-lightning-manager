@@ -55,15 +55,21 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
         Assert.Null(await restarted.GetAsync(winner.Id, winner.StoreId, "regtest:changed-node", TestContext.Current.CancellationToken));
         // A lookup of a previous backend attempt can arrive before this executor's success.
         winner.State = "Failed";
+        winner.FailureReason = "No route to the invoice destination was found.";
         await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
-        Assert.Equal("Failed", (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
+        var failedReceipt = (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!;
+        Assert.Equal("Failed", failedReceipt.State);
+        Assert.Equal(winner.FailureReason, failedReceipt.FailureMessage);
         // A timeout/pending result must replace an older failure, and failed rows
         // must remain discoverable even when the executor never saved its result.
         foreach (var uncertain in new[] { "Pending", "Unknown" })
         {
             durable.State = uncertain;
             await restarted.UpdateAsync(durable, TestContext.Current.CancellationToken);
-            Assert.Equal(uncertain, (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!.State);
+            var updated = (await restarted.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken))!;
+            Assert.Equal(uncertain, updated.State);
+            Assert.Null(updated.FailureReason);
+            Assert.Null(updated.FailureMessage);
             await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
             Assert.Single(await restarted.PendingAsync(TestContext.Current.CancellationToken));
         }
@@ -105,6 +111,8 @@ public class WalletPersistenceTests(ITestOutputHelper output) : UnitTestBase(out
             await repository.UpdateAsync(winner, TestContext.Current.CancellationToken);
             var settled = await repository.GetAsync(winner.Id, winner.StoreId, winner.NodeIdentity, TestContext.Current.CancellationToken);
             Assert.Equal("Settled", settled!.State);
+            Assert.Null(settled.FailureReason);
+            Assert.Null(settled.FailureMessage);
             Assert.Equal(1234, settled.FeeMsat);
             Assert.Equal(500_000, settled.SettledAmountMsat);
             Assert.Equal(1_000_000, settled.AmountMsat);

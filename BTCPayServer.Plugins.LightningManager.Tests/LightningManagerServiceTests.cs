@@ -815,6 +815,60 @@ public class LightningManagerServiceTests
         Assert.Equal(LightningPaymentStatus.Failed, result.Payment!.Status);
     }
 
+    [Theory]
+    [InlineData("FAILURE_REASON_NO_ROUTE", "No route to the invoice destination was found.")]
+    [InlineData("FAILURE_REASON_INSUFFICIENT_BALANCE", "The node reported insufficient spendable Lightning balance.")]
+    [InlineData("FAILURE_REASON_INCORRECT_PAYMENT_DETAILS", "The recipient rejected the payment details. Ask for a new invoice.")]
+    [InlineData("FAILURE_REASON_TIMEOUT", "The node reached its payment attempt time limit before completing the payment.")]
+    [InlineData("FAILURE_REASON_CANCELED", "The payment was canceled by the node.")]
+    [InlineData("FAILURE_REASON_ERROR", "The node reported a non-recoverable payment error.")]
+    public async Task SendAsync_TranslatesKnownLndFailureCodesOnlyAfterConfirmedFailure(string code, string expected)
+    {
+        foreach (var status in new[] { LightningPaymentStatus.Failed, LightningPaymentStatus.Pending, LightningPaymentStatus.Complete })
+        {
+            var client = new FakeLightningClient
+            {
+                PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(
+                    code is "FAILURE_REASON_NO_ROUTE" or "FAILURE_REASON_INSUFFICIENT_BALANCE" ? PayResult.CouldNotFindRoute : PayResult.Error, code)),
+                GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment { Status = status, PaymentHash = FixedAmountPaymentHash })
+            };
+            var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client,
+                connectionString: "type=lnd-rest;server=https://example.com/");
+            var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
+            Assert.Equal(status, result.Payment!.Status);
+            if (status == LightningPaymentStatus.Failed)
+            {
+                Assert.False(result.Result.IsSuccess);
+                Assert.Equal(expected, result.FailureReason);
+                Assert.Equal(expected, result.Result.Message);
+            }
+            else
+            {
+                Assert.Null(result.FailureReason);
+                Assert.Equal(status == LightningPaymentStatus.Complete, result.Result.IsSuccess);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("FAILURE_REASON_NEW_CODE")]
+    [InlineData("FAILURE_REASON_NO_ROUTE;macaroon=secret;server=http://127.0.0.1")]
+    [InlineData("insufficient balance: macaroon=secret")]
+    public async Task SendAsync_ConfirmedFailureDoesNotExposeUnrecognizedProviderDetails(string detail)
+    {
+        var client = new FakeLightningClient
+        {
+            PayBolt11Handler = (_, _) => Task.FromResult(new PayResponse(PayResult.Error, detail)),
+            GetPaymentHandler = (_, _) => Task.FromResult(new LightningPayment { Status = LightningPaymentStatus.Failed })
+        };
+        var context = TestContextFactory.CreateConfigured(LightningCapabilities.Full, client,
+            connectionString: "type=lnd-rest;server=https://example.com/");
+        var result = await _service.SendAsync(context, TestInvoiceData.FixedAmountBolt11, null, null);
+        Assert.Equal(LightningPaymentStatus.Failed, result.Payment!.Status);
+        Assert.Equal("Lightning payment failed.", result.Result.Message);
+        Assert.Null(result.FailureReason);
+    }
+
     [Fact]
     public async Task SendAsync_WhenBlinkResponseConfirmsFailureAndLookupIsEmpty_ReturnsFailed()
     {

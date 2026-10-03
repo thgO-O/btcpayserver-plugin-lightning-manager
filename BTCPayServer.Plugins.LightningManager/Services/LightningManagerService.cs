@@ -13,6 +13,7 @@ public class SendExecutionResult
 {
     public required ActionResultViewModel Result { get; init; }
     public SendResultDetailsViewModel? Payment { get; init; }
+    public string? FailureReason { get; init; }
 }
 
 public sealed class LightningManagerService
@@ -470,6 +471,7 @@ public sealed class LightningManagerService
                 }
             }
 
+            var failureReason = GetPaymentFailureReason(context, payResponse);
             var result = payResponse.Result switch
             {
                 PayResult.Ok => new SendExecutionResult
@@ -484,11 +486,12 @@ public sealed class LightningManagerService
                 },
                 PayResult.CouldNotFindRoute => new SendExecutionResult
                 {
-                    Result = Failure("No route to the invoice destination was found.")
+                    Result = Failure(failureReason ?? "No route to the invoice destination was found.")
                 },
                 PayResult.Error when details.Status == LightningPaymentStatus.Failed => new SendExecutionResult
                 {
-                    Result = Failure("Lightning payment failed."),
+                    Result = Failure(failureReason ?? "Lightning payment failed."),
+                    FailureReason = failureReason,
                     Payment = details
                 },
                 _ => new SendExecutionResult
@@ -1119,6 +1122,7 @@ public sealed class LightningManagerService
             };
         }
 
+        var failureReason = GetPaymentFailureReason(context, response);
         return payment?.Status switch
         {
             LightningPaymentStatus.Complete => new SendExecutionResult
@@ -1133,11 +1137,29 @@ public sealed class LightningManagerService
             },
             LightningPaymentStatus.Failed => new SendExecutionResult
             {
-                Result = Failure("Lightning payment failed."),
+                Result = Failure(failureReason ?? "Lightning payment failed."),
+                FailureReason = failureReason,
                 Payment = CreatePaymentDetails(preview, payment)
             },
             _ => null
         };
+    }
+
+    private static string? GetPaymentFailureReason(StoreLightningManagerContext context, PayResponse? response)
+    {
+        // Only translate exact, documented codes. Raw provider errors can contain credentials.
+        var reason = IsLndBackend(context) ? response?.ErrorDetail switch
+        {
+            "FAILURE_REASON_NO_ROUTE" => "No route to the invoice destination was found.",
+            "FAILURE_REASON_INSUFFICIENT_BALANCE" => "The node reported insufficient spendable Lightning balance.",
+            "FAILURE_REASON_INCORRECT_PAYMENT_DETAILS" => "The recipient rejected the payment details. Ask for a new invoice.",
+            "FAILURE_REASON_TIMEOUT" => "The node reached its payment attempt time limit before completing the payment.",
+            "FAILURE_REASON_CANCELED" => "The payment was canceled by the node.",
+            "FAILURE_REASON_ERROR" => "The node reported a non-recoverable payment error.",
+            _ => null
+        } : null;
+        return reason ?? (response?.Result == PayResult.CouldNotFindRoute
+            ? "No route to the invoice destination was found." : null);
     }
 
     private static ActionResultViewModel Success(string message)

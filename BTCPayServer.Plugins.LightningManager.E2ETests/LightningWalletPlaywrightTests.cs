@@ -531,6 +531,75 @@ public partial class LightningManagerPlaywrightTests
 
             await tester.GoToUrl(root + "history");
             await Expect(page.Locator(".ln-wallet__operation")).ToHaveCountAsync(3);
+            if (scenario.Managed is BTCPayServer.Lightning.LND.LndClient)
+            {
+                // A real LND rejection must survive persistence and be visible without a reload.
+                var unaffordable = await scenario.Recipient.CreateInvoice(LightMoney.Satoshis(10_000_000),
+                    "Wallet insufficient outbound liquidity", TimeSpan.FromMinutes(5), token);
+                await tester.GoToUrl(root + "send");
+                await page.Locator("#bolt11").FillAsync(unaffordable.BOLT11);
+                await page.Locator("#maxFeeSats").FillAsync("100");
+                await page.GetByRole(AriaRole.Button, new() { Name = "Review payment", Exact = true }).ClickAsync();
+                await page.GetByRole(AriaRole.Button, new() { Name = "Confirm with passkey", Exact = true }).ClickAsync();
+                await Expect(page.Locator("[data-status-url]")).ToHaveTextAsync("Failed", new() { Timeout = 30_000 });
+                var reason = "The node reported insufficient spendable Lightning balance.";
+                await Expect(page.Locator("[data-payment-failure]")).ToBeVisibleAsync();
+                await Expect(page.Locator("[data-failure-message]")).ToHaveTextAsync(reason);
+                Assert.NotEqual(LightningInvoiceStatus.Paid, (await scenario.Recipient.GetInvoice(unaffordable.Id, token)).Status);
+                var failedId = Guid.Parse(new Uri(page.Url).Segments.Last());
+                var factory = tester.Server.PayTester.GetService<WalletDbContextFactory>();
+                var restarted = new WalletRepository(factory);
+                await restarted.InitializeAsync(token);
+                var failedReceipt = (await restarted.GetAsync(failedId, storeId, priorNode.Identity, token))!;
+                Assert.Equal(reason, failedReceipt.FailureReason);
+                // Simulate the receipt still showing an in-flight snapshot when the
+                // real status endpoint returns the failure. Gate polling during setup.
+                var failedStatusRoute = "**" + new Uri(page.Url).AbsolutePath + "/status";
+                var statusRequestPending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var allowFailureStatus = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await page.RouteAsync(failedStatusRoute, async route =>
+                {
+                    statusRequestPending.TrySetResult();
+                    await allowFailureStatus.Task.WaitAsync(token);
+                    await route.ContinueAsync();
+                });
+                try
+                {
+                    await statusRequestPending.Task.WaitAsync(TimeSpan.FromSeconds(10), token);
+                    var documentMarker = await page.EvaluateAsync<string>("""
+                        () => {
+                            const status = document.querySelector('[data-status-url]');
+                            status.dataset.state = status.textContent = 'Pending';
+                            const failure = document.querySelector('[data-payment-failure]');
+                            failure.hidden = true;
+                            failure.querySelector('[data-failure-message]').textContent = '';
+                            return window.walletFailureDocument = crypto.randomUUID();
+                        }
+                        """);
+                    await Expect(page.Locator("[data-status-url]")).ToHaveTextAsync("Pending");
+                    await Expect(page.Locator("[data-payment-failure]")).ToBeHiddenAsync();
+                    allowFailureStatus.SetResult();
+                    await Expect(page.Locator("[data-status-url]")).ToHaveTextAsync("Failed", new() { Timeout = 10_000 });
+                    await Expect(page.Locator("[data-payment-failure]")).ToBeVisibleAsync();
+                    await Expect(page.Locator("[data-failure-message]")).ToHaveTextAsync(reason);
+                    Assert.Equal(documentMarker, await page.EvaluateAsync<string>("() => window.walletFailureDocument"));
+                }
+                finally
+                {
+                    allowFailureStatus.TrySetResult();
+                    await page.UnrouteAsync(failedStatusRoute);
+                }
+                await tester.GoToUrl(root + "history");
+                await Expect(page.Locator(".ln-wallet__operation")).ToHaveCountAsync(4);
+                await page.Locator($".ln-wallet__operation[href$='/operations/{failedId}']").ClickAsync();
+                await Expect(page.Locator("[data-failure-message]")).ToHaveTextAsync(reason);
+                // Legacy failed receipts have no saved reason and must say so explicitly.
+                await using (var db = factory.CreateContext())
+                    await db.Operations.Where(x => x.Id == failedId).ExecuteUpdateAsync(s => s.SetProperty(x => x.FailureReason, (string?)null), token);
+                await tester.GoToUrl(root + "operations/" + failedId);
+                await Expect(page.Locator("[data-payment-failure]")).ToBeVisibleAsync();
+                await Expect(page.Locator("[data-failure-message]")).ToContainTextAsync("A detailed failure reason is unavailable.");
+            }
             var manifestResponse = await page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "manifest.webmanifest").ToString());
             dynamic manifest = JsonConvert.DeserializeObject((await manifestResponse.TextAsync()))!;
             Assert.Equal(root, (string)manifest.scope);

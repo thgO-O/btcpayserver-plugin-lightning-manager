@@ -76,6 +76,11 @@
                 const settled = data.state === 'Settled' && status.dataset.state !== data.state;
                 status.textContent = data.state;
                 status.dataset.state = data.state;
+                const failure = document.querySelector('[data-payment-failure]');
+                if (failure) {
+                    failure.hidden = data.state !== 'Failed';
+                    failure.querySelector('[data-failure-message]').textContent = data.failureMessage || '';
+                }
                 if (data.final || settled) { clearInterval(timer); location.reload(); }
                 document.querySelector('.ln-wallet__status-error').textContent = '';
             } catch {

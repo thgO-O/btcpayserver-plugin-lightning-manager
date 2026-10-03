@@ -158,6 +158,14 @@ payment is not treated as expired just because its BOLT11 deadline passed.
 Canceled invoices are displayed as expired. A lookup failure preserves the
 last known state.
 
+Failed outgoing payments show a readable reason when the backend supplied a
+recognized failure code. The reason is saved with the Wallet Mode operation and
+remains available after a restart. Older operations or failures without a known
+reason show an explicit message that details are unavailable. Expand **Payment
+details** to find the payment hash; on LND, inspect it with
+`bitcoin-lncli.sh trackpayment PAYMENT_HASH`. Pending or unknown outcomes are
+not treated as confirmed failures, and payments are never retried automatically.
+
 Before submitting, the wallet checks whether the node already knows the hash as
 paid or in progress and rejects it without creating a new wallet operation.
 The journal retains the reviewed amount separately from the actual settled amount
