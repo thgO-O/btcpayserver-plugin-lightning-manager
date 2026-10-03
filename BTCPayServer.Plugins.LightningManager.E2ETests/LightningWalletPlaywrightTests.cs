@@ -146,18 +146,28 @@ public partial class LightningManagerPlaywrightTests
             await tester.LogIn(operatorEmail);
             var settings = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "settings").ToString());
             Assert.Equal(403, settings.Status);
-            await tester.GoToUrl(root + "send");
-            await tester.Page.Locator("#bolt11").FillAsync("invalid-invoice");
-            await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Review payment", Exact = true }).ClickAsync();
-            await Expect(tester.Page.GetByRole(AriaRole.Alert)).ToHaveTextAsync("The BOLT11 invoice is invalid.");
-            await Expect(tester.Page.Locator(".ln-wallet__nav a[href]")).ToHaveCountAsync(4);
-            await Expect(tester.Page.Locator(".ln-wallet__nav [aria-disabled=true]")).ToHaveCountAsync(0);
-            await Expect(tester.Page.Locator(".ln-wallet__brand")).ToHaveAttributeAsync("href", root);
-            await Expect(tester.Page.Locator(".ln-wallet__icon-button")).ToHaveCountAsync(0);
-            await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Pay", Exact = true }).ClickAsync();
-            await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Pay Lightning", Exact = true })).ToBeVisibleAsync();
-            await tester.Page.Locator(".ln-wallet__brand").ClickAsync();
-            await Expect(tester.Page.Locator(".ln-wallet__balance")).ToBeVisibleAsync();
+            foreach (var invalid in new[]
+            {
+                (Path: "send", Field: "bolt11", Value: "invalid-invoice", Button: "Review payment", Error: "The BOLT11 invoice is invalid."),
+                // Valid for the HTML number input, but outside the server's Int64 range.
+                (Path: "receive", Field: "amountSats", Value: "10000000000000000000", Button: "Create invoice", Error: "Enter a positive whole number of sats.")
+            })
+            {
+                await tester.GoToUrl(root + invalid.Path);
+                await tester.Page.Locator("#" + invalid.Field).FillAsync(invalid.Value);
+                await tester.Page.GetByRole(AriaRole.Button, new() { Name = invalid.Button, Exact = true }).ClickAsync();
+                await Expect(tester.Page.GetByRole(AriaRole.Alert)).ToHaveTextAsync(invalid.Error);
+                await Expect(tester.Page.Locator(".ln-wallet__nav a[href]")).ToHaveCountAsync(4);
+                await Expect(tester.Page.Locator(".ln-wallet__nav [aria-disabled=true]")).ToHaveCountAsync(0);
+                await Expect(tester.Page.Locator(".ln-wallet__brand")).ToHaveAttributeAsync("href", root);
+                await Expect(tester.Page.Locator(".ln-wallet__icon-button")).ToHaveCountAsync(0);
+                await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Pay", Exact = true }).ClickAsync();
+                await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Pay Lightning", Exact = true })).ToBeVisibleAsync();
+                await tester.Page.Locator(".ln-wallet__brand").ClickAsync();
+                await Expect(tester.Page.Locator(".ln-wallet__balance")).ToBeVisibleAsync();
+            }
+            await tester.GoToUrl(root + "history");
+            await Expect(tester.Page.Locator(".ln-wallet__operation")).ToHaveCountAsync(0);
             await stores.UpdateSetting(storeId, WalletSettings.Key, new WalletSettings { Enabled = false });
             await tester.GoToUrl(root, ignoreResponse: true);
             await Expect(tester.Page.GetByRole(AriaRole.Alert)).ToHaveTextAsync("Wallet Mode is disabled for this store.");

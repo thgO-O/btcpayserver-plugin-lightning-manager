@@ -192,8 +192,8 @@ public sealed class LightningWalletController(
     [HttpPost("receive")]
     public async Task<IActionResult> Receive(long amountSats, string? description, CancellationToken cancellationToken)
     {
-        if (!ModelState.IsValid) throw new WalletException("Enter a positive whole number of sats.");
         var node = await NodeAsync(cancellationToken);
+        if (!ModelState.IsValid) throw new WalletException("Enter a positive whole number of sats.");
         var operation = await wallet.ReceiveAsync(node, UserId, amountSats, description, cancellationToken);
         return RedirectToAction(nameof(Details), new { storeId = StoreId, id = operation.Id });
     }
