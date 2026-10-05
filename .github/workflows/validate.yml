@@ -50,6 +50,11 @@ jobs:
           BTCPayServer.Plugins.LightningManager.E2ETests/BTCPayServer.Plugins.LightningManager.E2ETests.csproj
           -c Debug --nologo -m:1 -nr:false
 
+      - name: Run wallet fiat runtime checks
+        run: >-
+          BTCPayServer.Plugins.LightningManager.E2ETests/bin/Debug/net10.0/.playwright/node/linux-x64/node
+          BTCPayServer.Plugins.LightningManager.E2ETests/wallet-fiat.runtime.cjs
+
       - name: Install Playwright Chromium
         run: >-
           pwsh

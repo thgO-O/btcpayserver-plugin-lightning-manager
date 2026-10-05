@@ -1,4 +1,5 @@
 using System.Globalization;
+using BTCPayServer.Data;
 using BTCPayServer.Lightning;
 using BTCPayServer.Plugins.LightningManager.Wallet;
 using BTCPayServer.Tests;
@@ -26,6 +27,7 @@ public partial class LightningManagerPlaywrightTests
         try
         {
             await using var tester = CreatePlaywrightTester(newDb: true);
+            tester.Server.PayTester.MockRates = true;
             tester.Server.ActivateLightning(LightningTestImplementation.CoreLightning);
             // Start the host with its real CSP before the core browser helper sets NoCSP.
             tester.Server.PayTester.NoCSP = false;
@@ -46,6 +48,26 @@ public partial class LightningManagerPlaywrightTests
             await tester.Page.GetByRole(AriaRole.Button, new() { Name = "Save", Exact = true }).ClickAsync();
             Assert.Contains(root.TrimEnd('/'), tester.Page.Url, StringComparison.Ordinal);
             await Expect(tester.Page.Locator(".ln-wallet__balance strong")).ToBeVisibleAsync();
+            var fiatStores = tester.Server.PayTester.GetService<BTCPayServer.Services.Stores.StoreRepository>();
+            var fiatStore = (await fiatStores.FindStore(storeId))!;
+            var fiatBlob = fiatStore.GetStoreBlob();
+            Assert.Equal("USD", fiatBlob.DefaultCurrency);
+            Assert.Equal("coingecko", fiatBlob.GetOrCreateRateSettings(false).PreferredExchange);
+            Assert.Equal(0m, fiatBlob.Spread);
+            await AssertWalletFiatAsync(tester, root, "USD", 5000m, 5m);
+            try
+            {
+                fiatBlob.DefaultCurrency = "EUR";
+                fiatStore.SetStoreBlob(fiatBlob);
+                await fiatStores.UpdateStoreBlob(fiatStore);
+                await AssertWalletFiatAsync(tester, root, "EUR", 4000m, 4m);
+            }
+            finally
+            {
+                fiatBlob.DefaultCurrency = "USD";
+                fiatStore.SetStoreBlob(fiatBlob);
+                await fiatStores.UpdateStoreBlob(fiatStore);
+            }
             await AssertResponsiveWalletAsync(tester, root);
             await tester.Page.GetByRole(AriaRole.Link, new() { Name = "Pay", Exact = true }).First.ClickAsync();
             await Expect(tester.Page.GetByText("Register a passkey", new() { Exact = false })).ToBeVisibleAsync();
@@ -82,7 +104,7 @@ public partial class LightningManagerPlaywrightTests
             Assert.All(cached, path => Assert.Contains(path, new[] { root + "offline", root + "assets/wallet.js", root + "assets/wallet.css", root + "assets/icon-192.png", root + "assets/icon-512.png" }));
             var financial = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "history").ToString());
             Assert.Contains("no-store", financial.Headers["cache-control"], StringComparison.Ordinal);
-            foreach (var endpoint in new[] { "balance", "history/data" })
+            foreach (var endpoint in new[] { "balance", "history/data", "fiat-rate" })
             {
                 var data = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + endpoint).ToString());
                 Assert.Equal(200, data.Status);
@@ -102,6 +124,8 @@ public partial class LightningManagerPlaywrightTests
             Assert.Equal(200, manifest.Status);
             var status = await anonymous.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "operations/" + Guid.NewGuid() + "/status").ToString());
             Assert.Contains("/login", status.Url, StringComparison.OrdinalIgnoreCase);
+            var anonymousRate = await anonymous.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "fiat-rate").ToString());
+            Assert.Contains("/login", anonymousRate.Url, StringComparison.OrdinalIgnoreCase);
             await tester.GoToUrl("/account");
             await tester.Logout();
             await tester.GoToRegister();
@@ -109,6 +133,8 @@ public partial class LightningManagerPlaywrightTests
             await tester.SkipWizard();
             var denied = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root).ToString());
             Assert.Equal(403, denied.Status);
+            var deniedRate = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "fiat-rate").ToString());
+            Assert.Equal(403, deniedRate.Status);
 
             // Keep only the other account's real resident credential on the authenticator.
             await tester.GoToUrl("/account/passkeys");
@@ -182,6 +208,37 @@ public partial class LightningManagerPlaywrightTests
             Environment.SetEnvironmentVariable("BTCPAY_PLUGINDIR", previousDirectory);
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static async Task AssertWalletFiatAsync(PlaywrightTester tester, string root, string currency,
+        decimal rate, decimal receiveValue)
+    {
+        var response = await tester.Page.Context.APIRequest.GetAsync(new Uri(tester.ServerUri, root + "fiat-rate").ToString());
+        Assert.Equal(200, response.Status);
+        var quote = JObject.Parse(await response.TextAsync());
+        Assert.True(quote.Value<bool>("available"));
+        Assert.Equal(currency, quote.Value<string>("currency"));
+        Assert.Equal(2, quote.Value<int>("divisibility"));
+        Assert.Equal(rate, quote.Value<decimal>("rate"));
+
+        await tester.GoToUrl(root);
+        await Expect(tester.Page.Locator(".ln-wallet__balance [data-fiat-sats]")).ToBeVisibleAsync();
+        await Expect(tester.Page.Locator("[data-fiat-note]")).ToHaveTextAsync(
+            $"Estimates at current {currency} quote. Payments in sats.");
+        await tester.GoToUrl(root + "receive");
+        await tester.Page.Locator("#amountSats").FillAsync("100000");
+        // Fixed monetary oracle; only locale formatting comes from the browser.
+        var expected = await tester.Page.EvaluateAsync<string>("""
+            ({ currency, value }) => '≈ ' + new Intl.NumberFormat(navigator.language, {
+                style: 'currency', currency, currencyDisplay: 'code',
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            }).format(value)
+            """, new { currency, value = receiveValue });
+        var estimate = tester.Page.Locator("[data-fiat-input=amountSats]");
+        await Expect(estimate).ToBeVisibleAsync();
+        await Expect(estimate).ToHaveTextAsync(expected);
+        await Expect(tester.Page.Locator("[data-fiat-note]")).ToHaveTextAsync(
+            $"Estimates at current {currency} quote. Payments in sats.");
     }
 
     private static async Task AssertResponsiveWalletAsync(PlaywrightTester tester, string root)

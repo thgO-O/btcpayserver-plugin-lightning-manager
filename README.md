@@ -143,6 +143,14 @@ invalid or timed-out fresh quotes clear estimates without blocking payments. His
 current quote, not the quote at payment time. A failed balance refresh clears
 its fiat estimate until a valid balance is available again.
 
+Run `node BTCPayServer.Plugins.LightningManager.E2ETests/wallet-fiat.runtime.cjs`
+for browser-independent checks of the shipped JavaScript with Node VM and DOM
+doubles (formatting, refresh, quote failure/recovery, timeout and late responses).
+After building E2ETests, run
+`node BTCPayServer.Plugins.LightningManager.E2ETests/wallet-fiat.browser.cjs`
+for deterministic Chromium asset/layout checks. These checks do not validate live
+rate providers or authorization; the VM runner does not validate browser layout.
+
 Sign in with your normal BTCPay account. Register a passkey in **Account →
 Passkeys** before paying. Every PWA payment requires a separate passkey
 confirmation bound to its invoice, amount, fee limit, user, store and node.
