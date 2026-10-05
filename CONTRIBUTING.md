@@ -180,7 +180,7 @@ to avoid calls to the external FIDO MDS. Signature, origin, challenge, user owne
 and user verification still run through BTCPay's real Fido2 verifier. This fixture
 is never included in the plugin artifact.
 
-Before releasing 0.2.0, manually check the exact installed artifact on Android
+Before releasing 0.2.1, manually check the exact installed artifact on Android
 and iPhone: installation from the browser, standalone launch and return after
 login, camera permission denied/granted, scan/cancel, passkey enrollment and
 payment confirmation, logout, and offline behavior. Confirm no authenticated

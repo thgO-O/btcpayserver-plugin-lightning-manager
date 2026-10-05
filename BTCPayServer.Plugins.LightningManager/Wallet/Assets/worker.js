@@ -1,6 +1,6 @@
 'use strict';
 const root = new URL('./', self.location.href);
-const cacheName = 'ln-wallet-0.2.0-' + root.pathname;
+const cacheName = 'ln-wallet-0.2.1-' + root.pathname;
 const offlineUrl = new URL('offline', root).href;
 const publicAssets = [offlineUrl, ...['assets/wallet.css', 'assets/wallet.js', 'assets/icon-192.png', 'assets/icon-512.png'].map(p => new URL(p, root).href)];
 self.addEventListener('install', event => {
