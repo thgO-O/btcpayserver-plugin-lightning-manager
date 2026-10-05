@@ -135,6 +135,14 @@ include payments made elsewhere. This does not create individual accounts or
 balances: operators authorized for the same node use the same funds. Reported
 balance is not a guarantee of payment or inbound liquidity.
 
+Amounts stay in sats, with secondary fiat estimates in the store's default fiat
+currency using its rate rules. Each page loads a quote asynchronously and refreshes
+it once per 30-second cycle while visible, sharing the balance/history timer when
+present. Typing and rendering amounts do not request additional quotes. Missing,
+invalid or timed-out fresh quotes clear estimates without blocking payments. History uses the
+current quote, not the quote at payment time. A failed balance refresh clears
+its fiat estimate until a valid balance is available again.
+
 Sign in with your normal BTCPay account. Register a passkey in **Account →
 Passkeys** before paying. Every PWA payment requires a separate passkey
 confirmation bound to its invoice, amount, fee limit, user, store and node.

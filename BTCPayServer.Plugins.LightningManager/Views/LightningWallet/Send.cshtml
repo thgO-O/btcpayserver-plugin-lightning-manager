@@ -16,10 +16,10 @@
         }
         @if (Model.Preview is { } preview)
         {
-            <div class="ln-wallet__review-amount"><span>You are sending</span><strong>@preview.AmountDisplay</strong></div>
+            <div class="ln-wallet__review-amount"><span>You are sending</span><strong>@preview.AmountDisplay</strong><span class="ln-wallet__fiat" data-fiat-sats="@((preview.PaymentAmount.MilliSatoshi / 1000m).ToString(System.Globalization.CultureInfo.InvariantCulture))" hidden></span></div>
             <dl class="ln-wallet__review">
                 <div><dt>Description</dt><dd>@(string.IsNullOrEmpty(preview.Description) ? "No description" : preview.Description)</dd></div>
-                <div><dt>Maximum fee</dt><dd>@preview.MaxFeeDisplay</dd></div>
+                <div><dt>Maximum fee</dt><dd>@preview.MaxFeeDisplay<span class="ln-wallet__fiat" data-fiat-sats="@preview.MaxFeeSats" hidden></span></dd></div>
                 <div><dt>Expires</dt><dd><time datetime="@preview.ExpiresAt.ToString("O")" data-local-time>@preview.ExpiresAt.ToString("u")</time></dd></div>
             </dl>
             <details class="ln-wallet__details"><summary>Recipient node</summary><p class="font-monospace text-break">@preview.Payee</p></details>
@@ -47,11 +47,13 @@
                     <label for="amountSats" class="form-label">Amount <span class="ln-wallet__optional">If not specified by invoice</span></label>
                     <div class="ln-wallet__unit-input"><input id="amountSats" name="amountSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" placeholder="Use invoice amount" aria-describedby="send-amount-help" /><span>sats</span></div>
                     <p id="send-amount-help" class="ln-wallet__help">Only needed for an invoice without an amount.</p>
+                    <span class="ln-wallet__fiat" data-fiat-input="amountSats" hidden aria-live="polite"></span>
                 </div>
                 <div class="form-group">
                     <label for="maxFeeSats" class="form-label">Maximum routing fee</label>
                     <div class="ln-wallet__unit-input"><input id="maxFeeSats" name="maxFeeSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" value="10" required aria-describedby="fee-help" /><span>sats</span></div>
                     <p id="fee-help" class="ln-wallet__help">The payment will not exceed this fee limit.</p>
+                    <span class="ln-wallet__fiat" data-fiat-input="maxFeeSats" hidden aria-live="polite"></span>
                 </div>
                 <button class="btn btn-primary w-100" type="submit">Review payment<span aria-hidden="true"><vc:icon symbol="caret-right" /></span></button>
             </form>

@@ -9,6 +9,7 @@
         <section class="ln-wallet__balance" aria-label="Lightning balance" data-balance-url="@Url.Action("Balance", "LightningWallet", new { storeId = Model.StoreId })">
             <div class="ln-wallet__balance-label"><span>Connected node balance</span><span class="ln-wallet__pill"><span aria-hidden="true"><vc:icon symbol="lightning" /></span>Lightning</span></div>
             <strong hidden="@(Model.BalanceSats is null)"><span data-balance-amount>@Model.BalanceSats?.ToString("#,0.###", CultureInfo.InvariantCulture)</span> <small>sats</small></strong>
+            <span class="ln-wallet__fiat" data-fiat-sats="@Model.BalanceSats?.ToString(CultureInfo.InvariantCulture)" hidden></span>
             <p role="status" data-balance-error hidden="@(Model.BalanceSats is not null)">@Model.BalanceError</p>
             <div class="ln-wallet__actions">
                 <a asp-controller="LightningWallet" asp-action="Send" asp-route-storeId="@Model.StoreId" class="btn btn-primary"><span aria-hidden="true"><vc:icon symbol="payment-send" /></span>Pay</a>

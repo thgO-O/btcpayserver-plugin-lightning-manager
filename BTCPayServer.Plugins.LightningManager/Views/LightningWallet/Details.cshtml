@@ -21,6 +21,7 @@
         {
             <p class="ln-wallet__receipt-amount ln-wallet__receipt-unavailable" data-operation-amount>@(incoming ? "Received amount unavailable" : "Paid amount unavailable")</p>
         }
+        <span class="ln-wallet__fiat" data-fiat-sats="@((op.DisplayAmountMsat / 1000m)?.ToString(CultureInfo.InvariantCulture))" hidden></span>
         <p class="ln-wallet__receipt-description">@(string.IsNullOrEmpty(op.Description) ? (incoming ? "Lightning invoice" : "Lightning payment") : op.Description)</p>
         <p class="ln-wallet__status" role="status" data-state="@op.State" data-status-url="@Url.Action("Status", "LightningWallet", new { storeId = Model.StoreId, id = op.Id })" data-final="@((op.IsFinal && !op.RequiresReconciliation).ToString().ToLowerInvariant())">@op.State</p>
         <p class="ln-wallet__status-error ln-wallet__inline-error" role="status"></p>
@@ -53,7 +54,7 @@
         }
         @if (op.FeeMsat is long fee)
         {
-            <div class="ln-wallet__receipt-fee">Routing fee: @((fee / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sats</div>
+            <div class="ln-wallet__receipt-fee">Routing fee: @((fee / 1000m).ToString("0.###", CultureInfo.InvariantCulture)) sats<span class="ln-wallet__fiat" data-fiat-sats="@((fee / 1000m).ToString(CultureInfo.InvariantCulture))" hidden></span></div>
         }
         <details class="ln-wallet__details"><summary>Payment details</summary><dl class="ln-wallet__review"><div><dt>Payment hash</dt><dd class="font-monospace text-break">@op.PaymentHash</dd></div><div><dt>Created</dt><dd><time datetime="@op.CreatedAt.ToString("O")" data-local-time>@op.CreatedAt.ToString("u")</time></dd></div></dl></details>
         @if (!awaitingPayment)

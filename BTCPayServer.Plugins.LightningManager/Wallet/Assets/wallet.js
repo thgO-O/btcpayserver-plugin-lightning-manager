@@ -3,6 +3,66 @@
     const wallet = document.querySelector('[data-wallet-root]');
     if (!wallet) return;
     const root = wallet.dataset.walletRoot;
+    let fiatRate = null;
+    let fiatFormat = null;
+    let fiatDigits = 0;
+    function renderFiat(element) {
+        const input = element.dataset.fiatInput ? document.getElementById(element.dataset.fiatInput) : null;
+        const raw = input ? input.value : element.dataset.fiatSats;
+        const sats = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+        const value = sats / 100000000 * fiatRate;
+        if (!fiatFormat || !Number.isFinite(sats) || sats < 0 || !Number.isFinite(value) || (input && !input.validity.valid)) {
+            if (element.textContent !== '') element.textContent = '';
+            if (!element.hidden) element.hidden = true;
+            return;
+        }
+        // A positive sub-cent amount must not appear to be worth exactly zero.
+        const unit = 10 ** -fiatDigits;
+        const text = value > 0 && value < unit
+            ? '≈ < ' + fiatFormat.format(unit) : '≈ ' + fiatFormat.format(value);
+        if (element.textContent !== text) element.textContent = text;
+        if (element.hidden) element.hidden = false;
+    }
+    const fiatElements = document.querySelectorAll('[data-fiat-sats], [data-fiat-input]');
+    fiatElements.forEach(element => {
+        if (element.dataset.fiatInput) document.getElementById(element.dataset.fiatInput)?.addEventListener('input', () => renderFiat(element));
+    });
+    const fiatNote = document.querySelector('[data-fiat-url]');
+    let fiatRunning = false;
+    async function refreshFiat() {
+        if (!fiatNote || !fiatElements.length || document.hidden || fiatRunning) return;
+        fiatRunning = true;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+            const response = await fetch(fiatNote.dataset.fiatUrl, { headers: { Accept: 'application/json' },
+                credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+            if (!response.ok || response.redirected) throw new Error();
+            const data = await response.json();
+            if (data.available !== true || typeof data.rate !== 'number' || !Number.isFinite(data.rate) || data.rate <= 0 ||
+                !Number.isInteger(data.divisibility) || data.divisibility < 0 || data.divisibility > 20 ||
+                typeof data.currency !== 'string' || !/^[A-Z]{3}$/.test(data.currency)) throw new Error();
+            fiatFormat = new Intl.NumberFormat(navigator.language, { style: 'currency', currency: data.currency,
+                currencyDisplay: 'code', minimumFractionDigits: data.divisibility, maximumFractionDigits: data.divisibility });
+            fiatRate = data.rate;
+            fiatDigits = data.divisibility;
+            let note = 'Estimates at current ' + data.currency + ' quote. Payments in sats.';
+            if (document.querySelector('.ln-wallet__operation, [data-history-url]'))
+                note += ' History uses current, not payment-time quotes.';
+            if (fiatNote.textContent !== note) fiatNote.textContent = note;
+        } catch {
+            fiatRate = null;
+            fiatFormat = null;
+            const note = 'Fiat estimates unavailable. Payments are in sats.';
+            if (fiatNote.textContent !== note) fiatNote.textContent = note;
+        } finally {
+            clearTimeout(timer);
+            fiatElements.forEach(renderFiat);
+            fiatRunning = false;
+        }
+    }
+    if (fiatNote && fiatElements.length) refreshFiat();
+    else if (fiatNote) fiatNote.hidden = true;
     if ('serviceWorker' in navigator && window.isSecureContext) {
         navigator.serviceWorker.register(root + 'worker.js', { scope: root }).catch(() => {});
     }
@@ -93,7 +153,9 @@
     if (balance || history) {
         let running = false;
         setInterval(async () => {
-            if (document.hidden || running) return;
+            if (document.hidden) return;
+            const fiatRefresh = refreshFiat();
+            if (running) return fiatRefresh;
             running = true;
             try {
                 const response = await fetch(balance ? balance.dataset.balanceUrl : history.dataset.historyUrl,
@@ -101,7 +163,10 @@
                 if (!response.ok || response.redirected) throw new Error();
                 const data = await response.json();
                 if (balance) {
+                    if (typeof data.balanceSats !== 'number' || !Number.isFinite(data.balanceSats) || data.balanceSats < 0) throw new Error();
                     balance.querySelector('[data-balance-amount]').textContent = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(data.balanceSats);
+                    const fiat = balance.querySelector('[data-fiat-sats]');
+                    if (fiat) { fiat.dataset.fiatSats = String(data.balanceSats); renderFiat(fiat); }
                     balance.querySelector('strong').hidden = false;
                     balance.querySelector('[data-balance-error]').hidden = true;
                 } else {
@@ -111,11 +176,13 @@
             } catch {
                 if (balance) {
                     balance.querySelector('strong').hidden = true;
+                    const fiat = balance.querySelector('[data-fiat-sats]');
+                    if (fiat) { fiat.dataset.fiatSats = ''; renderFiat(fiat); }
                     const error = balance.querySelector('[data-balance-error]');
                     error.textContent = 'Balance unavailable. Reconnect or sign in again to refresh it.';
                     error.hidden = false;
                 } else document.querySelector('[data-history-error]').textContent = 'History unavailable. Reconnect or sign in again to refresh it.';
-            } finally { running = false; }
+            } finally { await fiatRefresh; running = false; }
         }, 30000);
-    }
+    } else if (fiatNote && fiatElements.length) setInterval(refreshFiat, 30000);
 })();

@@ -9,6 +9,8 @@ using BTCPayServer.Plugins.LightningManager.Filters;
 using BTCPayServer.Plugins.LightningManager.Wallet;
 using BTCPayServer.Services;
 using BTCPayServer.Services.Stores;
+using BTCPayServer.Services.Rates;
+using BTCPayServer.Rating;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Identity;
 using WalletRepository = BTCPayServer.Plugins.LightningManager.Wallet.WalletRepository;
@@ -29,7 +31,8 @@ public sealed class LightningWalletController(
     WalletService wallet, WalletRepository repository, StoreRepository stores,
     ApplicationDbContextFactory users, Fido2Service fido2,
     WalletAuthorizationStore confirmations, TimeProvider clock,
-    PermissionService permissions, UserManager<ApplicationUser> userManager) : Controller
+    PermissionService permissions, UserManager<ApplicationUser> userManager,
+    RateFetcher rates, DefaultRulesCollection defaultRules, CurrencyNameTable currencies) : Controller
 {
     private string StoreId => HttpContext.GetStoreData().Id;
     private string UserId => User.GetId()!;
@@ -126,6 +129,33 @@ public sealed class LightningWalletController(
         var operations = await repository.ListAsync(StoreId, node.Identity, 100, cancellationToken);
         return Json(operations.Select(x => new { id = x.Id, direction = x.Direction, description = x.Description,
             amountMsat = x.DisplayAmountMsat, reviewedAmountMsat = x.AmountMsat, settledAmountMsat = x.SettledAmountMsat, feeMsat = x.FeeMsat, state = x.State, createdAt = x.CreatedAt }));
+    }
+
+    [HttpGet("fiat-rate")]
+    public async Task<IActionResult> FiatRate(CancellationToken cancellationToken)
+    {
+        await NodeAsync(cancellationToken);
+        var store = await stores.FindStore(StoreId, UserId);
+        if (store is null) return NotFound();
+        var blob = store.GetStoreBlob();
+        var currency = currencies.GetCurrencyData(blob.DefaultCurrency, false);
+        if (currency is null || currency.Crypto || currency.Divisibility is < 0 or > 20)
+            return Json(new { available = false });
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        try
+        {
+            var result = await rates.FetchRate(new CurrencyPair("BTC", currency.Code),
+                blob.GetRateRules(defaultRules), new StoreIdRateContext(StoreId), timeout.Token).WaitAsync(timeout.Token);
+            if (result.Errors.Count != 0 || result.BidAsk is null || result.BidAsk.Center <= 0)
+                return Json(new { available = false });
+            return Json(new { available = true, currency = currency.Code, divisibility = currency.Divisibility,
+                rate = result.BidAsk.Center });
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Json(new { available = false });
+        }
     }
 
     [HttpGet("send")]

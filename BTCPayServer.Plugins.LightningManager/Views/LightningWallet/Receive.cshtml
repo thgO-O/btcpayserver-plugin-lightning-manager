@@ -8,6 +8,7 @@
                 <label for="amountSats" class="form-label">Amount</label>
                 <div class="ln-wallet__amount-input"><input id="amountSats" name="amountSats" type="number" min="1" step="1" required inputmode="numeric" class="form-control" placeholder="0" aria-describedby="receive-amount-help" /><span>sats</span></div>
                 <p id="receive-amount-help" class="ln-wallet__help">Enter the amount you want to receive.</p>
+                <span class="ln-wallet__fiat" data-fiat-input="amountSats" hidden aria-live="polite"></span>
             </div>
             <div class="form-group">
                 <label for="description" class="form-label">Description <span class="ln-wallet__optional">Optional</span></label>

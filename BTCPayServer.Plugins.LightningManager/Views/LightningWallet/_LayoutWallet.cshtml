@@ -47,7 +47,12 @@
             </a>
         }
     </nav>
-    <main id="wallet-content" class="ln-wallet__content" tabindex="-1">@RenderBody()</main>
+    <main id="wallet-content" class="ln-wallet__content" tabindex="-1">@RenderBody()
+        @if (Model.Enabled)
+        {
+            <p class="ln-wallet__fiat-note" data-fiat-note data-fiat-url="@(root + "fiat-rate")" role="status">Loading fiat estimates… Payments are in sats.</p>
+        }
+    </main>
     <footer class="ln-wallet__footer">
         <details class="ln-wallet__install">
             <summary><span aria-hidden="true"><vc:icon symbol="actions-download" /></span>Add to your phone</summary>
