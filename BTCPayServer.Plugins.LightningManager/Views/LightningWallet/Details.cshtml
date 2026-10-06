@@ -9,7 +9,7 @@
 @section PageHeadContent {
     <link href="~/main/qrcode.css" rel="stylesheet" asp-append-version="true" />
 }
-<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">@(incoming ? "Payment request" : "Payment details")</p><h1>@(incoming ? "Receive Lightning" : "Payment")</h1><p>@(awaitingPayment ? "Share this invoice with the sender." : "The latest outcome reported by your connected node.")</p></div></div>
+<div class="ln-wallet__page-heading"><h1>@(incoming ? "Invoice" : "Payment")</h1></div>
 <div class="ln-wallet__form-grid">
     <section class="ln-wallet__card ln-wallet__form-card ln-wallet__receipt">
         <span class="ln-wallet__receipt-icon @(op.State == "Settled" ? "is-success" : "")" aria-hidden="true"><vc:icon symbol="@(op.State == "Settled" ? "checkmark" : incoming ? "payment-receive" : "payment-send")" /></span>
@@ -29,8 +29,12 @@
         {
             <div class="ln-wallet__notice ln-wallet__notice-warning" data-payment-failure hidden="@(op.State != "Failed")" role="status" aria-live="polite">
                 <span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="warning" /></span>
-                <div><strong>Payment failed</strong><p data-failure-message>@op.FailureMessage</p><p class="mt-2">Inspect this payment on your node using the payment hash below for more details. This wallet never retries it automatically.</p></div>
+                <div><strong>Payment failed</strong><p data-failure-message>@op.FailureMessage</p><p class="mt-2">Use the payment hash in Payment details to inspect it on your node. It is never retried automatically.</p></div>
             </div>
+            @if (op.State != "Settled")
+            {
+                <div class="ln-wallet__notice ln-wallet__notice-warning"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="warning" /></span><p>Check this payment or your node before paying again. It is never resent automatically.</p></div>
+            }
         }
         @if (op.State == "Settled" && op.SettledAmountMsat != op.AmountMsat)
         {
@@ -50,7 +54,7 @@
             <div class="ln-wallet__qr"><vc:qr-code data="@("lightning:" + op.Bolt11)" /></div>
             <button type="button" class="btn btn-primary w-100" data-clipboard-target="#wallet-invoice"><span aria-hidden="true"><vc:icon symbol="actions-copy" /></span>Copy invoice</button>
             <p id="wallet-invoice" class="ln-wallet__invoice font-monospace" tabindex="0" aria-label="Lightning invoice">@op.Bolt11</p>
-            <p class="ln-wallet__help">Expires <time datetime="@op.ExpiresAt?.ToString("O")" data-local-time>@op.ExpiresAt?.ToString("u")</time></p>
+            <p class="ln-wallet__help">Expires <time datetime="@op.ExpiresAt?.ToString("O")" data-local-time>@op.ExpiresAt?.ToString("u")</time>. This page updates when paid; your node can still receive after you close it.</p>
         }
         @if (op.FeeMsat is long fee)
         {
@@ -62,20 +66,4 @@
             <a asp-controller="LightningWallet" asp-action="Home" asp-route-storeId="@Model.StoreId" class="btn btn-secondary w-100 mt-3">Back to wallet</a>
         }
     </section>
-    <aside class="ln-wallet__aside">
-        @if (incoming)
-        {
-            <span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="qr-code" /></span><h2>@(awaitingPayment ? "Ready to share" : op.State == "Settled" ? "Payment received" : "Invoice closed")</h2>
-            <p>@(awaitingPayment ? "The sender can scan the QR code or paste the copied invoice into their Lightning wallet." : op.State == "Settled" ? "Your node has confirmed this payment. You can find it in the wallet's history." : "Create a new invoice if you still want to receive a payment.")</p>
-            @if (awaitingPayment)
-            {
-                <div class="ln-wallet__notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="actions-refresh" /></span><p>This screen checks for payment automatically while open. Your node can receive even after you close it.</p></div>
-            }
-        }
-        else
-        {
-            <span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="@(op.State == "Settled" ? "checkmark" : "info")" /></span><h2>@(op.State == "Settled" ? "Payment completed" : "Check before retrying")</h2>
-            <p>@(op.State == "Settled" ? "The amount shown is the actual payment reported by your node." : "If the outcome is not confirmed, check this operation or the node before attempting another payment. This wallet never resends it automatically.")</p>
-        }
-    </aside>
 </div>

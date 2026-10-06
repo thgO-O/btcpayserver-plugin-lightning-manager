@@ -1,6 +1,6 @@
 @model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
 @{ Layout = "_LayoutWallet"; ViewData["WalletPage"] = "History"; }
-<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">Wallet activity</p><h1>History</h1><p>Payments and invoices created in Wallet Mode.</p></div><span class="ln-wallet__pill">@Model.Operations.Count operations</span></div>
+<div class="ln-wallet__page-heading"><h1>History</h1></div>
 <section class="ln-wallet__card ln-wallet__history" aria-label="Wallet operations" data-history-url="@Url.Action("HistoryData", "LightningWallet", new { storeId = Model.StoreId })" data-history-snapshot="@string.Join(";", Model.Operations.Select(x => $"{x.Id}:{x.State}:{x.SettledAmountMsat}"))">
     <partial name="_Operations" model="Model" />
 </section>

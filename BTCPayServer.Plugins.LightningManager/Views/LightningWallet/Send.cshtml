@@ -7,7 +7,7 @@
 @section PageHeadContent {
     <link href="~/vendor/vue-qrcode-reader/vue-qrcode-reader.css" rel="stylesheet" asp-append-version="true" />
 }
-<div class="ln-wallet__page-heading"><div><p class="ln-wallet__eyebrow">@(Model.Preview is null ? "Send a payment" : "Payment confirmation")</p><h1>@(Model.Preview is null ? "Pay Lightning" : "Review payment")</h1><p>@(Model.Preview is null ? "Scan a QR code or paste a Lightning invoice." : "Check the details before confirming with your passkey.")</p></div></div>
+<div class="ln-wallet__page-heading"><h1>@(Model.Preview is null ? "Pay Lightning" : "Review payment")</h1></div>
 <div class="ln-wallet__form-grid">
     <section class="ln-wallet__card ln-wallet__form-card">
         @if (!Model.HasPasskey)
@@ -32,6 +32,7 @@
                 </form>
                 <p class="ln-wallet__payment-message ln-wallet__inline-error" role="status" aria-live="polite"></p>
                 <noscript>JavaScript is required for passkey confirmation.</noscript>
+                <p class="ln-wallet__help">A cancelled passkey prompt sends no payment. If a submitted payment's result is unknown, check History before paying again.</p>
             }
             <a asp-controller="LightningWallet" asp-action="Send" asp-route-storeId="@Model.StoreId" class="ln-wallet__text-link">Start over</a>
         }
@@ -40,26 +41,23 @@
             <form asp-controller="LightningWallet" asp-action="Preview" asp-route-storeId="@Model.StoreId" method="post">
                 <div class="form-group">
                     <div class="ln-wallet__field-heading"><label for="bolt11" class="form-label">Lightning invoice</label><button type="button" class="btn btn-secondary ln-wallet__scan"><span aria-hidden="true"><vc:icon symbol="scan-qr" /></span>Scan QR</button></div>
-                    <textarea id="bolt11" name="bolt11" class="form-control font-monospace" rows="4" required placeholder="Paste an invoice starting with lnbc…" aria-describedby="invoice-help"></textarea>
-                    <p id="invoice-help" class="ln-wallet__help">BOLT11 invoices only. A lightning: prefix is also accepted.</p>
+                    <textarea id="bolt11" name="bolt11" class="form-control font-monospace" rows="4" required placeholder="Paste an invoice starting with lnbc…"></textarea>
                 </div>
                 <div class="form-group">
-                    <label for="amountSats" class="form-label">Amount <span class="ln-wallet__optional">If not specified by invoice</span></label>
+                    <label for="amountSats" class="form-label">Amount</label>
                     <div class="ln-wallet__unit-input"><input id="amountSats" name="amountSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" placeholder="Use invoice amount" aria-describedby="send-amount-help" /><span>sats</span></div>
-                    <p id="send-amount-help" class="ln-wallet__help">Only needed for an invoice without an amount.</p>
+                    <p id="send-amount-help" class="ln-wallet__help">Only for invoices without an amount.</p>
                     <span class="ln-wallet__fiat" data-fiat-input="amountSats" hidden aria-live="polite"></span>
                 </div>
                 <div class="form-group">
                     <label for="maxFeeSats" class="form-label">Maximum routing fee</label>
-                    <div class="ln-wallet__unit-input"><input id="maxFeeSats" name="maxFeeSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" value="10" required aria-describedby="fee-help" /><span>sats</span></div>
-                    <p id="fee-help" class="ln-wallet__help">The payment will not exceed this fee limit.</p>
+                    <div class="ln-wallet__unit-input"><input id="maxFeeSats" name="maxFeeSats" class="form-control" inputmode="numeric" type="number" min="1" step="1" value="10" required /><span>sats</span></div>
                     <span class="ln-wallet__fiat" data-fiat-input="maxFeeSats" hidden aria-live="polite"></span>
                 </div>
                 <button class="btn btn-primary w-100" type="submit">Review payment<span aria-hidden="true"><vc:icon symbol="caret-right" /></span></button>
             </form>
         }
     </section>
-    <aside class="ln-wallet__aside"><span class="ln-wallet__aside-icon" aria-hidden="true"><vc:icon symbol="key" /></span><h2>You're in control</h2><p>Review the amount, description and fee limit. Your passkey authorizes this specific payment.</p><div class="ln-wallet__notice"><span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="info" /></span><p>A cancelled passkey prompt sends no payment. If a submitted payment's result is unknown, check its history before paying again.</p></div></aside>
 </div>
 @section PageFootContent {
     @if (Model.Preview is null)

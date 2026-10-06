@@ -1,13 +1,11 @@
 @using System.Globalization
 @model BTCPayServer.Plugins.LightningManager.Wallet.WalletPageModel
 @{ Layout = "_LayoutWallet"; ViewData["WalletPage"] = "Home"; }
-<div class="ln-wallet__page-heading">
-    <div><p class="ln-wallet__eyebrow">Wallet overview</p><h1>Your Lightning wallet</h1><p>Send and receive sats from your connected node.</p></div>
-</div>
+<h1 class="visually-hidden">Lightning wallet</h1>
 <div class="ln-wallet__home-grid">
     <div>
         <section class="ln-wallet__balance" aria-label="Lightning balance" data-balance-url="@Url.Action("Balance", "LightningWallet", new { storeId = Model.StoreId })">
-            <div class="ln-wallet__balance-label"><span>Connected node balance</span><span class="ln-wallet__pill"><span aria-hidden="true"><vc:icon symbol="lightning" /></span>Lightning</span></div>
+            <div class="ln-wallet__balance-label">Node balance</div>
             <strong hidden="@(Model.BalanceSats is null)"><span data-balance-amount>@Model.BalanceSats?.ToString("#,0.###", CultureInfo.InvariantCulture)</span> <small>sats</small></strong>
             <span class="ln-wallet__fiat" data-fiat-sats="@Model.BalanceSats?.ToString(CultureInfo.InvariantCulture)" hidden></span>
             <p role="status" data-balance-error hidden="@(Model.BalanceSats is not null)">@Model.BalanceError</p>
@@ -16,10 +14,10 @@
                 <a asp-controller="LightningWallet" asp-action="Receive" asp-route-storeId="@Model.StoreId" class="btn btn-secondary"><span aria-hidden="true"><vc:icon symbol="payment-receive" /></span>Receive</a>
             </div>
         </section>
-        <div class="ln-wallet__notice">
-            <span class="ln-wallet__notice-icon" aria-hidden="true"><vc:icon symbol="info" /></span>
-            <div><strong>@(Model.IsInternal ? "Shared server funds" : "Shared node funds")</strong><p>@(Model.IsInternal ? "This is BTCPay's internal node. Its funds are shared across stores and authorized operators." : "These funds are shared with the connected node's authorized operators.") Receiving depends on inbound liquidity.</p></div>
-        </div>
+        <details class="ln-wallet__details ln-wallet__shared">
+            <summary>@(Model.IsInternal ? "Shared server funds" : "Shared node funds")</summary>
+            <p>@(Model.IsInternal ? "This is BTCPay's internal node. Its funds are shared across stores and authorized operators." : "These funds are shared with the connected node's authorized operators.")</p>
+        </details>
         @if (!Model.HasPasskey)
         {
             <a class="ln-wallet__setup-card" asp-controller="UIManage" asp-action="Passkeys">

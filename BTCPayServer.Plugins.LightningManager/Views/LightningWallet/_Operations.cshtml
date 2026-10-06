@@ -5,8 +5,7 @@
     <div class="ln-wallet__empty">
         <span class="ln-wallet__empty-icon" aria-hidden="true"><vc:icon symbol="nav-transactions" /></span>
         <h3>No activity yet</h3>
-        <p>Payments and invoices created in this wallet will appear here.</p>
-        <a asp-controller="LightningWallet" asp-action="Receive" asp-route-storeId="@Model.StoreId" class="btn btn-secondary">Create your first invoice</a>
+        <a asp-controller="LightningWallet" asp-action="Receive" asp-route-storeId="@Model.StoreId" class="btn btn-secondary">Create invoice</a>
     </div>
 }
 @foreach (var operation in Model.Operations)
