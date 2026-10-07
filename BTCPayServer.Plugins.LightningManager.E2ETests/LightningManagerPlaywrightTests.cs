@@ -574,7 +574,7 @@ public partial class LightningManagerPlaywrightTests(ITestOutputHelper output) :
                     Name = $"Pay {PaymentAmountSats.ToString("N0", CultureInfo.InvariantCulture)} sats",
                     Exact = true
                 })
-            .ClickAsync();
+            .ClickAsync(new() { Timeout = NavigationTimeoutMilliseconds });
         Assert.Matches("[?&]resultId=[0-9a-f]{32}(?:&|$)", tester.Page.Url);
         await Expect(tester.Page.GetByRole(AriaRole.Heading, new() { Name = "Payment sent" }))
             .ToBeVisibleAsync();
