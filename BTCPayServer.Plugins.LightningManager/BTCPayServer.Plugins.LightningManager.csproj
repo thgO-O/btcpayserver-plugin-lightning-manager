@@ -11,7 +11,7 @@
   <PropertyGroup>
     <Product>Lightning Manager</Product>
     <Description>BTC Lightning management UI for stores using external backends or BTCPay Server's shared internal node.</Description>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
