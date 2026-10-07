@@ -1461,6 +1461,8 @@ public class LightningManagerServiceTests
     [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.0.0", false)]
     [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.2.0", true)]
     [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.3.0", false)]
+    [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.5.0", true)]
+    [InlineData("BTCPayServer.Lightning.Phoenixd", "1.7.6.0", false)]
     [InlineData("Another.Adapter", "1.7.1.0", false)]
     public void IsAffectedPhoenixdAdapter_MatchesOnlyAffectedAssemblyVersion(
         string assemblyName,

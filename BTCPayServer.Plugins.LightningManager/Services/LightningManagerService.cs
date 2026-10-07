@@ -25,6 +25,7 @@ public sealed class LightningManagerService
         "Payment status is unknown. Check the Lightning node before retrying.";
     private static readonly Version AffectedPhoenixdAdapterVersion = new(1, 7, 1, 0);
     private static readonly Version AffectedPhoenixdAdapterVersion172 = new(1, 7, 2, 0);
+    private static readonly Version AffectedPhoenixdAdapterVersion175 = new(1, 7, 5, 0);
     private static readonly TimeSpan DefaultChannelOpenTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PaymentLookupTimeout = TimeSpan.FromSeconds(5);
     private readonly ILogger<LightningManagerService> _logger;
@@ -125,7 +126,7 @@ public sealed class LightningManagerService
                     pendingChannelsCount > 0 &&
                     inactiveChannelsCount == pendingChannelsCount)
                 {
-                    // Phoenixd 1.7.1 and 1.7.2 report every non-normal channel in both buckets.
+                    // These Phoenixd adapters report every non-normal channel in both buckets.
                     // Neither classification is reliable, so do not present either bucket.
                     inactiveChannelsCount = null;
                     pendingChannelsCount = null;
@@ -266,7 +267,8 @@ public sealed class LightningManagerService
                    assemblyName,
                    PhoenixdAdapterAssemblyName,
                    StringComparison.Ordinal) &&
-               (version == AffectedPhoenixdAdapterVersion || version == AffectedPhoenixdAdapterVersion172);
+               (version == AffectedPhoenixdAdapterVersion || version == AffectedPhoenixdAdapterVersion172 ||
+                version == AffectedPhoenixdAdapterVersion175);
     }
 
     public bool TryCreateSendPreview(

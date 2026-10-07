@@ -135,6 +135,24 @@ regtest payment, verify receipt/history amounts and backfill, and require the
 receipt to reload when settlement arrives with reconciliation still pending.
 The required CI case count remains nine because these extend existing cases.
 
+## BTCPay Server 2.4.5 (2026-10-06)
+
+Lightning Manager 0.2.2 was validated against the official `v2.4.5` tag,
+commit `5d0745cae6be5d8210459e38813f317673aa97b8`. Release and Debug builds
+passed without warnings or errors, all 294 deterministic tests passed, and
+the complete nine-case E2E executable passed in 179.487 seconds without
+failures or skips. The wallet fiat runtime suite passed all six groups.
+Results are saved locally under `output/btcpay-2.4.5-20261006/`.
+
+Test dependencies match the updated host. The Phoenixd 1.7.5 adapter still
+reports the same non-normal channels as both inactive and pending, so the
+existing ambiguity guard now includes that version. BTCPay's SourceLink
+10.0.111 dependency includes the security fix previously supplied by the
+repository's build override; the override was removed.
+
+The run used the separate disposable `lightning-manager-btcpay245-20261006`
+regtest fixture. No core source was modified.
+
 ## Remaining release checks
 
 Physical Android and iPhone validation is pending. Follow the device checklist

@@ -34,13 +34,12 @@ dotnet test \
 
 ## Dependency security
 
-The submodule is pinned to BTCPay Server 2.4.4, which no longer references
+The submodule is pinned to BTCPay Server 2.4.5, which no longer references
 SSH.NET. The plugin requires BTCPay Server 2.4.4 or newer at runtime as well.
 NuGet audit and warnings-as-errors remain enabled without diagnostic exceptions.
 
-BTCPay's Release projects still reference SourceLink 8.0.0. The repository's
-`Directory.Build.targets` upgrades their private `Microsoft.Build.Tasks.Git`
-build dependency to 10.0.303, a patched version for
+BTCPay's Release projects reference SourceLink 10.0.111, which uses the patched
+`Microsoft.Build.Tasks.Git` 10.0.111 build dependency for
 [GHSA-23fw-v26w-5fgq](https://github.com/advisories/GHSA-23fw-v26w-5fgq).
 This build-only dependency is not included in the plugin package. Keep the
 build environment's .NET SDK updated too; changing the submodule does not
@@ -192,8 +191,8 @@ the CLN/LND service integration test, and native Playwright cases for CLN, LND,
 Eclair, internal CLN, and internal LND. A test that needs its Lightning fixture must fail when
 that fixture is unavailable; it must not be silently skipped.
 
-BTCPay Server 2.4.4 includes CLightning 1.7.7, which maps CLN's reported peer
-and channel counts. Verify these Overview fields against the node during
+The pinned BTCPay Server version maps CLN's reported peer and channel counts.
+Verify these Overview fields against the node during
 manual sign-off.
 
 This validation builds the plugin from source. Creating, installing, and
